@@ -1,0 +1,152 @@
+---
+description: Quality bar for Carlos Galvan's MLOps portfolio (endzone-mlops)
+alwaysApply: true
+---
+
+# endzone-mlops Quality Rules
+
+This is Carlos Galvan's public MLOps portfolio demonstrating Databricks + dbt + MLflow patterns.
+
+## Non-Negotiable Constraints
+
+### Honesty Banner
+- This is a learning project, NOT production software
+- Never claim fake Databricks/dbt/MLflow experience at PEMEX or Kavak
+- Production analogues for resume: Athena, Glue, Redshift Spectrum, Prefect
+- Honesty banner must remain in README from commit 1
+
+### Git Authorship (HARD RULE)
+- **EVERY commit must be authored by Carlos Galvan**
+- NEVER include Co-authored-by: Cursor, Grok Bot, Idaho, or any AI agent
+- NEVER add AI/bot to CONTRIBUTORS, AUTHORS, or commit metadata
+- AI can help write code but NEVER appears in git history
+
+### Typography
+- Never use em dash character (U+2014)
+- Use commas, periods, colons, or regular hyphens instead
+
+### Stack
+- Primary: Databricks CE + dbt-databricks + MLflow + GitHub Actions
+- Plan B: Snowflake (only if Databricks CE spike fails)
+- NEVER run two lakes in parallel
+- Batch-first: score.py batch by default, no real-time API in v0.1
+
+### Domain
+- NFL data from nflverse (CC BY 4.0)
+- Attribution required in README and ATTRIBUTION.md
+- LiveFeed is stub in v0.1 (BALLDONTLIE documented, not active)
+- No API keys, no paid subscriptions in Day 1-14
+
+## Every Pull Request Must
+
+- [ ] Use Conventional Commits (feat/fix/docs/chore/ci/test/refactor/perf)
+- [ ] Include scope when relevant (e.g., feat(dbt): add marts model)
+- [ ] Pass lint (ruff check) and format (ruff format --check)
+- [ ] Pass all tests (pytest)
+- [ ] Have evidence for acceptance criteria (test or manual validation)
+- [ ] Update README/docs if behavior or architecture changes
+- [ ] Never commit secrets (.env, profiles.yml, API keys)
+- [ ] Have commits authored as Carlos Galvan (no AI in metadata)
+
+## Code Quality Standards
+
+### Wilson Modularity (src/)
+- Notebooks for exploration ONLY, not production
+- Product code in src/, dbt/, tests/
+- Entrypoints: train.py, score.py (argparse, config injected)
+- Small, testable functions
+- No logic in notebooks that should be in modules
+
+### Wilson 10 Standards (Gates)
+1. Descriptive names, no shadowing builtins (list, id, type)
+2. Functions return dict or namedtuple (not positional tuples)
+3. No bare except: or except Exception: pass
+4. No global mutable state between runs
+5. No deeply nested logic (use config tables or dispatch)
+
+### dbt Contracts
+- schema.yml with tests (unique, not_null, business rules)
+- Staging: stg_* (views)
+- Marts: fct_*, dim_* (tables)
+- Document columns and test data quality
+
+### MLflow Tracking (Day 7+)
+- Train inside mlflow.start_run()
+- Log params, metrics, artifacts, model
+- Use seed for reproducibility
+- Include baseline model (justify complexity)
+- Tag runs (dataset_version, git_commit, stage)
+
+## Definition of Done
+
+A PR is Done when:
+- [ ] CI is green (lint, tests, dbt compile)
+- [ ] Acceptance criteria have evidence (automated test or manual proof)
+- [ ] Documentation updated (README, ADR, runbook if ASR changed)
+- [ ] Honesty banner intact
+- [ ] No secrets in repository
+- [ ] Commits authored as Carlos (no AI in git metadata)
+
+## Anti-Patterns to Block
+
+1. Notebook-as-product (logic only in notebooks)
+2. Secrets in repository
+3. Two lakes in parallel (Databricks + Snowflake)
+4. Fake production claims (Databricks at PEMEX)
+5. Scope creep (API, K8s, streaming before batch DoD)
+6. Prototype without refactor (Wilson 9)
+7. Pipeline jungle (no documented data flow)
+8. MLflow runs not reproducible (no seed, params outside start_run)
+9. AI as Git contributor (Cursor, agents in Co-authored-by or AUTHORS)
+
+## Milestones
+
+### Day 1 (2026-10-06)
+- [x] Repo scaffold, README, LICENSE, ADR-001
+- [x] dbt skeleton (local DuckDB path)
+- [x] Python utils + smoke tests
+- [x] GitHub Actions CI (lint, pytest, dbt compile)
+- [x] Runbook with CE spike checklist (PENDING_OWNER)
+- [x] HistoricalFeed/LiveFeed stubs documented
+- [x] Cursor rules setup
+
+### Day 7 (Target)
+- [ ] Staging + 2+ marts + schema tests + business test
+- [ ] train.py (argparse, 3+ HP, seed) + MLflow (5+ runs)
+- [ ] CI: pytest + dbt compile/build
+- [ ] C4 L1 diagram + data flow sequence
+- [ ] make reproduce leaves marts + MLflow model
+
+### Day 14 (Target)
+- [ ] score.py batch to predictions table
+- [ ] Logging + 1 drift/quality signal
+- [ ] Job (Databricks or GHA schedule)
+- [ ] README + screenshots + Loom video (3-5 min)
+- [ ] Tag v0.1.0
+
+## Architecture Constraints
+
+- Batch-first: no real-time streaming in v0.1
+- Reproducible: pinned deps, seeds, make reproduce
+- Modular: Wilson patterns enforced
+- Documented: ADR for decisions, architecture.md for design
+- Tested: pytest for Python, dbt tests for SQL
+
+## Related Documents
+
+- README.md: Problem statement, architecture, how to run
+- docs/adr/ADR-001-databricks.md: Stack decision + spike status
+- docs/architecture.md: C4 diagrams, data flow, components
+- docs/runbook.md: Operations, CE spike checklist, troubleshooting
+- docs/ATTRIBUTION.md: Data source credits (nflverse CC BY 4.0)
+- QUALITY_GUIDELINES.md: Full SWEBOK + Wilson + TC5062 quality bar
+
+## For AI Assistants
+
+When helping Carlos with this project:
+- Follow all constraints above
+- NEVER add yourself to git history (author, co-author, contributors)
+- Suggest code, but Carlos is the author
+- Point out when a change would violate honesty or quality standards
+- Encourage testing and documentation
+- Batch-first: resist scope creep to real-time/API/K8s

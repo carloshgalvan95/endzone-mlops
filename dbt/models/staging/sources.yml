@@ -1,0 +1,90 @@
+version: 2
+
+sources:
+  - name: nflverse
+    description: |
+      NFL data from nflverse project.
+      License: CC BY 4.0
+      Source: https://github.com/nflverse
+      
+      Day 1 Status: Schema defined for compilation.
+      Data loading workflow to be implemented in data ingestion pipeline.
+    
+    meta:
+      license: "CC BY 4.0"
+      source_url: "https://github.com/nflverse/nflverse-data"
+      attribution: "nflverse project contributors"
+    
+    tables:
+      - name: raw_games
+        description: |
+          NFL game schedules and results from 1999-present.
+          Includes scores, betting lines, venue, weather, and cross-reference IDs.
+        
+        meta:
+          parquet_url: "https://github.com/nflverse/nflverse-data/releases/latest/download/games.parquet"
+          update_frequency: "Daily (nightly after games complete)"
+        
+        columns:
+          - name: game_id
+            description: "Unique game identifier (season_week_away_home format)"
+            tests:
+              - unique
+              - not_null
+          
+          - name: season
+            description: "NFL season year"
+            tests:
+              - not_null
+          
+          - name: week
+            description: "Week number within season"
+          
+          - name: game_type
+            description: "Game type (REG, POST, etc.)"
+          
+          - name: away_team
+            description: "Away team abbreviation"
+            tests:
+              - not_null
+          
+          - name: home_team
+            description: "Home team abbreviation"
+            tests:
+              - not_null
+          
+          - name: away_score
+            description: "Final away team score"
+          
+          - name: home_score
+            description: "Final home team score"
+          
+          - name: spread_line
+            description: "Closing point spread (negative = home favored)"
+          
+          - name: total_line
+            description: "Closing over/under total points"
+          
+          - name: gameday
+            description: "Date of game (YYYY-MM-DD)"
+          
+          - name: roof
+            description: "Stadium roof type (dome, outdoors, etc.)"
+          
+          - name: surface
+            description: "Playing surface type"
+          
+          - name: temp
+            description: "Temperature (Fahrenheit)"
+          
+          - name: wind
+            description: "Wind speed (mph)"
+
+      - name: raw_play_by_play
+        description: |
+          Play-by-play data with ~370 columns per play.
+          Day 1: Schema placeholder for future implementation.
+        
+        meta:
+          parquet_url_pattern: "https://github.com/nflverse/nflverse-data/releases/latest/download/play_by_play_{season}.parquet"
+          note: "Load by season to manage size (~19.5 MB per season)"
