@@ -46,8 +46,8 @@ dbt/dbt_packages/
 dbt/logs/
 dbt/profiles.yml
 
-# Data
-data/
+# Data (exclude data directory but not src/data code)
+/data/
 *.parquet
 *.csv
 *.json
