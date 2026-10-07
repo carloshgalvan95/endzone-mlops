@@ -81,3 +81,94 @@ models:
             expression: "away_team != home_team"
           config:
             where: "away_team is not null and home_team is not null"
+
+  - name: stg_nflverse__pbp
+    description: |
+      Cleaned and focused NFL play-by-play data from nflverse.
+      
+      One row per play with situation context, play outcomes, and EPA/WPA metrics.
+      Serves as foundation for in-game prediction features and play-level analysis.
+    
+    config:
+      meta:
+        owner: "Carlos Galvan"
+        layer: "staging"
+        source_system: "nflverse"
+    
+    columns:
+      - name: play_id
+        description: "Play identifier (unique within game)"
+        tests:
+          - not_null
+      
+      - name: game_id
+        description: "Foreign key to games table"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_nflverse__games')
+              field: game_id
+              config:
+                severity: warn
+      
+      - name: season
+        description: "NFL season year"
+        tests:
+          - not_null
+      
+      - name: week
+        description: "Week number (1-18 regular season, 19+ playoffs)"
+      
+      - name: possession_team
+        description: "Offensive team abbreviation (3 letters)"
+      
+      - name: defensive_team
+        description: "Defensive team abbreviation (3 letters)"
+      
+      - name: play_type
+        description: "Type of play (pass, run, kickoff, punt, etc.)"
+      
+      - name: yards_gained
+        description: "Yards gained on the play (negative for losses)"
+      
+      - name: epa
+        description: "Expected Points Added (key metric for play value)"
+      
+      - name: wpa
+        description: "Win Probability Added (key metric for game impact)"
+      
+      - name: success
+        description: "Boolean flag for successful play (EPA > 0 generally)"
+      
+      - name: down
+        description: "Down number (1-4)"
+      
+      - name: yards_to_go
+        description: "Yards needed for first down"
+      
+      - name: quarter
+        description: "Quarter number (1-5, 5 = overtime)"
+      
+      - name: play_description
+        description: "Natural language description of the play"
+      
+      - name: play
+        description: "Play validity flag (1 = valid play, 0 = no play)"
+      
+      - name: aborted_play
+        description: "Aborted play flag (1 = aborted, 0 = not aborted)"
+    
+    tests:
+      # Uniqueness test: game_id + play_id should uniquely identify plays
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - game_id
+              - play_id
+      
+      # Business logic: possession and defense teams should differ
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "possession_team != defensive_team"
+          config:
+            where: "possession_team is not null and defensive_team is not null"

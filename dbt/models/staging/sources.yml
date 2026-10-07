@@ -93,11 +93,51 @@ sources:
             description: "Wind speed (mph)"
 
       - name: raw_play_by_play
+        # On Databricks this resolves to: workspace.nfl_raw.play_by_play
+        # On local DuckDB this resolves to: main.raw_play_by_play
+        identifier: "{{ 'play_by_play' if target.name == 'databricks' else 'raw_play_by_play' }}"
         description: |
-          Play-by-play data with ~370 columns per play.
-          Day 1: Schema placeholder for future implementation.
+          Play-by-play data with ~372 columns per play.
+          Loaded via src/ingest/load_raw_nflverse.py --dataset pbp.
         
         config:
           meta:
             parquet_url_pattern: "https://github.com/nflverse/nflverse-data/releases/download/pbp/play_by_play_{season}.parquet"
-            note: "Load by season to manage size (~19.5 MB per season)"
+            note: "Download by season and combine (~50k plays, 372 columns per season)"
+        
+        columns:
+          - name: play_id
+            description: "Unique play identifier within game"
+            tests:
+              - not_null
+          
+          - name: game_id
+            description: "Foreign key to games table"
+            tests:
+              - not_null
+          
+          - name: season
+            description: "NFL season year"
+            tests:
+              - not_null
+          
+          - name: week
+            description: "Week number within season"
+          
+          - name: posteam
+            description: "Offensive team abbreviation"
+          
+          - name: defteam
+            description: "Defensive team abbreviation"
+          
+          - name: play_type
+            description: "Type of play (pass, run, kickoff, punt, etc.)"
+          
+          - name: yards_gained
+            description: "Yards gained on the play"
+          
+          - name: epa
+            description: "Expected Points Added"
+          
+          - name: wpa
+            description: "Win Probability Added"
