@@ -14,10 +14,13 @@ import pytest
 
 from src.ingest.load_raw_nflverse import (
     DATASET_CONFIG,
+    NFLVERSE_GAMES_URL,
+    NFLVERSE_PBP_URL_PATTERN,
     create_bronze_table,
     create_schema_and_volume,
     download_nflverse_games,
     download_nflverse_pbp,
+    download_parquet_with_validation,
     get_databricks_config,
     upload_to_volume,
 )
@@ -57,13 +60,42 @@ class TestGetDatabricksConfig:
             get_databricks_config()
 
 
+class TestDownloadParquetWithValidation:
+    """Test parquet download with HTTP validation."""
+
+    @patch("src.ingest.load_raw_nflverse.requests.get")
+    def test_successful_download(self, mock_get: Mock) -> None:
+        """Download succeeds with HTTP 200."""
+        mock_df = pd.DataFrame({"col1": [1, 2, 3]})
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.content = mock_df.to_parquet()
+        mock_get.return_value = mock_response
+
+        result = download_parquet_with_validation("https://example.com/data.parquet")
+
+        assert len(result) == 3
+        mock_get.assert_called_once_with("https://example.com/data.parquet", timeout=60)
+
+    @patch("src.ingest.load_raw_nflverse.requests.get")
+    def test_http_404_raises_error(self, mock_get: Mock) -> None:
+        """HTTP 404 raises ValueError with clear message."""
+        mock_response = Mock()
+        mock_response.status_code = 404
+        mock_response.reason = "Not Found"
+        mock_get.return_value = mock_response
+
+        with pytest.raises(ValueError, match="HTTP 404 Not Found"):
+            download_parquet_with_validation("https://example.com/missing.parquet")
+
+
 class TestDownloadNflverseGames:
     """Test nflverse games data download."""
 
-    @patch("src.ingest.load_raw_nflverse.pd.read_parquet")
+    @patch("src.ingest.load_raw_nflverse.download_parquet_with_validation")
     def test_download_and_filter_games(
         self,
-        mock_read_parquet: Mock,
+        mock_download: Mock,
         tmp_path: Path,
     ) -> None:
         """Download games and filter to specified seasons."""
@@ -81,26 +113,25 @@ class TestDownloadNflverseGames:
                 ],
             }
         )
-        mock_read_parquet.return_value = mock_df
+        mock_download.return_value = mock_df
 
         # Download and filter to 2022 and 2023
         result_path = download_nflverse_games([2022, 2023], tmp_path)
 
-        # Verify parquet was read
-        mock_read_parquet.assert_called_once()
-        assert "games.parquet" in mock_read_parquet.call_args[0][0]
+        # Verify correct URL was used
+        mock_download.assert_called_once_with(NFLVERSE_GAMES_URL)
 
-        # Verify filtered data was saved - read with pyarrow directly to avoid mock
+        # Verify filtered data was saved
         assert result_path.exists()
         table = pq.read_table(result_path)
         result_df = table.to_pandas()
         assert len(result_df) == 4  # Only 2022 and 2023 games
         assert set(result_df["season"]) == {2022, 2023}
 
-    @patch("src.ingest.load_raw_nflverse.pd.read_parquet")
+    @patch("src.ingest.load_raw_nflverse.download_parquet_with_validation")
     def test_download_games_no_matches(
         self,
-        mock_read_parquet: Mock,
+        mock_download: Mock,
         tmp_path: Path,
     ) -> None:
         """Raise error when no games match filter."""
@@ -111,7 +142,7 @@ class TestDownloadNflverseGames:
                 "game_id": ["2020_01_A_B", "2021_01_C_D"],
             }
         )
-        mock_read_parquet.return_value = mock_df
+        mock_download.return_value = mock_df
 
         with pytest.raises(ValueError, match="No games found for seasons"):
             download_nflverse_games([2024, 2025], tmp_path)
@@ -120,33 +151,38 @@ class TestDownloadNflverseGames:
 class TestDownloadNflversePbp:
     """Test nflverse play-by-play data download."""
 
-    @patch("src.ingest.load_raw_nflverse.pd.read_parquet")
+    @patch("src.ingest.load_raw_nflverse.download_parquet_with_validation")
     def test_download_and_combine_pbp(
         self,
-        mock_read_parquet: Mock,
+        mock_download: Mock,
         tmp_path: Path,
     ) -> None:
         """Download play-by-play for multiple seasons and combine."""
 
         # Mock data for each season
-        def mock_read(url: str | Path) -> pd.DataFrame:
-            url_str = str(url)
-            if "2022" in url_str:
+        def mock_download_func(url: str) -> pd.DataFrame:
+            if "2022" in url:
                 return pd.DataFrame({"play_id": [1, 2], "season": [2022, 2022]})
-            elif "2023" in url_str:
+            elif "2023" in url:
                 return pd.DataFrame({"play_id": [3, 4], "season": [2023, 2023]})
             else:
-                raise ValueError(f"Unexpected URL: {url_str}")
+                raise ValueError(f"Unexpected URL: {url}")
 
-        mock_read_parquet.side_effect = mock_read
+        mock_download.side_effect = mock_download_func
 
         # Download seasons 2022 and 2023
         result_path = download_nflverse_pbp([2022, 2023], tmp_path)
 
-        # Verify both seasons were downloaded
-        assert mock_read_parquet.call_count == 2
+        # Verify both seasons were downloaded with correct URLs
+        assert mock_download.call_count == 2
+        expected_urls = [
+            NFLVERSE_PBP_URL_PATTERN.format(season=2022),
+            NFLVERSE_PBP_URL_PATTERN.format(season=2023),
+        ]
+        actual_urls = [call[0][0] for call in mock_download.call_args_list]
+        assert actual_urls == expected_urls
 
-        # Verify combined data - read with pyarrow directly to avoid mock
+        # Verify combined data
         assert result_path.exists()
         table = pq.read_table(result_path)
         result_df = table.to_pandas()

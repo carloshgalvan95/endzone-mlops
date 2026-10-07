@@ -292,7 +292,7 @@ For actual data ingestion (post-Day 1):
 # Example: Download nflverse games
 import pandas as pd
 
-url = "https://github.com/nflverse/nflverse-data/releases/latest/download/games.parquet"
+url = "https://github.com/nflverse/nflverse-data/releases/download/schedules/games.parquet"
 df = pd.read_parquet(url)
 
 # Load to Databricks Delta table or DuckDB
