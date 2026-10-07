@@ -156,8 +156,8 @@ make test
 # Lint and format
 make lint
 
-# dbt: install packages and compile models
-cd dbt && dbt deps --profiles-dir . && dbt compile --profiles-dir . && cd ..
+# dbt: install packages and compile models (loads .env automatically)
+make dbt-compile
 ```
 
 **Tip**: Use `make setup` to automate virtualenv creation and dependency installation.
@@ -190,13 +190,18 @@ Copy-Item dbt\profiles.yml.example dbt\profiles.yml
 # Lint and format
 .\scripts\dev.ps1 lint
 
-# dbt: install packages and compile models
-cd dbt; dbt deps --profiles-dir .; dbt compile --profiles-dir .; cd ..
+# dbt: install packages and compile models (loads .env automatically)
+.\scripts\dev.ps1 dbt-compile
 ```
 
 **Tip**: Use `.\scripts\dev.ps1 setup` to automate virtualenv creation and dependency installation.
 
-**Note**: `.env` is for environment variables, not the Python virtual environment. Both `.venv/` and `dbt/profiles.yml` are gitignored.
+**Important .env notes**:
+- `.env` is for environment variables (e.g., Databricks credentials), not the Python virtual environment
+- Format: `KEY=value` with no spaces around `=`
+- DATABRICKS_HOST should NOT include `https://` prefix
+- Git Bash (MINGW) on Windows mangles paths starting with `/` - use PowerShell or add `export MSYS_NO_PATHCONV=1` to `~/.bashrc`
+- Both `.venv/` and `dbt/profiles.yml` are gitignored
 
 ### Databricks Free Edition Path (Spike Pending)
 

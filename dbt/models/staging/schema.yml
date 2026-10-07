@@ -8,10 +8,11 @@ models:
       One row per game with schedule, scores, betting lines, and conditions.
       Serves as foundation for pregame prediction features.
     
-    meta:
-      owner: "Carlos Galvan"
-      layer: "staging"
-      source_system: "nflverse"
+    config:
+      meta:
+        owner: "Carlos Galvan"
+        layer: "staging"
+        source_system: "nflverse"
     
     columns:
       - name: game_id

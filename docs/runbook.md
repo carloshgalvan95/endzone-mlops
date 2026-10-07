@@ -74,16 +74,56 @@ Local machine setup:
 # Install dbt-databricks (uncomment in requirements.txt if needed)
 pip install dbt-databricks
 
-# Set environment variables (add to .env, never commit)
-export DATABRICKS_HOST="<server-hostname-from-step-2>"
-export DATABRICKS_HTTP_PATH="<http-path-from-step-2>"
-export DATABRICKS_TOKEN="<token-from-step-3>"
-
 # Copy profile template
 cd dbt
 cp profiles.yml.example profiles.yml
 # profiles.yml uses env_var() to read credentials from environment
+
+# Create .env file (never commit)
+cd ..
+cp .env.example .env
 ```
+
+Edit `.env` with values from steps 2 and 3:
+```bash
+DATABRICKS_HOST=adb-xxxxx.xx.azuredatabricks.net
+DATABRICKS_HTTP_PATH=/sql/1.0/warehouses/xxxxx
+DATABRICKS_TOKEN=dapi...
+```
+
+**Important .env format rules**:
+- No spaces around `=` (use `KEY=value`, not `KEY = value`)
+- No `https://` prefix in `DATABRICKS_HOST` (hostname only)
+- No quotes around values (unless value contains spaces)
+
+**Load environment variables before running dbt**:
+
+macOS / Linux (bash/zsh):
+```bash
+set -a; source .env; set +a
+cd dbt && dbt debug --profiles-dir .
+```
+
+Windows PowerShell:
+```powershell
+Get-Content .env | ForEach-Object {
+    if ($_ -match '^([^=]+)=(.*)$') {
+        [Environment]::SetEnvironmentVariable($matches[1], $matches[2], 'Process')
+    }
+}
+cd dbt; dbt debug --profiles-dir .
+```
+
+Windows Git Bash (MINGW):
+```bash
+# Git Bash mangles paths starting with / (e.g., /sql/1.0/warehouses/xxx becomes C:/Program Files/Git/...)
+# This causes HTTP 404 errors. Fix with:
+export MSYS_NO_PATHCONV=1  # Add to ~/.bashrc to persist
+set -a; source ../.env; set +a
+dbt debug --profiles-dir .
+```
+
+**Tip**: Use `make dbt-compile` or `.\scripts\dev.ps1 dbt-compile` which load `.env` automatically.
 
 dbt validation:
 - [ ] Run `dbt debug --profiles-dir .` (should show "All checks passed!")
@@ -119,8 +159,11 @@ Test in the notebook created above:
 ```python
 import mlflow
 
+# Get current user (avoids hardcoding email)
+user = spark.sql("select current_user()").first()[0]
+
 # Set experiment (creates if doesn't exist)
-mlflow.set_experiment("/Users/<your-email>/nfl_spike_test")
+mlflow.set_experiment(f"/Users/{user}/nfl_spike_test")
 
 # Log a test run
 with mlflow.start_run():
@@ -148,9 +191,17 @@ Verify:
   - `DATABRICKS_HTTP_PATH`: HTTP path from step 2
   - `DATABRICKS_TOKEN`: Access token from step 3
 
-**Expected**: Secrets stored securely; CI can authenticate.
+**Verify connection from GitHub Actions**:
+- [ ] Go to repository Actions tab
+- [ ] Select "Databricks Smoke Test" workflow (left sidebar)
+- [ ] Click "Run workflow" dropdown → "Run workflow" button
+- [ ] Wait for workflow to complete (~1-2 minutes)
+- [ ] Expect green checkmark with "Connection test: OK" in dbt debug output
+- [ ] If red X: Check job logs for connection errors, verify secrets are correct
 
-**Failure mode**: Token permission issues → troubleshoot or use local runs only.
+**Expected**: Secrets stored securely; CI can authenticate. Smoke test workflow succeeds.
+
+**Failure mode**: Token permission issues, incorrect secrets, or network errors → check workflow logs and troubleshoot.
 
 ### Spike Outcome
 

@@ -52,7 +52,18 @@ function Invoke-Test {
     pytest tests\ -v
 }
 
+function Load-Env {
+    if (Test-Path .env) {
+        Get-Content .env | ForEach-Object {
+            if ($_ -match '^([^=]+)=(.*)$' -and -not $_.StartsWith('#')) {
+                [Environment]::SetEnvironmentVariable($matches[1].Trim(), $matches[2].Trim(), 'Process')
+            }
+        }
+    }
+}
+
 function Invoke-DbtCompile {
+    Load-Env
     Push-Location dbt
     try {
         dbt compile --profiles-dir .
@@ -63,6 +74,7 @@ function Invoke-DbtCompile {
 }
 
 function Invoke-DbtRun {
+    Load-Env
     Push-Location dbt
     try {
         dbt run --profiles-dir .
@@ -73,6 +85,7 @@ function Invoke-DbtRun {
 }
 
 function Invoke-DbtTest {
+    Load-Env
     Push-Location dbt
     try {
         dbt test --profiles-dir .

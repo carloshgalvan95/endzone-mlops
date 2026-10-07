@@ -10,10 +10,11 @@ sources:
       Day 1 Status: Schema defined for compilation.
       Data loading workflow to be implemented in data ingestion pipeline.
     
-    meta:
-      license: "CC BY 4.0"
-      source_url: "https://github.com/nflverse/nflverse-data"
-      attribution: "nflverse project contributors"
+    config:
+      meta:
+        license: "CC BY 4.0"
+        source_url: "https://github.com/nflverse/nflverse-data"
+        attribution: "nflverse project contributors"
     
     tables:
       - name: raw_games
@@ -21,9 +22,10 @@ sources:
           NFL game schedules and results from 1999-present.
           Includes scores, betting lines, venue, weather, and cross-reference IDs.
         
-        meta:
-          parquet_url: "https://github.com/nflverse/nflverse-data/releases/latest/download/games.parquet"
-          update_frequency: "Daily (nightly after games complete)"
+        config:
+          meta:
+            parquet_url: "https://github.com/nflverse/nflverse-data/releases/latest/download/games.parquet"
+            update_frequency: "Daily (nightly after games complete)"
         
         columns:
           - name: game_id
@@ -85,6 +87,7 @@ sources:
           Play-by-play data with ~370 columns per play.
           Day 1: Schema placeholder for future implementation.
         
-        meta:
-          parquet_url_pattern: "https://github.com/nflverse/nflverse-data/releases/latest/download/play_by_play_{season}.parquet"
-          note: "Load by season to manage size (~19.5 MB per season)"
+        config:
+          meta:
+            parquet_url_pattern: "https://github.com/nflverse/nflverse-data/releases/latest/download/play_by_play_{season}.parquet"
+            note: "Load by season to manage size (~19.5 MB per season)"
