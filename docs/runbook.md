@@ -191,9 +191,17 @@ Verify:
   - `DATABRICKS_HTTP_PATH`: HTTP path from step 2
   - `DATABRICKS_TOKEN`: Access token from step 3
 
-**Expected**: Secrets stored securely; CI can authenticate.
+**Verify connection from GitHub Actions**:
+- [ ] Go to repository Actions tab
+- [ ] Select "Databricks Smoke Test" workflow (left sidebar)
+- [ ] Click "Run workflow" dropdown → "Run workflow" button
+- [ ] Wait for workflow to complete (~1-2 minutes)
+- [ ] Expect green checkmark with "Connection test: OK" in dbt debug output
+- [ ] If red X: Check job logs for connection errors, verify secrets are correct
 
-**Failure mode**: Token permission issues → troubleshoot or use local runs only.
+**Expected**: Secrets stored securely; CI can authenticate. Smoke test workflow succeeds.
+
+**Failure mode**: Token permission issues, incorrect secrets, or network errors → check workflow logs and troubleshoot.
 
 ### Spike Outcome
 
