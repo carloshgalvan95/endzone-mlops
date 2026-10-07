@@ -26,10 +26,10 @@ models:
       +materialized: view
       +schema: staging
 
-    # Marts: tables for downstream consumption
-    marts:
-      +materialized: table
-      +schema: marts
+    # Marts: tables for downstream consumption (uncomment when marts/ exists)
+    # marts:
+    #   +materialized: table
+    #   +schema: marts
 
 # Tests
 tests:
@@ -37,10 +37,10 @@ tests:
     +store_failures: true
     +schema: test_results
 
-# Seeds
-seeds:
-  endzone_mlops:
-    +schema: seeds
+# Seeds (uncomment when seeds/ has data files)
+# seeds:
+#   endzone_mlops:
+#     +schema: seeds
 
 # Documentation
 vars:
