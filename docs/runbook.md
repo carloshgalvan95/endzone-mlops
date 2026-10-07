@@ -4,7 +4,7 @@ This document contains operational procedures, setup checklists, and troubleshoo
 
 ## Table of Contents
 
-1. [Databricks Community Edition Spike](#databricks-community-edition-spike)
+1. [Databricks Free Edition Spike](#databricks-free-edition-spike)
 2. [Local Development Setup](#local-development-setup)
 3. [GitHub Actions CI/CD](#github-actions-cicd)
 4. [MLflow Tracking](#mlflow-tracking)
@@ -12,84 +12,110 @@ This document contains operational procedures, setup checklists, and troubleshoo
 
 ---
 
-## Databricks Community Edition Spike
+## Databricks Free Edition Spike
 
-**Status**: PENDING_OWNER (requires Carlos to complete)
+**Status**: PENDING_OWNER (requires completion)
 
-**Time estimate**: 60-90 minutes
+**Time estimate**: 45-60 minutes
 
 **Decision criteria**: If ANY item fails, activate Plan B (Snowflake) same day.
+
+**Note**: Databricks Free Edition replaced Community Edition (retired in 2025). Free Edition is serverless-only with Unity Catalog enabled by default.
 
 ### Spike Checklist
 
 #### 1. Account Creation
-- [ ] Navigate to [community.cloud.databricks.com](https://community.cloud.databricks.com/)
+- [ ] Navigate to [Databricks Free Edition signup](https://www.databricks.com/try-databricks/signup-form)
 - [ ] Sign up with email (no credit card required)
 - [ ] Verify email and complete onboarding
-- [ ] Note workspace URL (e.g., `https://community.cloud.databricks.com/`)
+- [ ] Note workspace URL (assigned automatically)
 
-#### 2. Compute Cluster
-- [ ] Click "Compute" in left sidebar
-- [ ] Create new cluster:
-  - Name: `endzone-dev`
-  - Runtime: DBR 13.3 LTS or later (includes Python 3.10+)
-  - Node type: Single node (only option in CE)
-  - Auto-termination: 120 minutes
-- [ ] Start cluster and wait for "Running" status
-- [ ] Note cluster ID from URL or details page
+#### 2. SQL Warehouse Setup (Critical for dbt)
 
-**Expected**: Cluster starts successfully. CE limit: auto-terminates after inactivity.
+Free Edition includes a pre-created serverless SQL warehouse. No cluster creation is needed or available.
 
-**Failure mode**: If cluster creation fails or times out repeatedly, proceed to Plan B.
+- [ ] Click "SQL Warehouses" in left sidebar
+- [ ] Locate "Serverless Starter Warehouse" (automatically provided)
+- [ ] Click on the warehouse to open details
+- [ ] Click "Start" if warehouse is stopped
+- [ ] Click "Connection details" tab
+- [ ] Copy the following values:
+  - **Server hostname** (e.g., `adb-xxxxx.xx.azuredatabricks.net`)
+  - **HTTP path** (e.g., `/sql/1.0/warehouses/xxxxx`)
 
-#### 3. SQL Warehouse (Critical for dbt)
-- [ ] Click "SQL Warehouses" in sidebar (or check if unavailable in CE)
-- [ ] If available: Create warehouse (2X-Small, auto-stop 10 min)
-- [ ] If unavailable: Note this limitation
+**Expected**: Serverless Starter Warehouse starts successfully. This is the only SQL warehouse in Free Edition (2X-Small, serverless).
 
-**Expected**: SQL Warehouse available OR acceptable workaround exists (e.g., cluster with JDBC/ODBC endpoint).
+**Failure mode**: If warehouse fails to start or connection details are unavailable, proceed to Plan B.
 
-**Failure mode**: If SQL Warehouse unavailable AND cluster JDBC endpoint doesn't support dbt, this blocks dbt-databricks. Proceed to Plan B.
+**Note**: Free Edition does NOT allow creating compute clusters. All compute is serverless.
 
-**Note**: As of 2026, CE SQL Warehouse availability varies. Document actual finding.
+#### 3. Personal Access Token Creation
+
+- [ ] Click on your profile icon (initials) in top-right corner
+- [ ] Select "Settings"
+- [ ] Click "Developer" in left sidebar
+- [ ] Click "Access tokens" tab
+- [ ] Click "Manage" (if available) or "Generate new token"
+- [ ] Set:
+  - Comment: "dbt development"
+  - Lifetime: 90 days
+- [ ] Click "Generate"
+- [ ] Copy the token immediately (shown only once)
+- [ ] Store token securely (NEVER commit to git)
+
+**Expected**: Token generation succeeds.
+
+**Failure mode**: If token generation is blocked, check account verification status.
 
 #### 4. dbt Connection Test
 
 Local machine setup:
 ```bash
-# Install dbt-databricks
+# Install dbt-databricks (uncomment in requirements.txt if needed)
 pip install dbt-databricks
+
+# Set environment variables (add to .env, never commit)
+export DATABRICKS_HOST="<server-hostname-from-step-2>"
+export DATABRICKS_HTTP_PATH="<http-path-from-step-2>"
+export DATABRICKS_TOKEN="<token-from-step-3>"
 
 # Copy profile template
 cd dbt
 cp profiles.yml.example profiles.yml
-
-# Edit profiles.yml with your Databricks credentials
-# For CE, typically:
-#   host: community.cloud.databricks.com
-#   http_path: /sql/1.0/warehouses/<warehouse-id> (or cluster path)
-#   token: <personal-access-token>
+# profiles.yml uses env_var() to read credentials from environment
 ```
-
-Databricks token creation:
-- [ ] In Databricks: User Settings → Access Tokens → Generate New Token
-- [ ] Copy token to `profiles.yml` (NEVER commit this file)
-- [ ] Set expiration: 90 days
 
 dbt validation:
 - [ ] Run `dbt debug --profiles-dir .` (should show "All checks passed!")
-- [ ] Run `dbt compile --profiles-dir .` (compiles SQL, no data needed)
 - [ ] Run `dbt deps --profiles-dir .` (installs dbt_utils package)
+- [ ] Run `dbt compile --profiles-dir . --target databricks` (compiles SQL, no data needed)
 
-**Expected**: `dbt compile` succeeds, confirming dbt can talk to Databricks.
+**Expected**: `dbt compile` succeeds, confirming dbt can talk to Databricks Free Edition.
 
-**Failure mode**: Connection errors, auth failures, or "feature not available in CE" → Plan B.
+**Failure mode**: Connection errors, auth failures, or Unity Catalog permission issues → Plan B.
 
-#### 5. MLflow Tracking Test
+#### 5. Serverless Compute for Notebooks
 
-Databricks includes MLflow. Test via notebook or local Python:
+Free Edition uses serverless compute for notebooks (no cluster creation needed).
 
-Create notebook in Databricks:
+- [ ] Click "Workspace" in left sidebar
+- [ ] Create a new notebook: Click "Create" → "Notebook"
+- [ ] Name: "nfl_spike_test"
+- [ ] Language: Python
+- [ ] Click "Create"
+- [ ] In top-right corner, click "Connect" dropdown
+- [ ] Select "Serverless" (should be only option)
+- [ ] Wait for serverless compute to start (first time may take 1-2 minutes)
+
+**Expected**: Serverless compute connects successfully.
+
+**Failure mode**: If serverless compute fails to start, wait and retry once. If persistent, proceed to Plan B.
+
+#### 6. MLflow Tracking Test
+
+Databricks Free Edition includes MLflow with serverless compute.
+
+Test in the notebook created above:
 ```python
 import mlflow
 
@@ -100,27 +126,27 @@ mlflow.set_experiment("/Users/<your-email>/nfl_spike_test")
 with mlflow.start_run():
     mlflow.log_param("test_param", 42)
     mlflow.log_metric("test_metric", 0.95)
-    mlflow.log_artifact("test.txt", "Test artifact content")
     print("MLflow run logged successfully")
 ```
 
 Verify:
-- [ ] Run notebook or script
-- [ ] Check "Experiments" in sidebar
+- [ ] Run the notebook cell
+- [ ] Click "Experiments" in left sidebar (or top-right experiment icon)
 - [ ] Confirm run appears with params/metrics
+- [ ] Note experiment path format: `/Users/<your-email>/...`
 
-**Expected**: MLflow tracking works in CE workspace.
+**Expected**: MLflow tracking works with serverless compute.
 
-**Failure mode**: If MLflow unavailable (unlikely), document limitation. Can use local MLflow as fallback.
+**Failure mode**: If MLflow unavailable in Free Edition, document limitation. Can use local MLflow as fallback.
 
-#### 6. GitHub Actions Integration
+#### 7. GitHub Actions Integration
 
-- [ ] In Databricks: Generate access token for CI
+- [ ] In Databricks: Use access token from step 3 (or generate new one for CI)
 - [ ] In GitHub: Repository → Settings → Secrets → Actions
 - [ ] Add secrets:
-  - `DATABRICKS_HOST`: Your workspace URL
-  - `DATABRICKS_TOKEN`: Access token (read/execute permissions)
-  - (Optional) `DATABRICKS_HTTP_PATH`: SQL Warehouse or cluster path
+  - `DATABRICKS_HOST`: Server hostname from step 2
+  - `DATABRICKS_HTTP_PATH`: HTTP path from step 2
+  - `DATABRICKS_TOKEN`: Access token from step 3
 
 **Expected**: Secrets stored securely; CI can authenticate.
 
@@ -130,9 +156,10 @@ Verify:
 
 Record result in ADR-001:
 
-**PASS**: All 6 items validated → Continue with Databricks
+**PASS**: All 7 items validated → Continue with Databricks Free Edition
 - [ ] Update ADR-001 status to "PASS"
-- [ ] Update this runbook with actual URLs/IDs
+- [ ] Update this runbook with actual workspace URL
+- [ ] Add credentials to local `.env` file (never commit)
 - [ ] Continue Day 1 work
 
 **FAIL**: Any blocking issue → Activate Plan B
@@ -298,19 +325,22 @@ with mlflow.start_run():
 
 ## Troubleshooting
 
-### Databricks
+### Databricks Free Edition
 
-**Problem**: Cluster auto-terminates
-- **Solution**: Expected CE behavior. Restart cluster before demos.
+**Problem**: SQL Warehouse stops automatically
+- **Solution**: Expected Free Edition behavior. Restart Serverless Starter Warehouse when needed (auto-stops after inactivity).
 
-**Problem**: "SQL Warehouse not available"
-- **Solution**: Use compute cluster with JDBC endpoint OR activate Plan B.
+**Problem**: "Cannot create cluster"
+- **Solution**: Free Edition is serverless-only. Use "Serverless" compute option for notebooks. No cluster creation available.
 
 **Problem**: dbt connection timeout
-- **Check**: Token valid? Cluster running? `http_path` correct?
+- **Check**: Token valid? SQL Warehouse running? `DATABRICKS_HOST` and `DATABRICKS_HTTP_PATH` correct? Credentials in environment variables or `.env`?
 
 **Problem**: MLflow experiment not found
-- **Solution**: Experiment path must start with `/Users/<email>/` in CE.
+- **Solution**: Experiment path must start with `/Users/<email>/` in Free Edition. Unity Catalog enabled by default.
+
+**Problem**: "Unity Catalog permission denied"
+- **Solution**: Free Edition uses Unity Catalog with workspace catalog. Ensure dbt profile specifies `catalog` (e.g., `workspace`) and `schema` (e.g., `default`).
 
 ### dbt
 

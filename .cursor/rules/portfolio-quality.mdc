@@ -26,8 +26,8 @@ This is Carlos Galvan's public MLOps portfolio demonstrating Databricks + dbt + 
 - Use commas, periods, colons, or regular hyphens instead
 
 ### Stack
-- Primary: Databricks CE + dbt-databricks + MLflow + GitHub Actions
-- Plan B: Snowflake (only if Databricks CE spike fails)
+- Primary: Databricks Free Edition + dbt-databricks + MLflow + GitHub Actions
+- Plan B: Snowflake (only if Databricks Free Edition spike fails)
 - NEVER run two lakes in parallel
 - Batch-first: score.py batch by default, no real-time API in v0.1
 
