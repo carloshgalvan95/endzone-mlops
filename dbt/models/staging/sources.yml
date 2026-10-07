@@ -7,8 +7,9 @@ sources:
       License: CC BY 4.0
       Source: https://github.com/nflverse
       
-      Day 1 Status: Schema defined for compilation.
-      Data loading workflow to be implemented in data ingestion pipeline.
+      Target-aware source configuration:
+      - Databricks: workspace.nfl_raw.games (Unity Catalog Delta table)
+      - Local: main.raw_games (DuckDB table)
     
     config:
       meta:
@@ -16,8 +17,17 @@ sources:
         source_url: "https://github.com/nflverse/nflverse-data"
         attribution: "nflverse project contributors"
     
+    # Target-aware database/schema configuration
+    # On Databricks: uses Unity Catalog (workspace.nfl_raw)
+    # On local DuckDB: uses default schema (main)
+    database: "{{ 'workspace' if target.name == 'databricks' else target.schema }}"
+    schema: "{{ 'nfl_raw' if target.name == 'databricks' else target.schema }}"
+    
     tables:
       - name: raw_games
+        # On Databricks this resolves to: workspace.nfl_raw.games
+        # On local DuckDB this resolves to: main.raw_games
+        identifier: "{{ 'games' if target.name == 'databricks' else 'raw_games' }}"
         description: |
           NFL game schedules and results from 1999-present.
           Includes scores, betting lines, venue, weather, and cross-reference IDs.
