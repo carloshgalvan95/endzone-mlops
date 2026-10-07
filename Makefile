@@ -36,6 +36,16 @@ lint:
 test:
 	pytest tests/ -v
 
+ingest: ingest-games ingest-pbp
+
+ingest-games:
+	@if [ -f .env ]; then set -a && . ./.env && set +a; fi; \
+	python -m src.ingest.load_raw_nflverse --seasons 2022 2023 2024 --dataset games
+
+ingest-pbp:
+	@if [ -f .env ]; then set -a && . ./.env && set +a; fi; \
+	python -m src.ingest.load_raw_nflverse --seasons 2022 2023 2024 --dataset pbp
+
 dbt-compile:
 	@if [ -f .env ]; then set -a && . ./.env && set +a; fi; \
 	cd dbt && dbt compile --profiles-dir .

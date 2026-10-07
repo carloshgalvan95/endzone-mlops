@@ -385,7 +385,7 @@ df = pd.read_parquet(url)
 
 ## D2: Data Ingestion to Databricks Free Edition
 
-This section covers loading real nflverse games data into Databricks Free Edition.
+This section covers loading nflverse games and play-by-play data into Databricks Free Edition.
 
 **Prerequisites**:
 - Databricks Free Edition account configured (see spike checklist above)
@@ -394,11 +394,19 @@ This section covers loading real nflverse games data into Databricks Free Editio
 
 ### Data Ingestion Workflow
 
-The ingestion script `src.ingest.load_raw_nflverse`:
+The ingestion script `src.ingest.load_raw_nflverse` supports two datasets:
+
+**Games** (`--dataset games`):
 1. Downloads nflverse games/schedules parquet from GitHub releases
 2. Filters to specified seasons (e.g., 2022, 2023, 2024)
 3. Uploads to Unity Catalog Volume at `/Volumes/workspace/nfl_raw/landing/games/`
 4. Creates bronze Delta table `workspace.nfl_raw.games` using `read_files()`
+
+**Play-by-Play** (`--dataset pbp`):
+1. Downloads nflverse play-by-play parquet per season from GitHub releases
+2. Combines all seasons into a single parquet file
+3. Uploads to Unity Catalog Volume at `/Volumes/workspace/nfl_raw/landing/pbp/`
+4. Creates bronze Delta table `workspace.nfl_raw.play_by_play` using `read_files()`
 
 **Note**: Databricks Free Edition does NOT have outbound internet from compute, so the script downloads data locally first, then uploads via the Files API.
 
@@ -410,17 +418,20 @@ The ingestion script `src.ingest.load_raw_nflverse`:
 # Load environment variables from .env
 export $(grep -v '^#' .env | xargs)
 
-# Run data ingestion (loads seasons 2022, 2023, 2024)
-make ingest
+# Load games only
+make ingest-games
+# Or: python -m src.ingest.load_raw_nflverse --seasons 2022 2023 2024 --dataset games
 
-# Or run directly:
-python -m src.ingest.load_raw_nflverse --seasons 2022 2023 2024
+# Load play-by-play only
+make ingest-pbp
+# Or: python -m src.ingest.load_raw_nflverse --seasons 2022 2023 2024 --dataset pbp
+
+# Load both datasets
+make ingest
 
 # Build dbt models on Databricks
 make dbt-build-databricks
-
-# Or run dbt directly:
-cd dbt && dbt build --profiles-dir . --target databricks
+# Or: cd dbt && dbt build --profiles-dir . --target databricks
 ```
 
 #### Windows Git Bash
@@ -432,7 +443,13 @@ export MSYS_NO_PATHCONV=1
 # Load environment variables from .env
 export $(grep -v '^#' .env | xargs)
 
-# Run data ingestion
+# Load games only
+make ingest-games
+
+# Load play-by-play only
+make ingest-pbp
+
+# Load both datasets
 make ingest
 
 # Build dbt models on Databricks
@@ -448,7 +465,13 @@ make dbt-build-databricks
 # $env:DATABRICKS_HTTP_PATH = "/sql/1.0/warehouses/xxxxx"
 # $env:DATABRICKS_TOKEN = "dapi..."
 
-# Run data ingestion
+# Load games only
+.\scripts\dev.ps1 ingest-games
+
+# Load play-by-play only
+.\scripts\dev.ps1 ingest-pbp
+
+# Load both datasets
 .\scripts\dev.ps1 ingest
 
 # Build dbt models on Databricks
@@ -471,18 +494,34 @@ ORDER BY season;
 -- 2023: 285 games
 -- 2024: 285 games
 
--- Check staging view
-SELECT season, COUNT(*) as game_count
-FROM workspace.nfl_dev.stg_nflverse__games
+-- Check play-by-play bronze table
+SELECT season, COUNT(*) as play_count
+FROM workspace.nfl_raw.play_by_play
 GROUP BY season
 ORDER BY season;
 
--- Check sample data
-SELECT game_id, season, week, game_type, away_team, home_team, 
-       away_score, home_score, spread_line, total_line
+-- Expected: ~45,000-50,000 plays per season
+
+-- Check staging views
+SELECT 'stg_nflverse__games' as model, COUNT(*) as row_count
 FROM workspace.nfl_dev.stg_nflverse__games
+UNION ALL
+SELECT 'stg_nflverse__pbp', COUNT(*)
+FROM workspace.nfl_dev.stg_nflverse__pbp;
+
+-- Check pbp-to-games foreign key integrity
+SELECT COUNT(DISTINCT pbp.game_id) as pbp_games,
+       COUNT(DISTINCT g.game_id) as games_games
+FROM workspace.nfl_dev.stg_nflverse__pbp pbp
+LEFT JOIN workspace.nfl_dev.stg_nflverse__games g ON pbp.game_id = g.game_id;
+-- Both counts should match
+
+-- Sample play-by-play data
+SELECT game_id, play_id, quarter, down, yards_to_go, play_type, 
+       yards_gained, epa, wpa, success
+FROM workspace.nfl_dev.stg_nflverse__pbp
 WHERE season = 2024
-LIMIT 5;
+LIMIT 10;
 ```
 
 ### Troubleshooting Data Ingestion
@@ -503,7 +542,7 @@ LIMIT 5;
   ```
 
 **Problem**: `dbt build --target databricks` fails with "relation not found"
-- **Solution**: Ensure ingestion completed successfully first. Check bronze table exists:
+- **Solution**: Ensure ingestion completed successfully first. Check bronze tables exist:
   ```sql
   SHOW TABLES IN workspace.nfl_raw;
   ```
@@ -511,12 +550,21 @@ LIMIT 5;
 **Problem**: Download fails with network error
 - **Solution**: Check internet connection. nflverse data is downloaded from GitHub releases (public, no auth needed)
 
+**Problem**: `dbt test` fails on pbp uniqueness test
+- **Solution**: This indicates duplicate plays in source data. Check:
+  ```sql
+  SELECT game_id, play_id, COUNT(*) as cnt
+  FROM workspace.nfl_raw.play_by_play
+  GROUP BY game_id, play_id
+  HAVING COUNT(*) > 1;
+  ```
+
 ### Data Attribution
 
 All data sourced from nflverse project:
 - **License**: CC BY 4.0 (Creative Commons Attribution 4.0 International)
 - **Source**: https://github.com/nflverse/nflverse-data
-- **Coverage**: NFL games from 1999-present
+- **Coverage**: NFL games and play-by-play from 1999-present
 - **Citation**: nflverse project contributors
 
 When using this data in presentations or publications, credit the nflverse project as specified in `docs/ATTRIBUTION.md`.
