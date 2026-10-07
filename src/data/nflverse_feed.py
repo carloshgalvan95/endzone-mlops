@@ -102,7 +102,9 @@ class NFLverseFeed(HistoricalFeed):
         try:
             season = int(game_id.split("_")[0])
         except (IndexError, ValueError) as e:
-            raise ValueError(f"Invalid game_id format: {game_id}. Expected: YYYY_WW_AWAY_HOME") from e
+            raise ValueError(
+                f"Invalid game_id format: {game_id}. Expected: YYYY_WW_AWAY_HOME"
+            ) from e
 
         if season < 1999:
             raise ValueError(f"nflverse play-by-play starts in 1999. Game season: {season}")
