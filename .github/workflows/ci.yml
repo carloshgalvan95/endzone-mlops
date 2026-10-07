@@ -44,6 +44,20 @@ jobs:
       run: |
         cd dbt && dbt deps --profiles-dir .
 
+    - name: Create dbt profiles.yml for CI
+      run: |
+        cd dbt
+        cat > profiles.yml << 'EOF'
+        endzone_mlops:
+          target: local
+          outputs:
+            local:
+              type: duckdb
+              path: ./target/endzone_mlops.duckdb
+              schema: main
+              threads: 4
+        EOF
+
     - name: dbt compile (local DuckDB)
       run: |
         cd dbt && dbt compile --profiles-dir . --target local
