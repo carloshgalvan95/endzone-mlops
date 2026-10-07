@@ -159,8 +159,11 @@ Test in the notebook created above:
 ```python
 import mlflow
 
+# Get current user (avoids hardcoding email)
+user = spark.sql("select current_user()").first()[0]
+
 # Set experiment (creates if doesn't exist)
-mlflow.set_experiment("/Users/<your-email>/nfl_spike_test")
+mlflow.set_experiment(f"/Users/{user}/nfl_spike_test")
 
 # Log a test run
 with mlflow.start_run():
