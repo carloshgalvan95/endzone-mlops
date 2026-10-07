@@ -2,11 +2,6 @@
 
 NFL pregame prediction lakehouse demonstrating Databricks + dbt + MLflow + CI/CD patterns for MLOps portfolios.
 
-## Honesty
-
-Public learning portfolio. Production analogues for CV/LinkedIn: Athena / Glue / Redshift Spectrum / Prefect (role-dependent).
-Do not invent Databricks, dbt, MLflow, or Snowflake logos on PEMEX or Kavak bullets.
-
 ## Problem Statement
 
 Build a reproducible lakehouse pipeline for NFL pregame predictions (win probability, margin, total points) that demonstrates modern MLOps practices. Target audience: hiring managers evaluating Data Engineering, ML Engineering, or MLOps capabilities.
