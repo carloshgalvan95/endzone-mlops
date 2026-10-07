@@ -136,12 +136,23 @@ endzone-mlops/
 git clone https://github.com/carloshgalvan95/endzone-mlops.git
 cd endzone-mlops
 
+# Create and activate virtual environment
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
 # Install dependencies
 pip install -r requirements.txt
 
-# Copy environment template
+# Copy environment variable config template
 cp .env.example .env
 # Edit .env with your paths (no secrets needed for local dev)
+# Note: .env is for environment variables, not the Python virtual environment
+
+# Copy dbt profile template
+cd dbt
+cp profiles.yml.example profiles.yml
+cd ..
+# profiles.yml stays local (gitignored) - contains connection config
 
 # Run tests
 make test
@@ -149,9 +160,14 @@ make test
 # Lint code
 make lint
 
-# dbt compile (local DuckDB path for Day 1)
-cd dbt && dbt compile --profiles-dir .
+# dbt: install packages and compile models (validates SQL, no data needed)
+cd dbt
+dbt deps --profiles-dir .
+dbt compile --profiles-dir .
+cd ..
 ```
+
+**Tip**: Use `make setup` to automate virtualenv creation and dependency installation.
 
 ### Databricks CE Path (Spike Pending)
 
