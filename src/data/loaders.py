@@ -6,7 +6,6 @@ Provides helper functions for downloading, caching, and validating data sources.
 
 import hashlib
 from pathlib import Path
-from typing import Optional
 
 import pandas as pd
 
@@ -101,7 +100,7 @@ def validate_dataframe_schema(
 
 def load_parquet_safe(
     path_or_url: str,
-    columns: Optional[list[str]] = None,
+    columns: list[str] | None = None,
 ) -> pd.DataFrame:
     """
     Safely load Parquet file with error handling.
@@ -123,4 +122,4 @@ def load_parquet_safe(
         df = pd.read_parquet(path_or_url, columns=columns)
         return df
     except Exception as e:
-        raise IOError(f"Failed to load Parquet from {path_or_url}: {e}") from e
+        raise OSError(f"Failed to load Parquet from {path_or_url}: {e}") from e

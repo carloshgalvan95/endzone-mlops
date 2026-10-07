@@ -10,7 +10,7 @@ LiveFeed is a documented stub for v0.2+ when BALLDONTLIE API is activated.
 
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Optional, Protocol
+from typing import Protocol
 
 import pandas as pd
 
@@ -26,7 +26,7 @@ class NFLFeedProtocol(Protocol):
     def get_games(
         self,
         season: int,
-        week: Optional[int] = None,
+        week: int | None = None,
         game_type: str = "REG",
     ) -> pd.DataFrame:
         """
@@ -34,7 +34,7 @@ class NFLFeedProtocol(Protocol):
 
         Args:
             season: NFL season year (e.g., 2023)
-            week: Optional week number (1-18 for regular season, 19+ playoffs)
+            week: Week number (1-18 for regular season, 19+ playoffs) or None
             game_type: Game type filter ('REG', 'POST', 'PRE')
 
         Returns:
@@ -46,16 +46,16 @@ class NFLFeedProtocol(Protocol):
                 - away_team: str
                 - home_team: str
                 - gameday: date
-                - away_score: Optional[int]
-                - home_score: Optional[int]
-                - spread_line: Optional[float]
-                - total_line: Optional[float]
-                - roof: Optional[str]
-                - surface: Optional[str]
-                - temp: Optional[float]
-                - wind: Optional[float]
-                - away_rest: Optional[int]
-                - home_rest: Optional[int]
+                - away_score: int | None
+                - home_score: int | None
+                - spread_line: float | None
+                - total_line: float | None
+                - roof: str | None
+                - surface: str | None
+                - temp: float | None
+                - wind: float | None
+                - away_rest: int | None
+                - home_rest: int | None
         """
         ...
 
@@ -75,13 +75,13 @@ class NFLFeedProtocol(Protocol):
                 - game_id: str
                 - season: int
                 - week: int
-                - down: Optional[int]
-                - ydstogo: Optional[int]
-                - yardline_100: Optional[int]
+                - down: int | None
+                - ydstogo: int | None
+                - yardline_100: int | None
                 - quarter_seconds_remaining: int
                 - score_differential: int
-                - posteam: Optional[str]
-                - defteam: Optional[str]
+                - posteam: str | None
+                - defteam: str | None
                 - play_type: str
                 - yards_gained: int
                 - ... (many more columns)
@@ -107,7 +107,7 @@ class HistoricalFeed(ABC):
     def get_games(
         self,
         season: int,
-        week: Optional[int] = None,
+        week: int | None = None,
         game_type: str = "REG",
     ) -> pd.DataFrame:
         """Fetch historical game data. See NFLFeedProtocol for schema."""
@@ -146,7 +146,7 @@ class LiveFeed(ABC):
     def get_games(
         self,
         season: int,
-        week: Optional[int] = None,
+        week: int | None = None,
         game_type: str = "REG",
         in_progress_only: bool = False,
     ) -> pd.DataFrame:
@@ -169,7 +169,7 @@ class LiveFeed(ABC):
     def get_plays(
         self,
         game_id: str,
-        as_of: Optional[datetime] = None,
+        as_of: datetime | None = None,
     ) -> pd.DataFrame:
         """
         Fetch live play-by-play data.
@@ -219,7 +219,7 @@ class LiveFeedStub(LiveFeed):
     def get_games(
         self,
         season: int,
-        week: Optional[int] = None,
+        week: int | None = None,
         game_type: str = "REG",
         in_progress_only: bool = False,
     ) -> pd.DataFrame:
@@ -235,7 +235,7 @@ class LiveFeedStub(LiveFeed):
     def get_plays(
         self,
         game_id: str,
-        as_of: Optional[datetime] = None,
+        as_of: datetime | None = None,
     ) -> pd.DataFrame:
         """Not implemented in v0.1. See roadmap for BALLDONTLIE activation."""
         raise NotImplementedError(

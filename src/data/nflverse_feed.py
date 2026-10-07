@@ -6,7 +6,6 @@ Source: https://github.com/nflverse/nflverse-data
 Coverage: 1999-present, updated nightly
 """
 
-from typing import Optional
 from urllib.parse import urljoin
 
 import pandas as pd
@@ -42,7 +41,7 @@ class NFLverseFeed(HistoricalFeed):
     def get_games(
         self,
         season: int,
-        week: Optional[int] = None,
+        week: int | None = None,
         game_type: str = "REG",
     ) -> pd.DataFrame:
         """
