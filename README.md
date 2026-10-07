@@ -1,5 +1,7 @@
 # endzone-mlops
 
+[![CI](https://github.com/carloshgalvan95/endzone-mlops/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/carloshgalvan95/endzone-mlops/actions/workflows/ci.yml)
+
 NFL pregame prediction lakehouse demonstrating Databricks + dbt + MLflow + CI/CD patterns for MLOps portfolios.
 
 ## Problem Statement
@@ -8,36 +10,50 @@ Build a reproducible lakehouse pipeline for NFL pregame predictions (win probabi
 
 **This is a batch-first analytics platform**, not a sports betting application. The domain is NFL because the data story is rich and can become a real product later, but the primary goal is demonstrating: Databricks lakehouse architecture, dbt transformations, MLflow experiment tracking, GitHub Actions CI/CD, and modular Python design patterns.
 
+## Current Status
+
+**As of October 2026 (Day 2 of 14)**:
+
+- **Databricks Free Edition**: Spike completed and passed. Serverless SQL warehouse validated with dbt-databricks locally and from GitHub Actions. MLflow tracking connectivity confirmed (no training runs yet).
+- **Bronze ingest**: `src/ingest/load_raw_nflverse.py` downloads nflverse parquet (CC BY 4.0), uploads to Unity Catalog volume (workspace.nfl_raw.landing), creates Delta tables via read_files: workspace.nfl_raw.games (854 games, seasons 2022-2024) and workspace.nfl_raw.play_by_play (148,591 plays).
+- **dbt**: 2 staging views (stg_nflverse__games, stg_nflverse__pbp, about 70 of 372 raw pbp columns), 2 sources, 22 data tests. `dbt build --target databricks` passed 24/24 (2 models + 22 tests).
+- **CI**: GitHub Actions runs ruff lint + format check, pytest on Python 3.10/3.11, dbt compile against DuckDB, cross-platform matrix (Ubuntu, Windows, macOS). Tests verify column references against real nflverse schema (fixtures in tests/fixtures).
+- **PR Guard**: Branch protection with freshness check, Conventional Commit titles, PR template verification, no secrets/data files, commit identity validation.
+
+**Next**: Marts models, MLflow training (train.py), batch scoring (score.py).
+
 ## Architecture Overview
+
+**Target architecture** (components marked [done] or [planned]):
 
 ```
 nflverse (historical)     BALLDONTLIE (future live, documented only)
     |                            |
     v                            v
-HistoricalFeed              LiveFeed (stub)
+HistoricalFeed [done]       LiveFeed (stub) [planned]
     |                            |
     +----------------------------+
                 |
                 v
-         Bronze (raw data)
+         Bronze (raw data) [done]
                 |
                 v
-    dbt: Staging -> Marts (SQL transformations)
+    dbt: Staging [done] -> Marts [planned]
                 |
                 v
-       Feature Engineering (Python)
+       Feature Engineering (Python) [planned]
                 |
                 v
-    MLflow Tracking (train.py with hyperparameters)
+    MLflow Tracking (train.py with hyperparameters) [planned]
                 |
                 v
-       Model Registry + Artifacts
+       Model Registry + Artifacts [planned]
                 |
                 v
-         Batch Scoring (score.py)
+         Batch Scoring (score.py) [planned]
                 |
                 v
-      Predictions Table + Monitoring
+      Predictions Table + Monitoring [planned]
 ```
 
 ### Key Design Decisions
@@ -198,35 +214,76 @@ Copy-Item dbt\profiles.yml.example dbt\profiles.yml
 - Git Bash (MINGW) on Windows mangles paths starting with `/` - use PowerShell or add `export MSYS_NO_PATHCONV=1` to `~/.bashrc`
 - Both `.venv/` and `dbt/profiles.yml` are gitignored
 
-### Databricks Free Edition Path (Spike Pending)
+### Databricks Free Edition Path
 
-See `docs/runbook.md` for Databricks Free Edition setup checklist:
-- Serverless SQL Warehouse connection (pre-created)
-- Personal access token generation
-- dbt-databricks adapter configuration with Unity Catalog
-- MLflow tracking with serverless compute
-- GitHub Actions secrets for CI
+**Spike completed**: Databricks Free Edition serverless SQL warehouse works with dbt-databricks. See `docs/runbook.md` for setup details and troubleshooting.
 
-**Spike status**: PENDING_OWNER (requires completion of Databricks Free Edition signup and configuration)
+**To run ingest and dbt against Databricks**:
+
+macOS / Linux (bash):
+```bash
+# Load environment variables from .env
+set -a; source .env; set +a
+
+# Ingest nflverse data to Unity Catalog
+make ingest       # Load games + play-by-play
+
+# Build dbt models on Databricks
+make dbt-build-databricks
+```
+
+Windows Git Bash:
+```bash
+export MSYS_NO_PATHCONV=1  # Prevent path conversion issues
+set -a; source .env; set +a
+make ingest
+make dbt-build-databricks
+```
+
+Windows PowerShell:
+```powershell
+# Load environment automatically via scripts
+.\scripts\dev.ps1 ingest
+.\scripts\dev.ps1 dbt-build-databricks
+```
+
+See `docs/runbook.md` for credential setup, Unity Catalog volume paths, and verification queries.
 
 ## CI/CD
 
-GitHub Actions workflow runs on every push and pull request:
-- **Lint**: ruff (or flake8)
-- **Test**: pytest
-- **dbt**: compile (build with secrets when available)
+### GitHub Actions Workflows
 
-Badge: ![CI](https://github.com/carloshgalvan95/endzone-mlops/workflows/CI/badge.svg)
+**CI** (`.github/workflows/ci.yml`): Runs on every push and pull request:
+- **Lint**: ruff check + ruff format --check
+- **Test**: pytest on Python 3.10 and 3.11 (Ubuntu)
+- **dbt compile**: Validates SQL against DuckDB (no Databricks credentials in CI yet)
+- **Cross-platform**: Lint + pytest on windows-latest and macos-latest (Python 3.11)
+- Tests include verification that staging models reference real nflverse column names (fixtures in tests/fixtures)
+
+**Databricks Smoke Test** (`.github/workflows/databricks-smoke.yml`): Manual workflow_dispatch, runs dbt debug and dbt compile against Databricks using GitHub secrets (DATABRICKS_HOST, DATABRICKS_HTTP_PATH, DATABRICKS_TOKEN).
+
+**PR Guard** (`.github/workflows/pr-guard.yml`): Automated PR validation:
+- Branch must be up to date with main
+- Conventional Commit PR titles (feat, fix, docs, chore, ci, test, refactor, perf, build)
+- PR template with verification checklist
+- No secrets or data files committed
+- Commit identity checks (author/committer email validation)
+
+**Branch protection**: main requires pr-guard + CI jobs to pass, branch must be up to date, no force pushes.
+
+**Planned**: A Databricks integration job in CI that runs ingest for one season and dbt build in a separate CI schema on PRs that touch ingest or dbt.
 
 ## Roadmap
 
 ### v0.1 (Day 14 Target)
 - [x] Repository scaffold
-- [x] Staging dbt models from nflverse
+- [x] Bronze ingest to Unity Catalog Delta tables (games, play_by_play)
+- [x] Staging dbt models from nflverse (2 views, 22 tests)
+- [x] CI with GitHub Actions (lint, tests, cross-platform, PR guard)
+- [ ] Databricks integration job in CI
 - [ ] Marts for pregame features
 - [ ] MLflow experiment tracking (train.py)
 - [ ] Batch scoring pipeline (score.py)
-- [ ] CI/CD with GitHub Actions
 - [ ] Documentation and demo
 
 ### v0.2+ (Post-Day 14)
