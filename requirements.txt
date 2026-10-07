@@ -13,7 +13,7 @@ pytest>=7.0.0
 pytest-cov>=4.0.0
 ruff>=0.1.0
 
-# Optional: Databricks + MLflow (uncomment after CE spike succeeds)
-# dbt-databricks>=1.6.0
-# mlflow>=2.8.0
-# databricks-sdk>=0.18.0
+# Databricks + MLflow
+mlflow>=2.8.0
+databricks-sdk>=0.18.0
+databricks-sql-connector>=3.0.0

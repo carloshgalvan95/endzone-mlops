@@ -1,16 +1,18 @@
-.PHONY: help setup install lint test dbt-compile dbt-run dbt-test clean reproduce
+.PHONY: help setup install lint test dbt-compile dbt-run dbt-test clean reproduce ingest dbt-build-databricks
 
 help:
 	@echo "Available targets:"
-	@echo "  setup        - Create virtualenv and install dependencies"
-	@echo "  install      - Install Python dependencies (in active environment)"
-	@echo "  lint         - Run code quality checks (ruff)"
-	@echo "  test         - Run pytest unit tests"
-	@echo "  dbt-compile  - Compile dbt models"
-	@echo "  dbt-run      - Run dbt models (creates tables)"
-	@echo "  dbt-test     - Run dbt tests"
-	@echo "  reproduce    - Full reproduction pipeline (install -> dbt -> train)"
-	@echo "  clean        - Remove build artifacts"
+	@echo "  setup               - Create virtualenv and install dependencies"
+	@echo "  install             - Install Python dependencies (in active environment)"
+	@echo "  lint                - Run code quality checks (ruff)"
+	@echo "  test                - Run pytest unit tests"
+	@echo "  dbt-compile         - Compile dbt models"
+	@echo "  dbt-run             - Run dbt models (creates tables)"
+	@echo "  dbt-test            - Run dbt tests"
+	@echo "  ingest              - Load nflverse data into Databricks (requires DATABRICKS_* env vars)"
+	@echo "  dbt-build-databricks - Build dbt models on Databricks target"
+	@echo "  reproduce           - Full reproduction pipeline (install -> dbt -> train)"
+	@echo "  clean               - Remove build artifacts"
 	@echo ""
 	@echo "Note: Most targets expect an activated virtualenv (source .venv/bin/activate)"
 
@@ -51,6 +53,14 @@ clean:
 	find . -type d -name .pytest_cache -exec rm -rf {} + 2>/dev/null || true
 	find . -type d -name .ruff_cache -exec rm -rf {} + 2>/dev/null || true
 	rm -rf dbt/target dbt/logs dbt/dbt_packages
+
+ingest:
+	@echo "Loading nflverse data into Databricks (seasons 2022 2023 2024)..."
+	python -m src.ingest.load_raw_nflverse --seasons 2022 2023 2024
+
+dbt-build-databricks:
+	@echo "Building dbt models on Databricks target..."
+	cd dbt && dbt build --profiles-dir . --target databricks
 
 reproduce: install dbt-run
 	@echo "Reproduction pipeline complete. Next: run train.py when implemented."
