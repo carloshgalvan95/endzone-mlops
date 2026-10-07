@@ -19,14 +19,12 @@ This model provides a cleaned view of game-level data including:
 - Betting lines (spread, total, moneyline)
 - Weather and venue information
 
-Day 1 Note: This model defines the schema for when raw data is loaded.
-Currently serves as documentation and dbt compile test.
+Raw data lands in workspace.nfl_raw.games via src/ingest/load_raw_nflverse.py.
+Cross-reference IDs are renamed to *_id here (raw columns: gsis, pfr, pff, espn).
 */
 
 with source as (
 
-    -- Placeholder: Replace with actual source reference when data is loaded
-    -- For Day 1, this compiles but won't run without data
     select
         game_id,
         season,
@@ -58,18 +56,15 @@ with source as (
         home_rest,
         
         -- Cross-reference IDs (for future joins with other data sources)
-        gsis_id,
-        pfr_id,
-        pff_id,
-        espn_id,
+        gsis as gsis_id,
+        pfr as pfr_id,
+        pff as pff_id,
+        espn as espn_id,
         
         -- Metadata
         old_game_id
         
     from {{ source('nflverse', 'raw_games') }}
-    
-    -- Note: source('nflverse', 'raw_games') must be defined in sources.yml
-    -- For Day 1 local compile: this model documents the expected schema
 
 )
 

@@ -218,7 +218,10 @@ class TestUploadToVolume:
         mock_client.files.upload.assert_called_once()
         call_args = mock_client.files.upload.call_args
         assert call_args[0][0] == volume_path
-        assert call_args[0][1] == b"test content"
+        uploaded = call_args[0][1]
+        assert hasattr(uploaded, "read"), "upload must receive a binary file object"
+        assert Path(uploaded.name) == test_file
+        assert uploaded.mode == "rb"
         assert call_args[1]["overwrite"] is True
 
 
