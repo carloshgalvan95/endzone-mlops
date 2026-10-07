@@ -74,16 +74,56 @@ Local machine setup:
 # Install dbt-databricks (uncomment in requirements.txt if needed)
 pip install dbt-databricks
 
-# Set environment variables (add to .env, never commit)
-export DATABRICKS_HOST="<server-hostname-from-step-2>"
-export DATABRICKS_HTTP_PATH="<http-path-from-step-2>"
-export DATABRICKS_TOKEN="<token-from-step-3>"
-
 # Copy profile template
 cd dbt
 cp profiles.yml.example profiles.yml
 # profiles.yml uses env_var() to read credentials from environment
+
+# Create .env file (never commit)
+cd ..
+cp .env.example .env
 ```
+
+Edit `.env` with values from steps 2 and 3:
+```bash
+DATABRICKS_HOST=adb-xxxxx.xx.azuredatabricks.net
+DATABRICKS_HTTP_PATH=/sql/1.0/warehouses/xxxxx
+DATABRICKS_TOKEN=dapi...
+```
+
+**Important .env format rules**:
+- No spaces around `=` (use `KEY=value`, not `KEY = value`)
+- No `https://` prefix in `DATABRICKS_HOST` (hostname only)
+- No quotes around values (unless value contains spaces)
+
+**Load environment variables before running dbt**:
+
+macOS / Linux (bash/zsh):
+```bash
+set -a; source .env; set +a
+cd dbt && dbt debug --profiles-dir .
+```
+
+Windows PowerShell:
+```powershell
+Get-Content .env | ForEach-Object {
+    if ($_ -match '^([^=]+)=(.*)$') {
+        [Environment]::SetEnvironmentVariable($matches[1], $matches[2], 'Process')
+    }
+}
+cd dbt; dbt debug --profiles-dir .
+```
+
+Windows Git Bash (MINGW):
+```bash
+# Git Bash mangles paths starting with / (e.g., /sql/1.0/warehouses/xxx becomes C:/Program Files/Git/...)
+# This causes HTTP 404 errors. Fix with:
+export MSYS_NO_PATHCONV=1  # Add to ~/.bashrc to persist
+set -a; source ../.env; set +a
+dbt debug --profiles-dir .
+```
+
+**Tip**: Use `make dbt-compile` or `.\scripts\dev.ps1 dbt-compile` which load `.env` automatically.
 
 dbt validation:
 - [ ] Run `dbt debug --profiles-dir .` (should show "All checks passed!")

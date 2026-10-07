@@ -35,12 +35,15 @@ test:
 	pytest tests/ -v
 
 dbt-compile:
+	@if [ -f .env ]; then set -a && . ./.env && set +a; fi; \
 	cd dbt && dbt compile --profiles-dir .
 
 dbt-run:
+	@if [ -f .env ]; then set -a && . ./.env && set +a; fi; \
 	cd dbt && dbt run --profiles-dir .
 
 dbt-test:
+	@if [ -f .env ]; then set -a && . ./.env && set +a; fi; \
 	cd dbt && dbt test --profiles-dir .
 
 clean:
