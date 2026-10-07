@@ -9,16 +9,18 @@ param(
 
 function Show-Help {
     Write-Host "Available targets:"
-    Write-Host "  setup        - Create virtualenv and install dependencies"
-    Write-Host "  install      - Install Python dependencies (in active environment)"
-    Write-Host "  lint         - Run code quality checks (ruff)"
-    Write-Host "  format       - Auto-format code with ruff"
-    Write-Host "  test         - Run pytest unit tests"
-    Write-Host "  dbt-compile  - Compile dbt models"
-    Write-Host "  dbt-run      - Run dbt models (creates tables)"
-    Write-Host "  dbt-test     - Run dbt tests"
-    Write-Host "  clean        - Remove build artifacts"
-    Write-Host "  reproduce    - Full reproduction pipeline"
+    Write-Host "  setup               - Create virtualenv and install dependencies"
+    Write-Host "  install             - Install Python dependencies (in active environment)"
+    Write-Host "  lint                - Run code quality checks (ruff)"
+    Write-Host "  format              - Auto-format code with ruff"
+    Write-Host "  test                - Run pytest unit tests"
+    Write-Host "  dbt-compile         - Compile dbt models"
+    Write-Host "  dbt-run             - Run dbt models (creates tables)"
+    Write-Host "  dbt-test            - Run dbt tests"
+    Write-Host "  ingest              - Load nflverse data into Databricks (requires DATABRICKS_* env vars)"
+    Write-Host "  dbt-build-databricks - Build dbt models on Databricks target"
+    Write-Host "  clean               - Remove build artifacts"
+    Write-Host "  reproduce           - Full reproduction pipeline"
     Write-Host ""
     Write-Host "Note: Most targets expect an activated virtualenv"
     Write-Host "Usage: .\scripts\dev.ps1 <target>"
@@ -110,6 +112,22 @@ function Invoke-Reproduce {
     Write-Host "Reproduction pipeline complete. Next: run train.py when implemented."
 }
 
+function Invoke-Ingest {
+    Write-Host "Loading nflverse data into Databricks (seasons 2022 2023 2024)..."
+    python -m src.ingest.load_raw_nflverse --seasons 2022 2023 2024
+}
+
+function Invoke-DbtBuildDatabricks {
+    Write-Host "Building dbt models on Databricks target..."
+    Push-Location dbt
+    try {
+        dbt build --profiles-dir . --target databricks
+    }
+    finally {
+        Pop-Location
+    }
+}
+
 # Main execution
 switch ($Target.ToLower()) {
     "help" { Show-Help }
@@ -121,6 +139,8 @@ switch ($Target.ToLower()) {
     "dbt-compile" { Invoke-DbtCompile }
     "dbt-run" { Invoke-DbtRun }
     "dbt-test" { Invoke-DbtTest }
+    "ingest" { Invoke-Ingest }
+    "dbt-build-databricks" { Invoke-DbtBuildDatabricks }
     "clean" { Invoke-Clean }
     "reproduce" { Invoke-Reproduce }
     default {

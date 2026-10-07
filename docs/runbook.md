@@ -301,6 +301,146 @@ df = pd.read_parquet(url)
 
 ---
 
+## D2: Data Ingestion to Databricks Free Edition
+
+This section covers loading real nflverse games data into Databricks Free Edition.
+
+**Prerequisites**:
+- Databricks Free Edition account configured (see spike checklist above)
+- Environment variables set in `.env` (DATABRICKS_HOST, DATABRICKS_HTTP_PATH, DATABRICKS_TOKEN)
+- Python dependencies installed: `pip install -r requirements.txt`
+
+### Data Ingestion Workflow
+
+The ingestion script `src.ingest.load_raw_nflverse`:
+1. Downloads nflverse games/schedules parquet from GitHub releases
+2. Filters to specified seasons (e.g., 2022, 2023, 2024)
+3. Uploads to Unity Catalog Volume at `/Volumes/workspace/nfl_raw/landing/games/`
+4. Creates bronze Delta table `workspace.nfl_raw.games` using `read_files()`
+
+**Note**: Databricks Free Edition does NOT have outbound internet from compute, so the script downloads data locally first, then uploads via the Files API.
+
+### Commands
+
+#### macOS / Linux (bash)
+
+```bash
+# Load environment variables from .env
+export $(grep -v '^#' .env | xargs)
+
+# Run data ingestion (loads seasons 2022, 2023, 2024)
+make ingest
+
+# Or run directly:
+python -m src.ingest.load_raw_nflverse --seasons 2022 2023 2024
+
+# Build dbt models on Databricks
+make dbt-build-databricks
+
+# Or run dbt directly:
+cd dbt && dbt build --profiles-dir . --target databricks
+```
+
+#### Windows Git Bash
+
+```bash
+# Prevent path conversion issues with Git Bash
+export MSYS_NO_PATHCONV=1
+
+# Load environment variables from .env
+export $(grep -v '^#' .env | xargs)
+
+# Run data ingestion
+make ingest
+
+# Build dbt models on Databricks
+make dbt-build-databricks
+```
+
+#### Windows PowerShell
+
+```powershell
+# PowerShell automatically loads .env when the script checks for it
+# Alternatively, manually set environment variables:
+# $env:DATABRICKS_HOST = "adb-xxxxx.xx.azuredatabricks.net"
+# $env:DATABRICKS_HTTP_PATH = "/sql/1.0/warehouses/xxxxx"
+# $env:DATABRICKS_TOKEN = "dapi..."
+
+# Run data ingestion
+.\scripts\dev.ps1 ingest
+
+# Build dbt models on Databricks
+.\scripts\dev.ps1 dbt-build-databricks
+```
+
+### Verification
+
+After running the ingestion and dbt build, verify the data in Databricks SQL Editor:
+
+```sql
+-- Check bronze table row counts by season
+SELECT season, COUNT(*) as game_count
+FROM workspace.nfl_raw.games
+GROUP BY season
+ORDER BY season;
+
+-- Expected output (approximate):
+-- 2022: 285 games (272 regular + playoffs + preseason)
+-- 2023: 285 games
+-- 2024: 285 games
+
+-- Check staging view
+SELECT season, COUNT(*) as game_count
+FROM workspace.nfl_dev.stg_nflverse__games
+GROUP BY season
+ORDER BY season;
+
+-- Check sample data
+SELECT game_id, season, week, game_type, away_team, home_team, 
+       away_score, home_score, spread_line, total_line
+FROM workspace.nfl_dev.stg_nflverse__games
+WHERE season = 2024
+LIMIT 5;
+```
+
+### Troubleshooting Data Ingestion
+
+**Problem**: `Missing required Databricks environment variables`
+- **Solution**: Ensure `.env` file exists and contains DATABRICKS_HOST, DATABRICKS_HTTP_PATH, DATABRICKS_TOKEN
+- **Check**: `cat .env` (bash) or `Get-Content .env` (PowerShell)
+
+**Problem**: `Unauthorized` or `401` error
+- **Solution**: Regenerate access token in Databricks (Settings > Developer > Access tokens)
+- **Check**: Token has not expired (default 90 days)
+
+**Problem**: `Volume does not exist` or `Schema does not exist`
+- **Solution**: Script should create these automatically. If fails, manually create:
+  ```sql
+  CREATE SCHEMA IF NOT EXISTS workspace.nfl_raw;
+  CREATE VOLUME IF NOT EXISTS workspace.nfl_raw.landing;
+  ```
+
+**Problem**: `dbt build --target databricks` fails with "relation not found"
+- **Solution**: Ensure ingestion completed successfully first. Check bronze table exists:
+  ```sql
+  SHOW TABLES IN workspace.nfl_raw;
+  ```
+
+**Problem**: Download fails with network error
+- **Solution**: Check internet connection. nflverse data is downloaded from GitHub releases (public, no auth needed)
+
+### Data Attribution
+
+All data sourced from nflverse project:
+- **License**: CC BY 4.0 (Creative Commons Attribution 4.0 International)
+- **Source**: https://github.com/nflverse/nflverse-data
+- **Coverage**: NFL games from 1999-present
+- **Citation**: nflverse project contributors
+
+When using this data in presentations or publications, credit the nflverse project as specified in `docs/ATTRIBUTION.md`.
+
+---
+
 ## GitHub Actions CI/CD
 
 Workflow: `.github/workflows/ci.yml`
