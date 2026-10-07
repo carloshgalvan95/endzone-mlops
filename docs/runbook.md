@@ -4,11 +4,93 @@ This document contains operational procedures, setup checklists, and troubleshoo
 
 ## Table of Contents
 
-1. [Databricks Free Edition Spike](#databricks-free-edition-spike)
-2. [Local Development Setup](#local-development-setup)
-3. [GitHub Actions CI/CD](#github-actions-cicd)
-4. [MLflow Tracking](#mlflow-tracking)
-5. [Troubleshooting](#troubleshooting)
+1. [PR Guard Workflow](#pr-guard-workflow)
+2. [Databricks Free Edition Spike](#databricks-free-edition-spike)
+3. [Local Development Setup](#local-development-setup)
+4. [GitHub Actions CI/CD](#github-actions-cicd)
+5. [MLflow Tracking](#mlflow-tracking)
+6. [Troubleshooting](#troubleshooting)
+
+---
+
+## PR Guard Workflow
+
+**Purpose**: Automated guardrails that validate every pull request against repository quality standards.
+
+**Trigger**: Runs automatically on PR open, synchronize, reopen, and edit events.
+
+**Job name**: `pr-guard` (stable name for branch protection rules)
+
+### What It Checks
+
+The PR Guard validates:
+
+1. **Base branch freshness**: PR must contain the current base branch HEAD (not stale/behind)
+2. **Git authorship**: Author and committer email must be `carloshgalvan95@gmail.com`; GitHub login must be `carloshgalvan95`
+3. **Co-authored-by trailers**: Only self Co-authored-by (owner's email) is allowed; blocks bots and other contributors
+4. **Commit messages**: No AI agent mentions (cursor, claude, copilot, grok, etc.) except in code context like `db.cursor()`
+5. **PR title**: Must follow Conventional Commit format (feat, fix, docs, chore, ci, test, refactor, perf, build)
+6. **PR body**: No tool-generated footers or em dash character (U+2014); no AI agent mentions
+7. **PR template**: Required sections (Summary, Changes, Verification, Risks) present; at least one verification item checked
+8. **Changed files**: No em dash added; no data/secret files (*.parquet, *.csv, .env, *.pem) except in tests/fixtures
+9. **File size**: No very large files (>5 MB heuristic)
+
+### How to Fix Failures
+
+#### Base branch stale
+```bash
+git fetch origin
+git rebase origin/main
+git push --force-with-lease
+```
+
+#### Wrong author/committer
+```bash
+# Set git identity
+git config user.name "Carlos Galván"
+git config user.email "carloshgalvan95@gmail.com"
+
+# Fix last commit
+git commit --amend --reset-author --no-edit
+
+# Fix multiple commits (interactive rebase)
+git rebase -i origin/main
+# Mark commits as 'edit', then for each:
+git commit --amend --reset-author --no-edit
+git rebase --continue
+```
+
+#### Co-authored-by trailers (non-owner)
+Remove any Co-authored-by lines except `Co-authored-by: Carlos Galván <carloshgalvan95@gmail.com>` from commit messages:
+```bash
+git rebase -i origin/main
+# Mark commits as 'reword' or 'edit', remove unwanted trailers
+```
+
+#### Non-conventional PR title
+Edit the PR title to match format: `type(scope): description`
+
+Valid types: feat, fix, docs, chore, refactor, test, ci, build, perf
+
+Example: `feat(dbt): add fct_game_results mart`
+
+#### Missing PR template sections or unchecked verification
+Edit the PR body to include all required sections and check at least one verification item.
+
+#### Em dash in PR body or files
+Replace em dash (U+2014) with comma, period, colon, or regular hyphen.
+
+#### Data/secret files
+Remove data files from the commit. Use tests/fixtures for small test data only.
+
+### Making PR Guard a Required Check
+
+In GitHub repository settings:
+1. Go to Settings > Branches
+2. Add branch protection rule for `main`
+3. Enable "Require status checks to pass before merging"
+4. Search for and select: `pr-guard`
+5. Save changes
 
 ---
 

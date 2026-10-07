@@ -71,29 +71,73 @@ Examples:
 
 ---
 
-## 3. Quality bar (checklists accionables)
+## 3. Change workflow
 
-### 3.1 Requirements
+### Starting work
+
+- Always fetch the latest base branch: `git fetch origin` and branch from current `origin/main`
+- Verify merge base matches current main: `git merge-base HEAD origin/main` should equal `git rev-parse origin/main`
+- Before creating new modules, search the repository first to extend existing ones instead of recreating from scratch
+
+### During development
+
+- Verify external data schemas by inspecting the real file before writing models
+- One focused change per PR; avoid mixing unrelated changes
+- Run locally before pushing: `ruff check`, `ruff format --check`, `pytest`, `cd dbt && dbt compile --target local`
+
+### Committing changes
+
+- Git identity must be Carlos Galván <carloshgalvan95@gmail.com> as both author and committer
+- No Co-authored-by trailers (not even self-attribution)
+- Commit messages in first person or imperative voice
+- No em dash character (U+2014) anywhere; use comma, period, colon, or regular hyphen
+
+### Pull requests
+
+- PR title must follow Conventional Commit format: `type(scope): description`
+- PR body in first person or imperative voice
+- Complete the PR template sections: Summary, Changes, Verification (with at least one item checked), Risks
+- PR must be up to date with base branch before merge
+
+### Automated guardrails
+
+The PR Guard workflow validates:
+- Base branch freshness (not stale)
+- Git authorship (Carlos only, no bots in metadata)
+- No Co-authored-by trailers or AI agent mentions in commit messages
+- Conventional Commit PR title
+- No tool-generated footers or em dash in PR body
+- No em dash in changed files
+- No data/secret files committed (except in tests/fixtures)
+- PR template sections present and verification checklist not entirely unchecked
+
+If PR Guard fails, fix the reported issues and push again.
+
+---
+
+## 4. Quality bar (checklists accionables)
+
+### 4.1 Requirements
 
 - Problema de negocio o analítico escrito en 1 párrafo en README
 - Fuentes de datos nombradas (URL, licencia, versión)
 - Exclusiones explícitas: streaming, feature store real, K8s, multi-cloud, UI rica, dos lakes
 - MoSCoW: Must (sin esto no hay DoD), Should, Could, Won't (14d)
 
-### 3.2 Architecture
+### 4.2 Architecture
 
 - ADR-001 con spike pass/fail
 - docs/architecture.md: C4 L1/L2, flujo raw -> stg -> marts -> features -> train/score -> predicciones
 - Trade-offs documentados
 
-### 3.3 Design (Wilson 9/10)
+### 4.3 Design (Wilson 9/10)
 
 - Entrypoints modulares (train.py, score.py); config inyectada
 - Nombres descriptivos; retornos dict/namedtuple
 - Sin except desnudo; sin estado global mutable
 - Contratos dbt schema.yml + test de negocio
 
-### 3.4 MLOps
+### 4.4 MLOps
 
 - Combatir glue code, pipeline jungles, config debt
 - MLflow: train dentro de start_run(); log params/metrics/artifacts/model; seed fijo
@@ -101,7 +145,7 @@ Examples:
 
 ---
 
-## 4. Definition of Done (portfolio-specific)
+## 5. Definition of Done (portfolio-specific)
 
 Una historia/PR está Done solo si cumple todos los puntos aplicables:
 
@@ -117,11 +161,11 @@ Una historia/PR está Done solo si cumple todos los puntos aplicables:
 - [ ] README/ADR/runbook/architecture al día; honesty intacta
 
 ### Milestone
-- [ ] Cumplir DoD D1 o D7 o D14 (sección 5)
+- [ ] Cumplir DoD D1 o D7 o D14 (sección 6)
 
 ---
 
-## 5. Incremental process (D1 / D7 / D14)
+## 6. Incremental process (D1 / D7 / D14)
 
 ### DoD Día 1 - Foundations + spike
 - [x] Repo público + README con honesty banner + ADR-001
@@ -147,7 +191,7 @@ Una historia/PR está Done solo si cumple todos los puntos aplicables:
 
 ---
 
-## 6. Anti-patterns (bloquear)
+## 7. Anti-patterns (bloquear)
 
 1. Notebook-as-product
 2. Secrets en git
