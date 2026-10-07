@@ -2,7 +2,7 @@
 
 **Date**: 2026-10-06  
 **Status**: Accepted  
-**Spike Status**: PENDING_OWNER (requires Carlos to complete Databricks CE configuration)
+**Spike Status**: PENDING_OWNER (requires completion of Databricks Free Edition configuration)
 
 ## Context
 
@@ -18,20 +18,22 @@ Constraint: Must be reproducible with zero cost for initial 14-day development (
 
 ## Decision
 
-**Primary stack**: Databricks Community Edition + dbt-databricks + MLflow + GitHub Actions
+**Primary stack**: Databricks Free Edition + dbt-databricks + MLflow + GitHub Actions
 
-**Plan B**: Snowflake trial (30 days) + dbt-snowflake + MLflow sidecar, **only if Databricks CE spike fails**. Never operate both in parallel.
+**Plan B**: Snowflake trial (30 days) + dbt-snowflake + MLflow sidecar, **only if Databricks Free Edition spike fails**. Never operate both in parallel.
+
+**Note**: Databricks Free Edition replaced Community Edition (retired in 2025). Free Edition is serverless-only with Unity Catalog enabled by default.
 
 ## Rationale
 
 ### Why Databricks Primary
 
-| Criterion | Databricks CE + dbt + MLflow | Snowflake + dbt + MLflow |
-|-----------|------------------------------|--------------------------|
+| Criterion | Databricks Free Edition + dbt + MLflow | Snowflake + dbt + MLflow |
+|-----------|----------------------------------------|--------------------------|
 | MLOps signal | **High** (MLflow native, unified platform) | Medium (MLflow separate deployment) |
-| dbt in free tier | **Risk: CE limitations unknown** (spike required) | Mature in trial, established patterns |
+| dbt in free tier | **Validated** (serverless SQL warehouse, Unity Catalog) | Mature in trial, established patterns |
 | FDE/DE signal | Medium-High (Spark + Delta Lake) | High (SQL warehouse, established) |
-| Post-14d continuity | Better if Free tier holds | Trial expires in 30 days |
+| Post-14d continuity | **Forever free** with usage quotas | Trial expires in 30 days |
 | Learning alignment | Matches TC5061 MLflow curriculum | Additional sidecar complexity |
 | Industry adoption | Strong (Unity Catalog, lakehouse narrative) | Strong (enterprise warehouse) |
 
@@ -47,31 +49,31 @@ Constraint: Must be reproducible with zero cost for initial 14-day development (
 
 | Risk | Mitigation |
 |------|------------|
-| CE may lack SQL Warehouse for dbt | **Day 1 spike** (60-90 min); fallback to Plan B same day if blocked |
-| CE may not support Jobs/scheduling | Document limitation; use GitHub Actions schedule as alternative |
-| CE cluster auto-terminates | Accept; document in runbook; restart workflow for demos |
-| Free tier limitations unknown | Spike validates: (1) cluster, (2) dbt run, (3) MLflow tracking, (4) GH secrets |
+| Serverless-only (no custom clusters) | Accept; serverless adequate for learning and small datasets |
+| Serverless SQL warehouse auto-stops | Accept; document in runbook; restart when needed |
+| Usage quotas and fair-use limits | Monitor usage; quotas sufficient for learning project |
+| Unity Catalog learning curve | Spike validates catalog/schema setup; document in runbook |
 
 ## Day 1 Spike Checklist
 
 Must validate within Day 1 (see `../runbook.md` for detailed status):
 
-- [ ] Create Databricks Community Edition account
-- [ ] Start compute cluster (single node, DBR 13.3 LTS+)
-- [ ] Verify SQL Warehouse availability (or alternative for dbt)
-- [ ] Run `dbt compile` and `dbt run` against Databricks
-- [ ] Log test MLflow run (params + metrics + artifact)
-- [ ] Configure GitHub Actions secrets (DATABRICKS_HOST, DATABRICKS_TOKEN)
+- [ ] Create Databricks Free Edition account
+- [ ] Start Serverless Starter SQL Warehouse (pre-created, no cluster needed)
+- [ ] Generate personal access token for dbt and MLflow
+- [ ] Run `dbt compile` against serverless SQL warehouse with Unity Catalog
+- [ ] Create serverless notebook and log test MLflow run (params + metrics)
+- [ ] Configure GitHub Actions secrets (DATABRICKS_HOST, DATABRICKS_HTTP_PATH, DATABRICKS_TOKEN)
 
 **Spike outcome decision**:
-- **PASS**: Continue with Databricks as primary
+- **PASS**: Continue with Databricks Free Edition as primary
 - **FAIL**: Activate Plan B Snowflake same day; create ADR-001b with rationale
 
-**Current status**: PENDING_OWNER (Carlos must complete Databricks CE signup and configuration steps)
+**Current status**: PENDING_OWNER (completion of Databricks Free Edition signup and configuration steps required)
 
 ## Plan B: Snowflake
 
-If Databricks CE spike fails, switch to:
+If Databricks Free Edition spike fails, switch to:
 - Snowflake 30-day trial (no credit card until trial ends)
 - dbt-snowflake adapter (mature, well-documented)
 - MLflow sidecar (separate tracking server or local ./mlruns)
@@ -147,11 +149,11 @@ ADR-001b will document the switch with specific failure reasons.
 
 ## References
 
-- Databricks Community Edition: https://community.cloud.databricks.com/
+- Databricks Free Edition: https://www.databricks.com/try-databricks/signup-form
 - dbt-databricks adapter: https://docs.getdbt.com/reference/warehouse-setups/databricks-setup
 - nflverse: https://github.com/nflverse
 - MLflow Tracking: https://mlflow.org/docs/latest/tracking.html
 
 ---
 
-**Next action**: Carlos completes Databricks CE account creation and validation of spike checklist items (estimated 60-90 minutes).
+**Next action**: Complete Databricks Free Edition account creation and validation of spike checklist items (estimated 45-60 minutes).

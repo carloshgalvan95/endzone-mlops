@@ -50,8 +50,8 @@ HistoricalFeed              LiveFeed (stub)
 - **Batch-first**: v0.1 focuses on offline training and batch scoring. Real-time inference is documented as a future adapter pattern, not implemented.
 - **Historical source**: nflverse (CC BY 4.0, play-by-play from 1999+, Parquet format)
 - **Live path (documented, not active)**: HistoricalFeed vs LiveFeed interface. LiveFeed target is BALLDONTLIE GOAT API (~$40/month) for post-v0.1 with owner approval. No API keys in repo, no live calls in v0.1.
-- **Primary stack**: Databricks Community Edition + dbt-databricks + MLflow + GitHub Actions
-- **Plan B**: Snowflake trial (same repo layout) if Databricks CE spike fails
+- **Primary stack**: Databricks Free Edition + dbt-databricks + MLflow + GitHub Actions
+- **Plan B**: Snowflake trial (same repo layout) if Databricks Free Edition spike fails
 
 ## Product Framing: NFLow (Optional Nickname)
 
@@ -126,7 +126,7 @@ endzone-mlops/
 ### Prerequisites
 
 - Python 3.10+
-- (Optional) Databricks Community Edition account
+- (Optional) Databricks Free Edition account
 - (Optional) dbt installed locally or via Databricks SQL Warehouse
 
 ### Local Setup (Day 1 Path)
@@ -198,15 +198,16 @@ cd dbt; dbt deps --profiles-dir .; dbt compile --profiles-dir .; cd ..
 
 **Note**: `.env` is for environment variables, not the Python virtual environment. Both `.venv/` and `dbt/profiles.yml` are gitignored.
 
-### Databricks CE Path (Spike Pending)
+### Databricks Free Edition Path (Spike Pending)
 
-See `docs/runbook.md` for Databricks Community Edition setup checklist:
-- Cluster or SQL Warehouse configuration
-- dbt-databricks adapter configuration
-- MLflow tracking setup
+See `docs/runbook.md` for Databricks Free Edition setup checklist:
+- Serverless SQL Warehouse connection (pre-created)
+- Personal access token generation
+- dbt-databricks adapter configuration with Unity Catalog
+- MLflow tracking with serverless compute
 - GitHub Actions secrets for CI
 
-**Spike status**: PENDING_OWNER (requires Carlos to complete Databricks CE signup and configuration)
+**Spike status**: PENDING_OWNER (requires completion of Databricks Free Edition signup and configuration)
 
 ## CI/CD
 

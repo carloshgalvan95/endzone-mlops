@@ -1,8 +1,8 @@
 # Infrastructure Setup
 
-This directory contains infrastructure configuration and setup instructions for Databricks Community Edition.
+This directory contains infrastructure configuration and setup instructions for Databricks Free Edition.
 
-## Databricks Community Edition Setup
+## Databricks Free Edition Setup
 
 ### Prerequisites
 
@@ -15,7 +15,7 @@ Day 1 spike checklist (see `../docs/runbook.md` for detailed status):
 
 - [ ] Create compute cluster
   - Runtime: DBR 13.3 LTS or later
-  - Node type: Single node (Community Edition)
+  - Compute: Serverless (Free Edition is serverless-only, no cluster creation)
   - Terminate after: 120 minutes of inactivity
 
 - [ ] SQL Warehouse (if available in CE)
@@ -46,7 +46,7 @@ endzone_mlops:
 
 ### MLflow Setup
 
-Databricks Community Edition includes MLflow tracking. No additional setup required.
+Databricks Free Edition includes MLflow tracking with serverless compute. No additional setup required.
 
 To log experiments:
 
@@ -66,7 +66,7 @@ For CI/CD, add these secrets to your repository:
 
 ### Plan B: Snowflake
 
-If Databricks CE spike fails, switch to Snowflake trial:
+If Databricks Free Edition spike fails, switch to Snowflake trial:
 - 30-day trial at [signup.snowflake.com](https://signup.snowflake.com/)
 - Same repository layout
 - Use dbt-snowflake adapter instead

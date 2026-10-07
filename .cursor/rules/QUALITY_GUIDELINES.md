@@ -1,7 +1,7 @@
 # QUALITY_GUIDELINES.md
 
 **Project:** Portfolio endzone-mlops (MLOps / DevOps) for Carlos Galvan  
-**Stack primario:** Databricks CE/Free + dbt-databricks + MLflow + GitHub Actions + Python modular  
+**Stack primario:** Databricks Free Edition + dbt-databricks + MLflow + GitHub Actions + Python modular  
 **Plan B:** Snowflake trial + dbt Core + MLflow sidecar, solo si el spike D1 de CE falla  
 **Outline ancla:** outline_14d_2026-10-06.md (in project uploads/)  
 **Idioma de trabajo:** español (términos técnicos en inglés cuando el dominio los usa: dbt, MLflow, DoD, ADR, MoSCoW, CI, ASR, etc.)  

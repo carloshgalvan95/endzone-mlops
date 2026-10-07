@@ -26,7 +26,7 @@ endzone-mlops demonstrates a modern lakehouse architecture for NFL analytics, co
                           |                   |                   |
                           v                   v                   v
                  +-------------+     +---------------+    +--------------+
-                 | nflverse    |     | Databricks CE |    | GitHub       |
+                 | nflverse    |     | Databricks    |    | GitHub       |
                  | (CC BY 4.0) |     | (or Snowflake)|    | Actions CI   |
                  +-------------+     +---------------+    +--------------+
                   Historical NFL           Compute              Automation
@@ -36,7 +36,7 @@ endzone-mlops demonstrates a modern lakehouse architecture for NFL analytics, co
 ### External Systems
 
 - **nflverse**: Public NFL data (play-by-play, games, players). CC BY 4.0 license. Historical only, not live.
-- **Databricks CE**: Primary lakehouse platform (or Snowflake trial as Plan B). Provides Delta Lake storage, Spark compute, and MLflow tracking.
+- **Databricks Free Edition**: Primary lakehouse platform (or Snowflake trial as Plan B). Provides Delta Lake storage, serverless Spark compute, and MLflow tracking.
 - **GitHub Actions**: CI/CD for linting, testing, and dbt compilation. Runs on every push and PR.
 - **BALLDONTLIE** (future): Live NFL API for v0.2+. Documented but not active in v0.1.
 
@@ -258,7 +258,7 @@ src/
 
 ### Day 1-14: Development
 
-- **Compute**: Databricks CE cluster OR local DuckDB
+- **Compute**: Databricks Free Edition serverless OR local DuckDB
 - **Storage**: Databricks workspace OR local files
 - **CI**: GitHub Actions (free tier)
 - **MLflow**: Databricks managed OR local `./mlruns`
@@ -321,7 +321,7 @@ src/
 
 | Decision | Benefit | Cost |
 |----------|---------|------|
-| Databricks CE over Snowflake | MLflow native, lakehouse narrative | Free tier limits (auto-terminate, no Jobs?) |
+| Databricks Free Edition over Snowflake | MLflow native, lakehouse narrative | Usage quotas (serverless-only, auto-stop) |
 | dbt over Spark SQL scripts | Version control, testing, docs | Learning curve, compilation step |
 | Batch scoring over API | Simpler for portfolio, reproducible | No demo of real-time inference |
 | nflverse over live API | Free, CC BY 4.0, no secrets | Historical only; dual-vendor for live |
