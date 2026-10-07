@@ -61,6 +61,14 @@ Do not invent Databricks, dbt, MLflow, or Snowflake logos on PEMEX or Kavak bull
 
 Los commits deben quedar authored como Carlos (su identidad GitHub). La IA puede ayudar a escribir código; nunca debe aparecer en git history metadata como author/co-author. No hay excepciones.
 
+### Authorship voice (hard permanent rule)
+
+**Commit messages, PR titles, PR descriptions, and PR comments MUST use first person as Carlos** (imperative or 'I ...'). Never refer to Carlos in third person. Never use agent voice or mention Cursor/AI/agents in any git content.
+
+Examples:
+- Good: "Add cross-platform setup", "I develop on both Windows and macOS"
+- Bad: "Ready for Carlos to review", "Carlos can now use this feature", "Cursor agent added this"
+
 ---
 
 ## 3. Quality bar (checklists accionables)
