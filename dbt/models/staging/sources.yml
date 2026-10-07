@@ -34,7 +34,7 @@ sources:
         
         config:
           meta:
-            parquet_url: "https://github.com/nflverse/nflverse-data/releases/latest/download/games.parquet"
+            parquet_url: "https://github.com/nflverse/nflverse-data/releases/download/schedules/games.parquet"
             update_frequency: "Daily (nightly after games complete)"
         
         columns:
@@ -99,5 +99,5 @@ sources:
         
         config:
           meta:
-            parquet_url_pattern: "https://github.com/nflverse/nflverse-data/releases/latest/download/play_by_play_{season}.parquet"
+            parquet_url_pattern: "https://github.com/nflverse/nflverse-data/releases/download/pbp/play_by_play_{season}.parquet"
             note: "Load by season to manage size (~19.5 MB per season)"

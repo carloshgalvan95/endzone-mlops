@@ -18,9 +18,9 @@ Licensed under CC BY 4.0: https://creativecommons.org/licenses/by/4.0/
 ```
 
 **Files Used**:
-- Play-by-play data: `https://github.com/nflverse/nflverse-data/releases/latest/download/play_by_play_{season}.parquet`
-- Games/schedules: `https://github.com/nflverse/nflverse-data/releases/latest/download/games.parquet`
-- Player data: `https://github.com/nflverse/nflverse-data/releases/latest/download/players.parquet`
+- Play-by-play data: `https://github.com/nflverse/nflverse-data/releases/download/pbp/play_by_play_{season}.parquet`
+- Games/schedules: `https://github.com/nflverse/nflverse-data/releases/download/schedules/games.parquet`
+- Player data: `https://github.com/nflverse/nflverse-data/releases/download/player_stats/players.parquet`
 
 **Terms of Use**:
 - Attribution required: Yes (this document fulfills requirement)

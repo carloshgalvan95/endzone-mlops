@@ -16,11 +16,13 @@ import argparse
 import logging
 import os
 import sys
+from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
 import pandas as pd
+import requests
 from databricks.sdk import WorkspaceClient
 from databricks.sql import connect
 
@@ -29,7 +31,14 @@ from src.utils.logging import setup_logger
 logger = setup_logger(__name__)
 
 # nflverse data release URLs
-NFLVERSE_BASE_URL = "https://github.com/nflverse/nflverse-data/releases/latest/download/"
+# Games/schedules are in the 'schedules' release tag
+NFLVERSE_GAMES_URL = (
+    "https://github.com/nflverse/nflverse-data/releases/download/schedules/games.parquet"
+)
+# Play-by-play data is in the 'pbp' release tag, per-season files
+NFLVERSE_PBP_URL_PATTERN = (
+    "https://github.com/nflverse/nflverse-data/releases/download/pbp/play_by_play_{season}.parquet"
+)
 
 # Databricks Unity Catalog configuration
 CATALOG = "workspace"
@@ -96,6 +105,33 @@ def get_databricks_config() -> dict[str, str]:
     return {"host": host, "http_path": http_path, "token": token}
 
 
+def download_parquet_with_validation(url: str) -> pd.DataFrame:
+    """
+    Download parquet file with explicit HTTP validation.
+
+    Args:
+        url: URL to parquet file
+
+    Returns:
+        DataFrame loaded from parquet
+
+    Raises:
+        ValueError: If HTTP response is not 200 OK
+    """
+    logger.info(f"Downloading from {url}")
+    response = requests.get(url, timeout=60)
+
+    if response.status_code != 200:
+        raise ValueError(
+            f"Failed to download from {url}: "
+            f"HTTP {response.status_code} {response.reason}. "
+            f"Verify the URL exists and is accessible."
+        )
+
+    logger.debug(f"Successfully fetched {len(response.content)} bytes")
+    return pd.read_parquet(BytesIO(response.content))
+
+
 def download_nflverse_games(seasons: list[int], local_dir: Path) -> Path:
     """
     Download nflverse games.parquet and filter to specified seasons.
@@ -107,10 +143,7 @@ def download_nflverse_games(seasons: list[int], local_dir: Path) -> Path:
     Returns:
         Path to the filtered parquet file
     """
-    url = f"{NFLVERSE_BASE_URL}games.parquet"
-    logger.info(f"Downloading nflverse games from {url}")
-
-    df = pd.read_parquet(url)
+    df = download_parquet_with_validation(NFLVERSE_GAMES_URL)
     logger.info(f"Downloaded {len(df)} total games")
 
     # Filter to requested seasons
@@ -142,11 +175,11 @@ def download_nflverse_pbp(seasons: list[int], local_dir: Path) -> Path:
     dfs = []
 
     for season in seasons:
-        url = f"{NFLVERSE_BASE_URL}play_by_play_{season}.parquet"
-        logger.info(f"Downloading play-by-play for season {season} from {url}")
+        url = NFLVERSE_PBP_URL_PATTERN.format(season=season)
+        logger.info(f"Downloading play-by-play for season {season}")
 
         try:
-            df = pd.read_parquet(url)
+            df = download_parquet_with_validation(url)
             logger.info(f"Downloaded {len(df)} plays for season {season}")
             dfs.append(df)
         except Exception as e:
