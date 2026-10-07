@@ -1,0 +1,54 @@
+name: 'endzone_mlops'
+version: '0.1.0'
+config-version: 2
+
+# Project profile (maps to profiles.yml)
+profile: 'endzone_mlops'
+
+# Directories
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+  - "logs"
+
+# Model configuration
+models:
+  endzone_mlops:
+    # Staging models: views for development speed
+    staging:
+      +materialized: view
+      +schema: staging
+
+    # Marts: tables for downstream consumption
+    marts:
+      +materialized: table
+      +schema: marts
+
+# Tests
+tests:
+  endzone_mlops:
+    +store_failures: true
+    +schema: test_results
+
+# Seeds
+seeds:
+  endzone_mlops:
+    +schema: seeds
+
+# Documentation
+vars:
+  # Project metadata
+  project_name: "endzone-mlops"
+  project_version: "0.1.0"
+  
+  # Data source metadata (for documentation)
+  data_source: "nflverse"
+  data_license: "CC BY 4.0"
+  data_coverage: "1999-present"
