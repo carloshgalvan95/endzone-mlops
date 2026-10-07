@@ -226,12 +226,9 @@ def upload_to_volume(
 
     logger.info(f"Uploading {local_path.name} to {volume_path}")
 
-    # Read file content
+    # Stream the file to the Files API; the SDK expects a binary file object, not bytes
     with open(local_path, "rb") as f:
-        file_content = f.read()
-
-    # Upload using Files API
-    workspace_client.files.upload(volume_path, file_content, overwrite=True)
+        workspace_client.files.upload(volume_path, f, overwrite=True)
     logger.info(f"Successfully uploaded to {volume_path}")
 
     return volume_path
