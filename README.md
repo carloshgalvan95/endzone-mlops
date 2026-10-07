@@ -131,43 +131,72 @@ endzone-mlops/
 
 ### Local Setup (Day 1 Path)
 
+#### macOS / Linux
+
 ```bash
 # Clone repository
 git clone https://github.com/carloshgalvan95/endzone-mlops.git
 cd endzone-mlops
 
 # Create and activate virtual environment
-python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+python3 -m venv .venv
+source .venv/bin/activate
 
-# Install dependencies
+# Install dependencies (or use: make setup)
 pip install -r requirements.txt
 
-# Copy environment variable config template
+# Copy config templates
 cp .env.example .env
-# Edit .env with your paths (no secrets needed for local dev)
-# Note: .env is for environment variables, not the Python virtual environment
-
-# Copy dbt profile template
-cd dbt
-cp profiles.yml.example profiles.yml
-cd ..
-# profiles.yml stays local (gitignored) - contains connection config
+cp dbt/profiles.yml.example dbt/profiles.yml
+# Edit .env and dbt/profiles.yml with your settings
 
 # Run tests
 make test
 
-# Lint code
+# Lint and format
 make lint
 
-# dbt: install packages and compile models (validates SQL, no data needed)
-cd dbt
-dbt deps --profiles-dir .
-dbt compile --profiles-dir .
-cd ..
+# dbt: install packages and compile models
+cd dbt && dbt deps --profiles-dir . && dbt compile --profiles-dir . && cd ..
 ```
 
 **Tip**: Use `make setup` to automate virtualenv creation and dependency installation.
+
+#### Windows (PowerShell)
+
+```powershell
+# Clone repository
+git clone https://github.com/carloshgalvan95/endzone-mlops.git
+cd endzone-mlops
+
+# Create and activate virtual environment
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+
+# If activation is blocked, enable scripts (one-time):
+# Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+
+# Install dependencies (or use: .\scripts\dev.ps1 setup)
+pip install -r requirements.txt
+
+# Copy config templates
+Copy-Item .env.example .env
+Copy-Item dbt\profiles.yml.example dbt\profiles.yml
+# Edit .env and dbt\profiles.yml with your settings
+
+# Run tests
+.\scripts\dev.ps1 test
+
+# Lint and format
+.\scripts\dev.ps1 lint
+
+# dbt: install packages and compile models
+cd dbt; dbt deps --profiles-dir .; dbt compile --profiles-dir .; cd ..
+```
+
+**Tip**: Use `.\scripts\dev.ps1 setup` to automate virtualenv creation and dependency installation.
+
+**Note**: `.env` is for environment variables, not the Python virtual environment. Both `.venv/` and `dbt/profiles.yml` are gitignored.
 
 ### Databricks CE Path (Spike Pending)
 
