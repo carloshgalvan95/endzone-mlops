@@ -60,9 +60,7 @@ class NFLverseFeed(HistoricalFeed):
             IOError: If download fails
         """
         if season < 1999:
-            raise ValueError(
-                f"nflverse data starts in 1999. Requested season: {season}"
-            )
+            raise ValueError(f"nflverse data starts in 1999. Requested season: {season}")
 
         # nflverse games.parquet contains all seasons in one file
         url = urljoin(self.base_url, "games.parquet")
@@ -104,14 +102,10 @@ class NFLverseFeed(HistoricalFeed):
         try:
             season = int(game_id.split("_")[0])
         except (IndexError, ValueError) as e:
-            raise ValueError(
-                f"Invalid game_id format: {game_id}. Expected: YYYY_WW_AWAY_HOME"
-            ) from e
+            raise ValueError(f"Invalid game_id format: {game_id}. Expected: YYYY_WW_AWAY_HOME") from e
 
         if season < 1999:
-            raise ValueError(
-                f"nflverse play-by-play starts in 1999. Game season: {season}"
-            )
+            raise ValueError(f"nflverse play-by-play starts in 1999. Game season: {season}")
 
         # Download play-by-play for the season
         url = urljoin(self.base_url, f"play_by_play_{season}.parquet")
@@ -121,9 +115,7 @@ class NFLverseFeed(HistoricalFeed):
         df = df[df["game_id"] == game_id].copy()
 
         if df.empty:
-            raise ValueError(
-                f"Game {game_id} not found in season {season} play-by-play data"
-            )
+            raise ValueError(f"Game {game_id} not found in season {season} play-by-play data")
 
         return df
 

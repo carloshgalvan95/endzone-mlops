@@ -93,9 +93,7 @@ def validate_dataframe_schema(
     """
     missing = set(required_columns) - set(df.columns)
     if missing:
-        raise ValueError(
-            f"{df_name} is missing required columns: {sorted(missing)}"
-        )
+        raise ValueError(f"{df_name} is missing required columns: {sorted(missing)}")
 
 
 def load_parquet_safe(
