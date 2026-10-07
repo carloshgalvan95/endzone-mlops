@@ -71,3 +71,4 @@ htmlcov/
 
 # macOS
 .DS_Store
+dbt/.user.yml

@@ -1,8 +1,9 @@
-.PHONY: help install lint test dbt-compile dbt-run dbt-test clean reproduce
+.PHONY: help setup install lint test dbt-compile dbt-run dbt-test clean reproduce
 
 help:
 	@echo "Available targets:"
-	@echo "  install      - Install Python dependencies"
+	@echo "  setup        - Create virtualenv and install dependencies"
+	@echo "  install      - Install Python dependencies (in active environment)"
 	@echo "  lint         - Run code quality checks (ruff)"
 	@echo "  test         - Run pytest unit tests"
 	@echo "  dbt-compile  - Compile dbt models"
@@ -10,6 +11,18 @@ help:
 	@echo "  dbt-test     - Run dbt tests"
 	@echo "  reproduce    - Full reproduction pipeline (install -> dbt -> train)"
 	@echo "  clean        - Remove build artifacts"
+	@echo ""
+	@echo "Note: Most targets expect an activated virtualenv (source .venv/bin/activate)"
+
+setup:
+	@echo "Creating virtual environment in .venv/"
+	python3 -m venv .venv
+	@echo "Installing dependencies..."
+	.venv/bin/pip install --upgrade pip
+	.venv/bin/pip install -r requirements.txt
+	@echo ""
+	@echo "Setup complete! Activate the environment with:"
+	@echo "  source .venv/bin/activate"
 
 install:
 	pip install -r requirements.txt
