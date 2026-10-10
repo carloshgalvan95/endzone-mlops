@@ -392,19 +392,27 @@ This section covers loading nflverse games and play-by-play data into Databricks
 
 ### Data Ingestion Workflow
 
-The ingestion script `src.ingest.load_raw_nflverse` supports two datasets:
+The ingestion script `src.ingest.load_raw_nflverse` supports two datasets and multi-season backfill:
 
 **Games** (`--dataset games`):
 1. Downloads nflverse games/schedules parquet from GitHub releases
-2. Filters to specified seasons (e.g., 2022, 2023, 2024)
+2. Filters to specified seasons (default: 1999-2026)
 3. Uploads to Unity Catalog Volume at `/Volumes/workspace/nfl_raw/landing/games/`
 4. Creates bronze Delta table `workspace.nfl_raw.games` using `read_files()`
 
 **Play-by-Play** (`--dataset pbp`):
-1. Downloads nflverse play-by-play parquet per season from GitHub releases
-2. Combines all seasons into a single parquet file
-3. Uploads to Unity Catalog Volume at `/Volumes/workspace/nfl_raw/landing/pbp/`
-4. Creates bronze Delta table `workspace.nfl_raw.play_by_play` using `read_files()`
+1. Downloads nflverse play-by-play parquet per season from GitHub releases (one file per season)
+2. Conforms each season to unified schema (handles column drift across 27 seasons with pyarrow)
+3. Uploads to partitioned Unity Catalog Volume at `/Volumes/workspace/nfl_raw/landing/pbp/{season}/`
+4. Creates bronze Delta table `workspace.nfl_raw.play_by_play` from entire pbp folder using `read_files()`
+
+**Season Range Parsing**:
+- Range: `--seasons 1999-2026` (expands to all years inclusive)
+- List: `--seasons 2022,2023,2024` (comma-separated)
+- Mixed: `--seasons 2020-2022,2024`
+- Current season only: `--current-season` (for weekly refresh, ignores `--seasons`)
+
+**Missing Seasons**: If a season's pbp file does not exist (e.g., future season 2027), it is logged as a warning and skipped, not an error.
 
 **Note**: Databricks Free Edition does NOT have outbound internet from compute, so the script downloads data locally first, then uploads via the Files API.
 
@@ -414,18 +422,19 @@ The ingestion script `src.ingest.load_raw_nflverse` supports two datasets:
 
 ```bash
 # Load environment variables from .env
-export $(grep -v '^#' .env | xargs)
+export MSYS_NO_PATHCONV=1  # Needed for Git Bash on Windows
+set -a; source .env; set +a
 
-# Load games only
-make ingest-games
-# Or: python -m src.ingest.load_raw_nflverse --seasons 2022 2023 2024 --dataset games
-
-# Load play-by-play only
-make ingest-pbp
-# Or: python -m src.ingest.load_raw_nflverse --seasons 2022 2023 2024 --dataset pbp
-
-# Load both datasets
+# Full backfill (1999-2026, both datasets)
 make ingest
+# Or: python -m src.ingest.load_raw_nflverse --dataset all
+
+# Weekly refresh (current season only)
+make ingest-current
+# Or: python -m src.ingest.load_raw_nflverse --current-season --dataset all
+
+# Custom season range
+python -m src.ingest.load_raw_nflverse --seasons 2020-2024 --dataset all
 
 # Build dbt models on Databricks
 make dbt-build-databricks
@@ -439,16 +448,16 @@ make dbt-build-databricks
 export MSYS_NO_PATHCONV=1
 
 # Load environment variables from .env
-export $(grep -v '^#' .env | xargs)
+set -a; source .env; set +a
 
-# Load games only
-make ingest-games
-
-# Load play-by-play only
-make ingest-pbp
-
-# Load both datasets
+# Full backfill (1999-2026, both datasets)
 make ingest
+
+# Weekly refresh (current season only)
+make ingest-current
+
+# Custom season range
+python -m src.ingest.load_raw_nflverse --seasons 2020-2024 --dataset all
 
 # Build dbt models on Databricks
 make dbt-build-databricks
@@ -463,13 +472,14 @@ make dbt-build-databricks
 # $env:DATABRICKS_HTTP_PATH = "/sql/1.0/warehouses/xxxxx"
 # $env:DATABRICKS_TOKEN = "dapi..."
 
-# Load games only
-.\scripts\dev.ps1 ingest-games
+# Full backfill (1999-2026, both datasets)
+.\scripts\dev.ps1 ingest
 
-# Load play-by-play only
-.\scripts\dev.ps1 ingest-pbp
+# Weekly refresh (current season only)
+.\scripts\dev.ps1 ingest-current
 
-# Load both datasets
+# Custom season range (PowerShell does not support Make, use Python directly)
+python -m src.ingest.load_raw_nflverse --seasons 2020-2024 --dataset all
 .\scripts\dev.ps1 ingest
 
 # Build dbt models on Databricks

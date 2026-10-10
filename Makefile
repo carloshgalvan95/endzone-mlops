@@ -1,4 +1,4 @@
-.PHONY: help setup install lint test dbt-compile dbt-run dbt-test clean reproduce ingest dbt-build-databricks
+.PHONY: help setup install lint test dbt-compile dbt-run dbt-test clean reproduce ingest ingest-current dbt-build-databricks
 
 help:
 	@echo "Available targets:"
@@ -9,7 +9,8 @@ help:
 	@echo "  dbt-compile         - Compile dbt models"
 	@echo "  dbt-run             - Run dbt models (creates tables)"
 	@echo "  dbt-test            - Run dbt tests"
-	@echo "  ingest              - Load nflverse data into Databricks (requires DATABRICKS_* env vars)"
+	@echo "  ingest              - Load nflverse data (all seasons 1999-2026, games and pbp)"
+	@echo "  ingest-current      - Refresh current season only (for weekly update)"
 	@echo "  dbt-build-databricks - Build dbt models on Databricks target"
 	@echo "  reproduce           - Full reproduction pipeline (install -> dbt -> train)"
 	@echo "  clean               - Remove build artifacts"
@@ -36,15 +37,13 @@ lint:
 test:
 	pytest tests/ -v
 
-ingest: ingest-games ingest-pbp
-
-ingest-games:
+ingest:
 	@if [ -f .env ]; then set -a && . ./.env && set +a; fi; \
-	python -m src.ingest.load_raw_nflverse --seasons 2022 2023 2024 --dataset games
+	python -m src.ingest.load_raw_nflverse --dataset all
 
-ingest-pbp:
+ingest-current:
 	@if [ -f .env ]; then set -a && . ./.env && set +a; fi; \
-	python -m src.ingest.load_raw_nflverse --seasons 2022 2023 2024 --dataset pbp
+	python -m src.ingest.load_raw_nflverse --current-season --dataset all
 
 dbt-compile:
 	@if [ -f .env ]; then set -a && . ./.env && set +a; fi; \
@@ -63,10 +62,6 @@ clean:
 	find . -type d -name .pytest_cache -exec rm -rf {} + 2>/dev/null || true
 	find . -type d -name .ruff_cache -exec rm -rf {} + 2>/dev/null || true
 	rm -rf dbt/target dbt/logs dbt/dbt_packages
-
-ingest:
-	@echo "Loading nflverse data into Databricks (seasons 2022 2023 2024)..."
-	python -m src.ingest.load_raw_nflverse --seasons 2022 2023 2024
 
 dbt-build-databricks:
 	@echo "Building dbt models on Databricks target..."

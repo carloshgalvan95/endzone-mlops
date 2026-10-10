@@ -8,8 +8,10 @@
 /*
 Fact table: team-game level EPA and play metrics.
 
-Grain: One row per team per game (two rows per game).
+Grain: One row per team per game (two rows per game, COMPLETED GAMES ONLY).
 Purpose: Track offensive and defensive performance metrics for each team in each game.
+
+Filter: Only games with both home_score and away_score not null (completed games).
 
 Key metrics:
 - EPA (Expected Points Added) - offensive and defensive totals and averages
@@ -38,6 +40,8 @@ with games as (
         total_line,
         gameday
     from {{ ref('stg_nflverse__games') }}
+    where home_score is not null
+      and away_score is not null
 
 ),
 
@@ -54,7 +58,7 @@ pbp as (
         pass_attempt,
         rush_attempt
     from {{ ref('stg_nflverse__pbp') }}
-    where play = 1  -- Only count valid plays (exclude no-plays, penalties without play)
+    where play = 1
 
 ),
 
@@ -120,7 +124,7 @@ team_games as (
         0 as is_home,
         g.away_score as team_score,
         g.home_score as opponent_score,
-        -1 * g.spread_line as spread_line,  -- Flip spread for away team
+        -1 * g.spread_line as spread_line,
         g.total_line,
         g.gameday
     from games g

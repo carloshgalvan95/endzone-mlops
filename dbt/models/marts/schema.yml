@@ -210,3 +210,79 @@ models:
             expression: "total_points = (home_score + away_score)"
           config:
             where: "total_points is not null and home_score is not null and away_score is not null"
+
+  - name: fct_upcoming_games
+    description: |
+      Upcoming games (scheduled but not yet completed).
+      
+      Grain: One row per game (UPCOMING GAMES ONLY).
+      Games where home_score and away_score are both null.
+      
+      Provides game-level features for pregame predictions (scoring input).
+      Used for weekly forecast refresh and batch scoring.
+    
+    config:
+      meta:
+        owner: "Carlos Galvan"
+        layer: "marts"
+        grain: "game_id"
+    
+    columns:
+      - name: game_id
+        description: "Primary key - unique game identifier"
+        tests:
+          - unique
+          - not_null
+      
+      - name: season
+        description: "NFL season year"
+        tests:
+          - not_null
+      
+      - name: week
+        description: "Week number"
+      
+      - name: game_type
+        description: "Game type (REG, POST, etc.)"
+      
+      - name: away_team
+        description: "Away team abbreviation"
+        tests:
+          - not_null
+      
+      - name: home_team
+        description: "Home team abbreviation"
+        tests:
+          - not_null
+      
+      - name: gameday
+        description: "Date of game"
+      
+      - name: gametime
+        description: "Game time (EST)"
+      
+      - name: spread_line
+        description: "Closing point spread (home team perspective)"
+      
+      - name: total_line
+        description: "Closing over/under total"
+      
+      - name: roof
+        description: "Stadium roof type"
+      
+      - name: surface
+        description: "Playing surface"
+      
+      - name: away_rest
+        description: "Days of rest for away team"
+      
+      - name: home_rest
+        description: "Days of rest for home team"
+
+    tests:
+      # Business logic: home and away teams should differ
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "away_team != home_team"
+          config:
+            where: "away_team is not null and home_team is not null"
