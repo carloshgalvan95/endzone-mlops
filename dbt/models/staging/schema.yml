@@ -106,8 +106,9 @@ models:
         tests:
           - not_null
           - relationships:
-              to: ref('stg_nflverse__games')
-              field: game_id
+              arguments:
+                to: ref('stg_nflverse__games')
+                field: game_id
               config:
                 severity: warn
       

@@ -1,0 +1,212 @@
+version: 2
+
+models:
+  - name: fct_team_game_epa
+    description: |
+      Team-game level fact table with EPA and play metrics.
+      
+      Grain: One row per team per game (two rows per completed game).
+      Each team's offensive and defensive performance is captured separately.
+      
+      Useful for building features that capture recent team performance,
+      offensive/defensive strength, and play-calling tendencies.
+    
+    config:
+      meta:
+        owner: "Carlos Galvan"
+        layer: "marts"
+        grain: "game_id, team"
+    
+    columns:
+      - name: game_id
+        description: "Game identifier (foreign key to fct_games)"
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_nflverse__games')
+                field: game_id
+              config:
+                severity: warn
+      
+      - name: team
+        description: "Team abbreviation (3 letters)"
+        tests:
+          - not_null
+      
+      - name: season
+        description: "NFL season year"
+        tests:
+          - not_null
+      
+      - name: week
+        description: "Week number"
+      
+      - name: game_type
+        description: "Game type (REG, POST, etc.)"
+      
+      - name: opponent
+        description: "Opponent team abbreviation"
+        tests:
+          - not_null
+      
+      - name: is_home
+        description: "Home/away indicator (1 = home, 0 = away)"
+        tests:
+          - accepted_values:
+              arguments:
+                values: [0, 1]
+      
+      - name: team_score
+        description: "Team's final score"
+      
+      - name: opponent_score
+        description: "Opponent's final score"
+      
+      - name: offensive_plays
+        description: "Number of offensive plays (valid plays only, play = 1)"
+      
+      - name: offensive_epa
+        description: "Total offensive Expected Points Added"
+      
+      - name: avg_offensive_epa
+        description: "Average offensive EPA per play"
+      
+      - name: pass_epa
+        description: "Total EPA on pass plays"
+      
+      - name: rush_epa
+        description: "Total EPA on rush plays"
+      
+      - name: defensive_epa_allowed
+        description: "Total defensive EPA allowed (opponent's offensive EPA)"
+      
+      - name: avg_defensive_epa_allowed
+        description: "Average defensive EPA allowed per play"
+      
+      - name: success_rate
+        description: "Percentage of successful plays (success = 1)"
+
+    tests:
+      # Grain test: game_id + team should be unique
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - game_id
+              - team
+      
+      # Business logic: team and opponent should differ
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "team != opponent"
+          config:
+            where: "team is not null and opponent is not null"
+      
+      # Business logic: all 854 games are completed, so offensive_plays = 0
+      # means the pbp to games join keys (team abbreviation or game_id) failed
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "offensive_plays > 0"
+
+  - name: fct_games
+    description: |
+      Game-level fact table with results and derived outcomes.
+      
+      Grain: One row per game.
+      Includes final scores, derived outcomes (winner, margin, total points),
+      and betting line results (spread covered, over/under).
+      
+      Useful for model training labels, feature engineering based on recent
+      results, and backtesting against betting markets.
+    
+    config:
+      meta:
+        owner: "Carlos Galvan"
+        layer: "marts"
+        grain: "game_id"
+    
+    columns:
+      - name: game_id
+        description: "Primary key - unique game identifier"
+        tests:
+          - unique
+          - not_null
+      
+      - name: season
+        description: "NFL season year"
+        tests:
+          - not_null
+      
+      - name: week
+        description: "Week number"
+      
+      - name: game_type
+        description: "Game type (REG, POST, etc.)"
+      
+      - name: away_team
+        description: "Away team abbreviation"
+        tests:
+          - not_null
+      
+      - name: home_team
+        description: "Home team abbreviation"
+        tests:
+          - not_null
+      
+      - name: away_score
+        description: "Final away team score (null if not yet played)"
+      
+      - name: home_score
+        description: "Final home team score (null if not yet played)"
+      
+      - name: home_won
+        description: "Home team won (1 = yes, 0 = no, null = not yet played)"
+      
+      - name: home_margin
+        description: "Home team margin of victory (positive = home won)"
+      
+      - name: total_points
+        description: "Combined final score (away + home)"
+      
+      - name: home_covered_spread
+        description: "Home team covered spread (1 = yes, 0 = no, null = push or missing)"
+      
+      - name: total_over
+        description: "Total went over (1 = yes, 0 = no, null = push or missing)"
+      
+      - name: spread_line
+        description: "Closing point spread (home team perspective)"
+      
+      - name: total_line
+        description: "Closing over/under total"
+      
+      - name: gameday
+        description: "Date of game"
+      
+      - name: roof
+        description: "Stadium roof type"
+      
+      - name: surface
+        description: "Playing surface"
+
+    tests:
+      # Business logic: home and away teams should differ
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "away_team != home_team"
+          config:
+            where: "away_team is not null and home_team is not null"
+      
+      # Business logic: home_won should be consistent with margin
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "(home_won = 1 and home_margin > 0) or (home_won = 0 and home_margin <= 0)"
+          config:
+            where: "home_won is not null and home_margin is not null"
+      
+      # Business logic: total_points should equal sum of scores
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "total_points = (home_score + away_score)"
+          config:
+            where: "total_points is not null and home_score is not null and away_score is not null"
