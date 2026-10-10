@@ -12,15 +12,15 @@ Build a reproducible lakehouse pipeline for NFL pregame predictions (win probabi
 
 ## Current Status
 
-**As of October 2026 (Day 2 of 14)**:
+**As of October 2026 (Day 3 of 14)**:
 
 - **Databricks Free Edition**: Spike completed and passed. Serverless SQL warehouse validated with dbt-databricks locally and from GitHub Actions. MLflow tracking connectivity confirmed (no training runs yet).
 - **Bronze ingest**: `src/ingest/load_raw_nflverse.py` downloads nflverse parquet (CC BY 4.0), uploads to Unity Catalog volume (workspace.nfl_raw.landing), creates Delta tables via read_files: workspace.nfl_raw.games (854 games, seasons 2022-2024) and workspace.nfl_raw.play_by_play (148,591 plays).
-- **dbt**: 2 staging views (stg_nflverse__games, stg_nflverse__pbp, about 70 of 372 raw pbp columns), 2 sources, 22 data tests. `dbt build --target databricks` passed 24/24 (2 models + 22 tests).
+- **dbt**: 2 staging views (stg_nflverse__games, stg_nflverse__pbp), 2 marts tables (fct_team_game_epa, fct_games), 2 sources, 30+ data tests. Marts layer includes team-game EPA metrics and game results with derived outcomes.
 - **CI**: GitHub Actions runs ruff lint + format check, pytest on Python 3.10/3.11, dbt compile against DuckDB, cross-platform matrix (Ubuntu, Windows, macOS). Tests verify column references against real nflverse schema (fixtures in tests/fixtures).
 - **PR Guard**: Branch protection with freshness check, Conventional Commit titles, PR template verification, no secrets/data files, commit identity validation.
 
-**Next**: Marts models, MLflow training (train.py), batch scoring (score.py).
+**Next**: MLflow training (train.py with hyperparameters and experiment tracking), batch scoring (score.py).
 
 ## Architecture Overview
 
@@ -38,7 +38,7 @@ HistoricalFeed [done]       LiveFeed (stub) [planned]
          Bronze (raw data) [done]
                 |
                 v
-    dbt: Staging [done] -> Marts [planned]
+    dbt: Staging [done] -> Marts [done]
                 |
                 v
        Feature Engineering (Python) [planned]
