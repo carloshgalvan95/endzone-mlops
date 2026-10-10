@@ -12,15 +12,15 @@ Build a reproducible lakehouse pipeline for NFL pregame predictions (win probabi
 
 ## Current Status
 
-**As of October 2026 (Day 3 of 14)**:
+**As of October 2026 (Day 4 of 14)**:
 
 - **Databricks Free Edition**: Spike completed and passed. Serverless SQL warehouse validated with dbt-databricks locally and from GitHub Actions. MLflow tracking connectivity confirmed (no training runs yet).
-- **Bronze ingest**: `src/ingest/load_raw_nflverse.py` downloads nflverse parquet (CC BY 4.0), uploads to Unity Catalog volume (workspace.nfl_raw.landing), creates Delta tables via read_files: workspace.nfl_raw.games (854 games, seasons 2022-2024) and workspace.nfl_raw.play_by_play (148,591 plays).
-- **dbt**: 2 staging views (stg_nflverse__games, stg_nflverse__pbp), 2 marts tables (fct_team_game_epa, fct_games), 2 sources, 30+ data tests. Marts layer includes team-game EPA metrics and game results with derived outcomes.
-- **CI**: GitHub Actions runs ruff lint + format check, pytest on Python 3.10/3.11, dbt compile against DuckDB, cross-platform matrix (Ubuntu, Windows, macOS). Tests verify column references against real nflverse schema (fixtures in tests/fixtures).
+- **Bronze ingest**: `src/ingest/load_raw_nflverse.py` supports multi-season backfill (1999-2026) with per-season pbp ingestion and pyarrow schema conforming across 27 seasons. Uploads to Unity Catalog partitioned volumes (workspace.nfl_raw.landing/pbp/{season}/). Creates Delta tables via read_files. Code exists and is tested; full backfill pending owner execution (row counts will be updated post-backfill).
+- **dbt**: 2 staging views (stg_nflverse__games, stg_nflverse__pbp), 3 marts tables (fct_games, fct_team_game_epa, fct_upcoming_games), 2 sources, 46 data tests. Marts filter for completed games only (scores not null); fct_upcoming_games provides scoring input for pregame predictions.
+- **CI**: GitHub Actions runs ruff lint + format check, pytest on Python 3.10/3.11, dbt compile against DuckDB, cross-platform matrix (Ubuntu, Windows, macOS). Tests verify column references against real nflverse schema (fixtures in tests/fixtures) and schema conforming logic.
 - **PR Guard**: Branch protection with freshness check, Conventional Commit titles, PR template verification, no secrets/data files, commit identity validation.
 
-**Next**: MLflow training (train.py with hyperparameters and experiment tracking), batch scoring (score.py).
+**Next**: Owner runs full backfill (`make ingest`), then MLflow training (train.py with hyperparameters and experiment tracking), batch scoring (score.py).
 
 ## Architecture Overview
 

@@ -17,9 +17,8 @@ function Show-Help {
     Write-Host "  dbt-compile         - Compile dbt models"
     Write-Host "  dbt-run             - Run dbt models (creates tables)"
     Write-Host "  dbt-test            - Run dbt tests"
-    Write-Host "  ingest              - Load both games and pbp datasets (2022-2024)"
-    Write-Host "  ingest-games        - Load games dataset only (2022-2024)"
-    Write-Host "  ingest-pbp          - Load play-by-play dataset only (2022-2024)"
+    Write-Host "  ingest              - Load all seasons (1999-2026, games and pbp)"
+    Write-Host "  ingest-current      - Refresh current season only (for weekly update)"
     Write-Host "  dbt-build-databricks - Build dbt models on Databricks target"
     Write-Host "  clean               - Remove build artifacts"
     Write-Host "  reproduce           - Full reproduction pipeline"
@@ -117,20 +116,14 @@ function Invoke-Reproduce {
 
 function Invoke-Ingest {
     Load-Env
-    Invoke-IngestGames
-    Invoke-IngestPbp
+    Write-Host "Loading nflverse data (all seasons 1999-2026, games and pbp)..."
+    python -m src.ingest.load_raw_nflverse --dataset all
 }
 
-function Invoke-IngestGames {
+function Invoke-IngestCurrent {
     Load-Env
-    Write-Host "Loading nflverse games data (seasons 2022 2023 2024)..."
-    python -m src.ingest.load_raw_nflverse --seasons 2022 2023 2024 --dataset games
-}
-
-function Invoke-IngestPbp {
-    Load-Env
-    Write-Host "Loading nflverse play-by-play data (seasons 2022 2023 2024)..."
-    python -m src.ingest.load_raw_nflverse --seasons 2022 2023 2024 --dataset pbp
+    Write-Host "Refreshing current season only..."
+    python -m src.ingest.load_raw_nflverse --current-season --dataset all
 }
 
 function Invoke-DbtBuildDatabricks {
@@ -156,8 +149,7 @@ switch ($Target.ToLower()) {
     "dbt-run" { Invoke-DbtRun }
     "dbt-test" { Invoke-DbtTest }
     "ingest" { Invoke-Ingest }
-    "ingest-games" { Invoke-IngestGames }
-    "ingest-pbp" { Invoke-IngestPbp }
+    "ingest-current" { Invoke-IngestCurrent }
     "dbt-build-databricks" { Invoke-DbtBuildDatabricks }
     "clean" { Invoke-Clean }
     "reproduce" { Invoke-Reproduce }

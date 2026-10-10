@@ -8,8 +8,10 @@
 /*
 Fact table: completed games with derived results and betting outcomes.
 
-Grain: One row per game.
+Grain: One row per game (COMPLETED GAMES ONLY).
 Purpose: Provide game-level features and outcomes for model training and analysis.
+
+Filter: Only games with both home_score and away_score not null (completed games).
 
 Key fields:
 - Game identifiers and context (season, week, teams)
@@ -49,6 +51,8 @@ with games as (
         away_rest,
         home_rest
     from {{ ref('stg_nflverse__games') }}
+    where home_score is not null
+      and away_score is not null
 
 ),
 
@@ -66,34 +70,27 @@ final as (
         
         -- Derived outcomes
         case
-            when home_score is null or away_score is null then null
             when home_score > away_score then 1
             else 0
         end as home_won,
         
-        case
-            when home_score is null or away_score is null then null
-            else home_score - away_score
-        end as home_margin,
+        home_score - away_score as home_margin,
         
-        case
-            when home_score is null or away_score is null then null
-            else home_score + away_score
-        end as total_points,
+        home_score + away_score as total_points,
         
-        -- Betting outcomes (null if scores or lines missing)
+        -- Betting outcomes (null if lines missing)
         case
-            when spread_line is null or home_score is null or away_score is null then null
-            when (home_score - away_score) > spread_line then 1  -- Home covered
-            when (home_score - away_score) < spread_line then 0  -- Home did not cover
-            else null  -- Push
+            when spread_line is null then null
+            when (home_score - away_score) > spread_line then 1
+            when (home_score - away_score) < spread_line then 0
+            else null
         end as home_covered_spread,
         
         case
-            when total_line is null or home_score is null or away_score is null then null
-            when (home_score + away_score) > total_line then 1  -- Over
-            when (home_score + away_score) < total_line then 0  -- Under
-            else null  -- Push
+            when total_line is null then null
+            when (home_score + away_score) > total_line then 1
+            when (home_score + away_score) < total_line then 0
+            else null
         end as total_over,
         
         -- Betting lines
