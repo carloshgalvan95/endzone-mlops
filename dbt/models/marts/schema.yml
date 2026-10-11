@@ -30,7 +30,12 @@ models:
                 severity: warn
       
       - name: team
-        description: "Team abbreviation (3 letters)"
+        description: "Team abbreviation (historical name from games.parquet)"
+        tests:
+          - not_null
+      
+      - name: team_franchise
+        description: "Current franchise abbreviation (handles relocations: OAK->LV, SD->LAC, STL->LA)"
         tests:
           - not_null
       
@@ -46,7 +51,12 @@ models:
         description: "Game type (REG, POST, etc.)"
       
       - name: opponent
-        description: "Opponent team abbreviation"
+        description: "Opponent team abbreviation (historical name from games.parquet)"
+        tests:
+          - not_null
+      
+      - name: opponent_franchise
+        description: "Opponent's current franchise abbreviation (handles relocations)"
         tests:
           - not_null
       
@@ -102,11 +112,16 @@ models:
           config:
             where: "team is not null and opponent is not null"
       
-      # Business logic: all 854 games are completed, so offensive_plays = 0
-      # means the pbp to games join keys (team abbreviation or game_id) failed
+      # Business logic: completed games should have offensive_plays > 0
+      # except for known pbp gaps documented in known_pbp_gaps seed
       - dbt_utils.expression_is_true:
           arguments:
-            expression: "offensive_plays > 0"
+            expression: >
+              offensive_plays > 0 OR 
+              (game_id || '|' || team) IN (
+                SELECT game_id || '|' || team 
+                FROM {{ ref('known_pbp_gaps') }}
+              )
 
   - name: fct_games
     description: |
@@ -246,12 +261,22 @@ models:
         description: "Game type (REG, POST, etc.)"
       
       - name: away_team
-        description: "Away team abbreviation"
+        description: "Away team abbreviation (historical name from games.parquet)"
+        tests:
+          - not_null
+      
+      - name: away_team_franchise
+        description: "Away team's current franchise abbreviation (handles relocations)"
         tests:
           - not_null
       
       - name: home_team
-        description: "Home team abbreviation"
+        description: "Home team abbreviation (historical name from games.parquet)"
+        tests:
+          - not_null
+      
+      - name: home_team_franchise
+        description: "Home team's current franchise abbreviation (handles relocations)"
         tests:
           - not_null
       

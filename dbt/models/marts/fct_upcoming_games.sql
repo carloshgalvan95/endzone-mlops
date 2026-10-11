@@ -18,6 +18,7 @@ Key fields:
 - Schedule information (gameday, gametime)
 - Betting lines (spread, total, moneylines)
 - Venue and conditions (roof, surface, rest days)
+- Franchise columns for grouping teams across relocations (OAK->LV, SD->LAC, STL->LA)
 
 Useful for:
 - Batch scoring input (games to predict)
@@ -51,6 +52,45 @@ with games as (
     where home_score is null
       and away_score is null
 
+),
+
+franchise_map as (
+
+    select
+        team_abbr,
+        franchise_abbr
+    from {{ ref('team_franchise_map') }}
+
 )
 
-select * from games
+select
+    g.game_id,
+    g.season,
+    g.week,
+    g.game_type,
+    g.away_team,
+    g.home_team,
+    
+    -- Franchise columns for grouping across relocations
+    af.franchise_abbr as away_team_franchise,
+    hf.franchise_abbr as home_team_franchise,
+    
+    g.gameday,
+    g.weekday,
+    g.gametime,
+    g.spread_line,
+    g.total_line,
+    g.away_moneyline,
+    g.home_moneyline,
+    g.location,
+    g.roof,
+    g.surface,
+    g.temp,
+    g.wind,
+    g.away_rest,
+    g.home_rest
+from games g
+left join franchise_map af
+    on g.away_team = af.team_abbr
+left join franchise_map hf
+    on g.home_team = hf.team_abbr

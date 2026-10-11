@@ -19,6 +19,10 @@ Key metrics:
 - Success rates
 - Scoring and game context
 
+Franchise mapping: Handles team relocations (OAK->LV, SD->LAC, STL->LA) by joining
+pbp to games on franchise_abbr. team/opponent columns preserve historical names from
+games.parquet; team_franchise/opponent_franchise show current franchise abbreviations.
+
 Useful for:
 - Pregame prediction features (recent team performance)
 - Model training (offensive/defensive strength indicators)
@@ -45,6 +49,15 @@ with games as (
 
 ),
 
+franchise_map as (
+
+    select
+        team_abbr,
+        franchise_abbr
+    from {{ ref('team_franchise_map') }}
+
+),
+
 pbp as (
 
     select
@@ -66,7 +79,7 @@ offensive_stats as (
 
     select
         game_id,
-        possession_team as team,
+        possession_team as franchise_abbr,
         count(*) as offensive_plays,
         sum(case when pass_attempt = 1 then 1 else 0 end) as pass_plays,
         sum(case when rush_attempt = 1 then 1 else 0 end) as rush_plays,
@@ -85,7 +98,7 @@ defensive_stats as (
 
     select
         game_id,
-        defensive_team as team,
+        defensive_team as franchise_abbr,
         sum(epa) as defensive_epa_allowed,
         avg(epa) as avg_defensive_epa_allowed
     from pbp
@@ -147,6 +160,10 @@ final as (
         tg.total_line,
         tg.gameday,
         
+        -- Franchise columns for grouping across relocations
+        team_fm.franchise_abbr as team_franchise,
+        opp_fm.franchise_abbr as opponent_franchise,
+        
         -- Offensive metrics
         coalesce(o.offensive_plays, 0) as offensive_plays,
         coalesce(o.pass_plays, 0) as pass_plays,
@@ -163,12 +180,16 @@ final as (
         d.avg_defensive_epa_allowed
 
     from team_games tg
+    left join franchise_map team_fm
+        on tg.team = team_fm.team_abbr
+    left join franchise_map opp_fm
+        on tg.opponent = opp_fm.team_abbr
     left join offensive_stats o
         on tg.game_id = o.game_id
-        and tg.team = o.team
+        and team_fm.franchise_abbr = o.franchise_abbr
     left join defensive_stats d
         on tg.game_id = d.game_id
-        and tg.team = d.team
+        and team_fm.franchise_abbr = d.franchise_abbr
 
 )
 

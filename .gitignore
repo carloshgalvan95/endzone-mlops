@@ -50,6 +50,7 @@ dbt/profiles.yml
 /data/
 *.parquet
 *.csv
+!dbt/seeds/*.csv
 *.json
 !dbt/**/*.json
 
