@@ -1,0 +1,65 @@
+version: 2
+
+seeds:
+  - name: team_franchise_map
+    description: |
+      Mapping of team abbreviations to current franchise abbreviations.
+      
+      This seed handles franchise relocations where historical team abbreviations
+      in games.parquet (OAK, SD, STL) differ from current abbreviations used in
+      play-by-play data (LV, LAC, LA). Identity mappings are included for all
+      other teams to simplify join logic.
+      
+      Relocations:
+      - OAK (Oakland Raiders) -> LV (Las Vegas Raiders, 2020)
+      - SD (San Diego Chargers) -> LAC (Los Angeles Chargers, 2017)
+      - STL (St. Louis Rams) -> LA (Los Angeles Rams, 2016)
+      
+      All other teams map to themselves (identity mapping).
+    
+    columns:
+      - name: team_abbr
+        description: "Team abbreviation as it appears in games.parquet (historical or current)"
+        tests:
+          - unique
+          - not_null
+      
+      - name: franchise_abbr
+        description: "Current franchise abbreviation as used in play-by-play data"
+        tests:
+          - not_null
+
+  - name: known_pbp_gaps
+    description: |
+      Known gaps in nflverse play-by-play data where completed games have no pbp records.
+      
+      These game-teams are excluded from data quality tests that require offensive plays > 0.
+      Each row represents a specific team in a specific game where pbp data is missing.
+      
+      Documented gaps:
+      - 1999_01_BAL_STL: Missing pbp for entire game (both BAL and STL)
+      - 2000_03_SD_KC: Missing pbp for entire game (both SD and KC)
+      - 2000_06_BUF_MIA: Missing pbp for entire game (both BUF and MIA)
+    
+    columns:
+      - name: game_id
+        description: "Game identifier where pbp data is missing"
+        tests:
+          - not_null
+      
+      - name: team
+        description: "Team abbreviation (historical, as appears in games.parquet)"
+        tests:
+          - not_null
+      
+      - name: reason
+        description: "Explanation of why pbp data is missing"
+        tests:
+          - not_null
+    
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - game_id
+              - team

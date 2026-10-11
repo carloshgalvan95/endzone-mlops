@@ -81,10 +81,12 @@ class PRGuard:
     # Allowlisted paths for data files
     DATA_FILE_ALLOWLIST = [
         r"^tests/fixtures/",
+        r"^dbt/seeds/.*\.csv$",
     ]
 
     # Max file size (bytes)
     MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
+    MAX_SEED_CSV_SIZE = 50 * 1024  # 50 KB for dbt seeds
 
     def __init__(self, github_token: str, repo: str, pr_number: int) -> None:
         """
@@ -376,6 +378,15 @@ class PRGuard:
                             f"Allowlist: {', '.join(self.DATA_FILE_ALLOWLIST)}",
                         )
                         break
+
+            # For dbt seed CSVs (already allowlisted above), enforce size limit
+            if re.search(r"^dbt/seeds/.*\.csv$", filename):
+                if file.get("additions", 0) > self.MAX_SEED_CSV_SIZE / 50:
+                    self._add_error(
+                        "file-size",
+                        f"dbt seed CSV {filename} is too large. "
+                        f"Seed CSVs must be under {self.MAX_SEED_CSV_SIZE // 1024} KB.",
+                    )
 
             # Check patch for em dash in text files
             if file.get("patch"):

@@ -18,6 +18,7 @@ Key fields:
 - Final scores and derived outcomes (winner, margin, total points)
 - Betting line results (spread covered, total over/under)
 - Game metadata (date, venue conditions)
+- Franchise columns for grouping teams across relocations (OAK->LV, SD->LAC, STL->LA)
 
 Useful for:
 - Model training labels (did home team win, by how much)
@@ -56,6 +57,15 @@ with games as (
 
 ),
 
+franchise_map as (
+
+    select
+        team_abbr,
+        franchise_abbr
+    from {{ ref('team_franchise_map') }}
+
+),
+
 final as (
 
     select
@@ -67,6 +77,10 @@ final as (
         home_team,
         away_score,
         home_score,
+        
+        -- Franchise columns for grouping across relocations
+        af.franchise_abbr as away_team_franchise,
+        hf.franchise_abbr as home_team_franchise,
         
         -- Derived outcomes
         case
@@ -112,6 +126,10 @@ final as (
         home_rest
 
     from games
+    left join franchise_map af
+        on away_team = af.team_abbr
+    left join franchise_map hf
+        on home_team = hf.team_abbr
 
 )
 
