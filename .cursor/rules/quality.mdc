@@ -1,0 +1,14 @@
+---
+description: Lint, tests, diff size, Databricks SQL, and cross-platform paths
+alwaysApply: true
+---
+
+# Quality
+
+- Use the repo `.venv`. Ruff is pinned at `ruff==0.17.0`.
+- Before finishing, run `ruff format src/ tests/`, then `ruff check src/ tests/` and `ruff format --check src/ tests/`. Full `pytest tests/ -v` must pass. Paste the real command output in the final report.
+- Extend the existing module. Do not recreate a parallel one.
+- Keep diffs small. Do not reformat unrelated lines.
+- Run the change before claiming it works.
+- Databricks SQL warehouse behavior is the source of truth for connection and SQL changes. One statement per `cursor.execute`. Catalog and schema are connection parameters, because the warehouse rejects a script that starts with `USE`. CI uses fixtures and will not catch a bad warehouse statement.
+- Keep Windows Git Bash, Windows PowerShell, and macOS working. Use `Path.as_uri()` for local SQLite artifact locations. Export `MSYS_NO_PATHCONV=1` before paths that start with `/` (warehouse http path, `sqlite:///`). In tests, keep files under `tmp_path` and call `dispose()` on SQLite engines before the test returns.

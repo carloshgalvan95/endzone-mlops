@@ -1,0 +1,24 @@
+---
+description: Commit identity, message style, and what never gets committed or pushed
+alwaysApply: true
+---
+
+# Git and commits
+
+Before the first commit in a session, set the identity and verify it:
+
+```
+git config user.name "Carlos Galván"
+git config user.email "carloshgalvan95@gmail.com"
+git log -1 --format='%an %ae %cn %ce'
+```
+
+Author and committer are both Carlos Galván <carloshgalvan95@gmail.com>.
+
+- Conventional Commits: `type(scope): subject`. Types: feat, fix, docs, chore, ci, test, refactor, perf.
+- Subject is imperative or first person.
+- No Co-authored-by trailer. No tool trailers.
+- No em dash (U+2014). Use a comma, period, colon, or hyphen.
+- Never commit secrets, hosts, http paths, `.env`, `profiles.yml`, or data files (parquet, csv outside dbt seeds, `mlflow.db`).
+- Push the working branch only. Do not open a pull request.
+- Do not rewrite `main`. No force-push, no commit on `main`, no history rewrite of `main`.
