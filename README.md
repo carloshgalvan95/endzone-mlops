@@ -212,7 +212,7 @@ Copy-Item dbt\profiles.yml.example dbt\profiles.yml
 
 ### Training Models
 
-After setting up the environment and building dbt models, you can train prediction models. Local runs record experiments in `sqlite:///mlflow.db` (repo root) and write model artifacts under `mlartifacts/`. Both paths are gitignored. If an existing `.env` still sets `MLFLOW_TRACKING_URI` to a filesystem path, remove that line so training uses the SQLite default.
+After setting up the environment and building dbt models, you can train prediction models. Local runs record experiments in `sqlite:///mlflow.db` (repo root) and write model artifacts under `mlartifacts/`. Both paths are gitignored. If an existing `.env` still has `MLFLOW_TRACKING_URI=./mlruns` (or `mlruns`), change it to `MLFLOW_TRACKING_URI=sqlite:///mlflow.db`. MLflow 3.16 refuses the file store. Training logs a warning and uses `sqlite:///mlflow.db` when the value is a plain local path.
 
 #### macOS / Linux
 
@@ -230,7 +230,7 @@ make train-sweep
 
 # View MLflow UI to compare runs
 make mlflow-ui
-# or: mlflow ui --backend-store-uri sqlite:///mlflow.db
+# or: mlflow ui --backend-store-uri sqlite:///mlflow.db --workers 1
 # Open http://localhost:5000 in browser
 ```
 
@@ -250,13 +250,15 @@ python -m src.train.train --model baseline-home
 
 # View MLflow UI to compare runs
 .\scripts\dev.ps1 mlflow-ui
-# or: mlflow ui --backend-store-uri sqlite:///mlflow.db
+# or: mlflow ui --backend-store-uri sqlite:///mlflow.db --workers 1
 # Open http://localhost:5000 in browser
 ```
 
+`--workers 1` avoids a Windows uvicorn error (WinError 10022) when the UI starts more than one worker.
+
 #### Windows (Git Bash)
 
-Git Bash rewrites arguments that look like Unix paths. Set `MSYS_NO_PATHCONV=1` before training or opening the UI so `sqlite:///` is left intact.
+Git Bash rewrites arguments that look like Unix paths, including `DATABRICKS_HTTP_PATH` (`/sql/1.0/...`). `make` exports `MSYS_NO_PATHCONV=1` for every target, including `train` and `train-sweep`. The variable is harmless on macOS and Linux. Set it yourself when you call Python outside `make`, and before `mlflow ui` so `sqlite:///` is left intact.
 
 ```bash
 export MSYS_NO_PATHCONV=1
@@ -274,7 +276,7 @@ make train-sweep
 
 # View MLflow UI to compare runs
 make mlflow-ui
-# or: mlflow ui --backend-store-uri sqlite:///mlflow.db
+# or: mlflow ui --backend-store-uri sqlite:///mlflow.db --workers 1
 # Open http://localhost:5000 in browser
 ```
 
@@ -284,7 +286,8 @@ make mlflow-ui
 - `.env` is for environment variables (e.g., Databricks credentials), not the Python virtual environment
 - Format: `KEY=value` with no spaces around `=`
 - DATABRICKS_HOST should NOT include `https://` prefix
-- Git Bash (MINGW) on Windows mangles paths starting with `/` - use PowerShell or add `export MSYS_NO_PATHCONV=1` to `~/.bashrc`
+- Git Bash (MINGW) on Windows mangles paths starting with `/`, including `DATABRICKS_HTTP_PATH`. `make` already exports `MSYS_NO_PATHCONV=1`. Add the same export to `~/.bashrc` if you run commands outside `make`.
+- Migrate `MLFLOW_TRACKING_URI=./mlruns` to `MLFLOW_TRACKING_URI=sqlite:///mlflow.db`. A leftover file-store path is rewritten to sqlite with a warning.
 - Both `.venv/` and `dbt/profiles.yml` are gitignored
 
 ### Databricks Free Edition Path

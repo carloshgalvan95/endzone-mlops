@@ -1,5 +1,10 @@
 .PHONY: help setup install lint test dbt-compile dbt-run dbt-test clean reproduce ingest ingest-current dbt-build-databricks train train-sweep mlflow-ui
 
+# Git Bash on Windows rewrites arguments that look like Unix paths.
+# DATABRICKS_HTTP_PATH starts with /sql/1.0/... and would be mangled.
+# Harmless on macOS and Linux.
+export MSYS_NO_PATHCONV=1
+
 help:
 	@echo "Available targets:"
 	@echo "  setup               - Create virtualenv and install dependencies"
@@ -78,7 +83,7 @@ train-sweep:
 	bash scripts/train_sweep.sh
 
 mlflow-ui:
-	mlflow ui --backend-store-uri sqlite:///mlflow.db
+	mlflow ui --backend-store-uri sqlite:///mlflow.db --workers 1
 
 reproduce: install dbt-compile
 	@echo "Reproduction pipeline complete (dependencies installed, dbt compiled on DuckDB)."

@@ -123,7 +123,8 @@ function Invoke-TrainSweep {
 }
 
 function Invoke-MlflowUi {
-    mlflow ui --backend-store-uri sqlite:///mlflow.db
+    # One worker: uvicorn's default pool raises WinError 10022 on Windows.
+    mlflow ui --backend-store-uri sqlite:///mlflow.db --workers 1
 }
 
 function Invoke-Reproduce {
