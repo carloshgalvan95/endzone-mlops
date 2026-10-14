@@ -4,11 +4,10 @@ Follows DoD: smoke tests for pure functions.
 """
 
 from pathlib import Path
-from urllib.parse import urlparse
 
 import pytest
 
-from src.utils.config import Config, load_config, resolve_tracking_uri
+from src.utils.config import DEFAULT_MLFLOW_TRACKING_URI, Config, load_config, resolve_tracking_uri
 from src.utils.logging import setup_logger
 
 
@@ -60,15 +59,33 @@ class TestResolveTrackingUri:
         assert resolve_tracking_uri(remote_uri) == remote_uri
         assert resolve_tracking_uri(sqlite_uri) == sqlite_uri
 
-    def test_relative_path_becomes_file_uri(self) -> None:
-        """A relative path becomes the absolute URI from Path.as_uri."""
-        relative_path: str = "./mlruns"
-        expected: str = Path(relative_path).resolve().as_uri()
-        resolved: str = resolve_tracking_uri(relative_path)
-        assert resolved == expected
-        parsed = urlparse(resolved)
-        assert parsed.scheme == "file"
-        assert parsed.path.endswith("/mlruns")
+    def test_plain_local_path_falls_back_to_sqlite(self, caplog: pytest.LogCaptureFixture) -> None:
+        """MLflow 3.16 refuses ./mlruns and mlruns, so both become sqlite."""
+        with caplog.at_level("WARNING", logger="src.utils.config"):
+            relative_path: str = resolve_tracking_uri("./mlruns")
+            bare_path: str = resolve_tracking_uri("mlruns")
+
+        assert relative_path == DEFAULT_MLFLOW_TRACKING_URI
+        assert bare_path == DEFAULT_MLFLOW_TRACKING_URI
+        assert relative_path == "sqlite:///mlflow.db"
+        assert "file store" in caplog.text
+        assert "./mlruns" in caplog.text
+        assert "mlruns" in caplog.text
+
+    def test_absolute_local_path_falls_back_to_sqlite(
+        self, caplog: pytest.LogCaptureFixture, tmp_path: Path
+    ) -> None:
+        """Any scheme-less path is a file store and falls back to sqlite."""
+        with caplog.at_level("WARNING", logger="src.utils.config"):
+            resolved: str = resolve_tracking_uri(str(tmp_path))
+
+        assert resolved == DEFAULT_MLFLOW_TRACKING_URI
+        assert "Falling back" in caplog.text
+
+    def test_file_uri_passthrough(self) -> None:
+        """An explicit file URI is already a scheme and is left unchanged."""
+        file_uri: str = "file:///tmp/mlruns"
+        assert resolve_tracking_uri(file_uri) == file_uri
 
 
 class TestLogging:

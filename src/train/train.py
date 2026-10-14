@@ -369,9 +369,9 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    # Local paths become absolute file URIs so Windows drive letters are
-    # not parsed as an invalid remote store. sqlite:// and databricks pass
-    # through resolve_tracking_uri unchanged.
+    # Plain local paths such as ./mlruns fall back to sqlite inside
+    # resolve_tracking_uri (MLflow 3.16 refuses the file store).
+    # sqlite:// and databricks pass through unchanged.
     tracking_uri = resolve_tracking_uri(
         os.getenv("MLFLOW_TRACKING_URI", DEFAULT_MLFLOW_TRACKING_URI)
     )
