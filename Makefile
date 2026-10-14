@@ -1,4 +1,4 @@
-.PHONY: help setup install lint test dbt-compile dbt-run dbt-test clean reproduce ingest ingest-current dbt-build-databricks train train-sweep mlflow-ui
+.PHONY: help setup install lint test dbt-compile dbt-run dbt-test clean reproduce ingest ingest-current dbt-build-databricks train train-sweep mlflow-ui audit-features
 
 # Git Bash on Windows rewrites arguments that look like Unix paths.
 # DATABRICKS_HTTP_PATH starts with /sql/1.0/... and would be mangled.
@@ -20,6 +20,7 @@ help:
 	@echo "  train               - Train NFL pregame prediction models with MLflow"
 	@echo "  train-sweep         - Run training sweep (5+ configs for MLflow comparison)"
 	@echo "  mlflow-ui           - Open MLflow UI against the local SQLite store"
+	@echo "  audit-features      - Profile current pregame inputs (no feature changes)"
 	@echo "  reproduce           - Full reproduction pipeline (install -> dbt compile)"
 	@echo "  clean               - Remove build artifacts"
 	@echo ""
@@ -84,6 +85,10 @@ train-sweep:
 
 mlflow-ui:
 	mlflow ui --backend-store-uri sqlite:///mlflow.db --workers 1
+
+audit-features:
+	@if [ -f .env ]; then set -a && . ./.env && set +a; fi; \
+	python -m src.analysis.feature_audit --output-dir reports/phase0 $(AUDIT_ARGS)
 
 reproduce: install dbt-compile
 	@echo "Reproduction pipeline complete (dependencies installed, dbt compiled on DuckDB)."

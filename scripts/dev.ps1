@@ -23,6 +23,7 @@ function Show-Help {
     Write-Host "  train               - Train NFL pregame prediction models with MLflow"
     Write-Host "  train-sweep         - Run training sweep (5+ configs for MLflow comparison)"
     Write-Host "  mlflow-ui           - Open MLflow UI against the local SQLite store"
+    Write-Host "  audit-features      - Profile current pregame inputs (no feature changes)"
     Write-Host "  clean               - Remove build artifacts"
     Write-Host "  reproduce           - Full reproduction pipeline"
     Write-Host ""
@@ -127,6 +128,12 @@ function Invoke-MlflowUi {
     mlflow ui --backend-store-uri sqlite:///mlflow.db --workers 1
 }
 
+function Invoke-AuditFeatures {
+    Load-Env
+    Write-Host "Auditing pregame inputs (features are not changed)..."
+    python -m src.analysis.feature_audit --output-dir reports/phase0
+}
+
 function Invoke-Reproduce {
     Invoke-Install
     Invoke-DbtCompile
@@ -173,6 +180,7 @@ switch ($Target.ToLower()) {
     "train" { Invoke-Train }
     "train-sweep" { Invoke-TrainSweep }
     "mlflow-ui" { Invoke-MlflowUi }
+    "audit-features" { Invoke-AuditFeatures }
     "clean" { Invoke-Clean }
     "reproduce" { Invoke-Reproduce }
     default {

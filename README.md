@@ -291,6 +291,10 @@ make mlflow-ui
 
 **Note**: Training requires either Databricks credentials (in .env) or local fixture files. Metrics (accuracy, Brier score, log loss, ROC AUC) are logged to MLflow along with model artifacts. The Day 7 sweep on 2024 validation is in Current Status. The 2025 test season is held out.
 
+### Feature input audit
+
+`make audit-features` (Windows: `.\scripts\dev.ps1 audit-features`) profiles the current pregame inputs and does not change them. It writes `reports/phase0/feature_audit.md` and `reports/phase0/feature_audit.csv`, and logs both on an MLflow run tagged `phase=0-audit` under experiment `nfl_pregame/phase0_audit`. Those files are local outputs. Code-reading findings are in `docs/experiments/phase0_input_audit.md`. The command uses the same Databricks credentials as training, or `--fixture-path` for a local frame. Pass extra CLI flags with `make audit-features AUDIT_ARGS="--fixture-path path/to/fixtures"`. 2025 is included in the distribution tables and is not scored.
+
 **Important .env notes**:
 - `.env` is for environment variables (e.g., Databricks credentials), not the Python virtual environment
 - Format: `KEY=value` with no spaces around `=`
@@ -384,6 +388,7 @@ See `docs/runbook.md` for credential setup, Unity Catalog volume paths, and veri
 ## Related Documentation
 
 - [Architecture](docs/architecture.md): Detailed C4 diagrams and component descriptions
+- [Phase 0 input audit](docs/experiments/phase0_input_audit.md): What the current features do, from the code
 - [ADR-001](docs/adr/ADR-001-databricks.md): Why Databricks + dbt + MLflow
 - [Runbook](docs/runbook.md): Operational procedures and spike status
 - [Attribution](docs/ATTRIBUTION.md): Full data source credits and licenses
