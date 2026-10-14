@@ -9,6 +9,10 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+# Relative SQLite file in the repo root. The filesystem tracking backend
+# (./mlruns) is in maintenance mode on current MLflow.
+DEFAULT_MLFLOW_TRACKING_URI: str = "sqlite:///mlflow.db"
+
 
 class Config(BaseModel):
     """Application configuration."""
@@ -16,7 +20,7 @@ class Config(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     data_dir: Path = Field(default_factory=lambda: Path("./data"))
-    mlflow_tracking_uri: str = Field(default="./mlruns")
+    mlflow_tracking_uri: str = Field(default=DEFAULT_MLFLOW_TRACKING_URI)
     enable_live_feed: bool = Field(default=False)
 
 
@@ -34,7 +38,7 @@ def load_config() -> Config:
     """
     return Config(
         data_dir=Path(os.getenv("DATA_DIR", "./data")),
-        mlflow_tracking_uri=os.getenv("MLFLOW_TRACKING_URI", "./mlruns"),
+        mlflow_tracking_uri=os.getenv("MLFLOW_TRACKING_URI", DEFAULT_MLFLOW_TRACKING_URI),
         enable_live_feed=os.getenv("ENABLE_LIVE_FEED", "false").lower() == "true",
     )
 

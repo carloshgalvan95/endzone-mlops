@@ -15,12 +15,16 @@ from src.utils.logging import setup_logger
 class TestConfig:
     """Test configuration loading."""
 
-    def test_default_config(self) -> None:
+    def test_default_config(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Config loads with defaults when no env vars set."""
+        monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
         config = Config()
         assert config.data_dir == Path("./data")
-        assert config.mlflow_tracking_uri == "./mlruns"
+        assert config.mlflow_tracking_uri == "sqlite:///mlflow.db"
         assert config.enable_live_feed is False
+
+        loaded = load_config()
+        assert loaded.mlflow_tracking_uri == "sqlite:///mlflow.db"
 
     def test_config_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Config respects environment variables."""

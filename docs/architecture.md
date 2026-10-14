@@ -146,7 +146,7 @@ endzone-mlops demonstrates a modern lakehouse architecture for NFL analytics, co
 
 **Access**:
 - Databricks: Built-in UI
-- Local: `mlflow ui` command
+- Local: `mlflow ui --backend-store-uri sqlite:///mlflow.db`
 
 #### 6. GitHub Actions (`github/workflows/ci.yml`)
 
@@ -261,7 +261,7 @@ src/
 - **Compute**: Databricks Free Edition serverless OR local DuckDB
 - **Storage**: Databricks workspace OR local files
 - **CI**: GitHub Actions (free tier)
-- **MLflow**: Databricks managed OR local `./mlruns`
+- **MLflow**: Databricks managed OR local `sqlite:///mlflow.db`
 
 ### Future (v0.2+): Scheduled Batch
 

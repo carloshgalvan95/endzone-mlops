@@ -22,6 +22,7 @@ function Show-Help {
     Write-Host "  dbt-build-databricks - Build dbt models on Databricks target"
     Write-Host "  train               - Train NFL pregame prediction models with MLflow"
     Write-Host "  train-sweep         - Run training sweep (5+ configs for MLflow comparison)"
+    Write-Host "  mlflow-ui           - Open MLflow UI against the local SQLite store"
     Write-Host "  clean               - Remove build artifacts"
     Write-Host "  reproduce           - Full reproduction pipeline"
     Write-Host ""
@@ -121,6 +122,10 @@ function Invoke-TrainSweep {
     & ".\scripts\train_sweep.ps1"
 }
 
+function Invoke-MlflowUi {
+    mlflow ui --backend-store-uri sqlite:///mlflow.db
+}
+
 function Invoke-Reproduce {
     Invoke-Install
     Invoke-DbtCompile
@@ -166,6 +171,7 @@ switch ($Target.ToLower()) {
     "dbt-build-databricks" { Invoke-DbtBuildDatabricks }
     "train" { Invoke-Train }
     "train-sweep" { Invoke-TrainSweep }
+    "mlflow-ui" { Invoke-MlflowUi }
     "clean" { Invoke-Clean }
     "reproduce" { Invoke-Reproduce }
     default {
