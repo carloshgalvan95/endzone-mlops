@@ -16,7 +16,7 @@ The audit module is `src/analysis/feature_audit.py`. It calls `build_pregame_fea
 
 `home_games_played` is `len(home_prior)`. `home_prior` is every prior team-game with `gameday` strictly before the game. It is not filtered to the current season. `away_games_played` is the same count for the away team. The value grows with the length of the history in the frame. It is not "games played this season."
 
-The audit flags `time_counter` when season medians are strictly monotone across at least three seasons and the 2024 or 2025 values sit entirely outside the training min/max. Whether `games_played` trips that flag on the marts is pending the audit run.
+The audit flags `time_counter` when season medians are strictly monotone across at least three seasons, or when more than 5 percent of the 2024 rows or of the 2025 rows sit outside the closed training min/max. An earlier rule required every later value to sit outside that range, which misses a column that only partly leaves it. Whether `games_played` trips the flag on the marts is pending the audit run.
 
 ### 2. Cross-season rolling, no regression to the mean
 

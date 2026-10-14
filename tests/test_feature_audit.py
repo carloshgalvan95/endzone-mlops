@@ -1,5 +1,7 @@
 """Tests for the phase 0 feature input audit. Synthetic frames only."""
 
+import subprocess
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -281,6 +283,7 @@ class TestAuditReport:
         ):
             assert heading in report["markdown"]
         assert "not scored" in report["markdown"]
+        assert "above 0.05" in report["markdown"]
 
         rest = _row(table, "week1_epa")
         assert rest["missing_count"] == 5
@@ -348,8 +351,8 @@ class TestAuditReport:
         assert bool(falling["time_counter"]) is True
         assert falling["test_max"] < falling["train_min"]
 
-    def test_two_seasons_outside_the_range_are_not_a_time_counter(self) -> None:
-        """Out of range without three monotone seasons is only an out-of-range flag."""
+    def test_material_share_without_a_monotone_median_is_a_time_counter(self) -> None:
+        """More than 5 percent of validation rows outside the train range is enough."""
         features = pd.DataFrame(
             {
                 "season": [2023] * 6 + [2024] * 6,
@@ -367,7 +370,64 @@ class TestAuditReport:
         )
         jump = _row(report["feature_table"], "jump")
         assert bool(jump["out_of_range"]) is True
-        assert bool(jump["time_counter"]) is False
+        assert bool(jump["time_counter"]) is True
+
+    def test_five_percent_outside_the_train_range_is_not_a_time_counter(self) -> None:
+        """A share of exactly 0.05, without monotone medians, stays unflagged."""
+        train_values: list[float] = [0.0] * 20
+        val_values: list[float] = [100.0] + [0.0] * 19
+        features = pd.DataFrame(
+            {
+                "season": [2023] * 20 + [2024] * 20,
+                "edge": train_values + val_values,
+                "signal": [0.0, 1.0] * 20,
+            }
+        )
+        target = pd.Series([0, 1] * 20)
+        report = run_feature_audit(
+            features,
+            target,
+            _fast_config(
+                n_bootstrap=0, permutation_repeats=1, cv_start_season=2024, cv_end_season=2024
+            ),
+        )
+        edge = _row(report["feature_table"], "edge")
+        assert edge["val_out_of_range_count"] == 1
+        assert bool(edge["out_of_range"]) is True
+        assert bool(edge["time_counter"]) is False
+
+    def test_monotone_medians_inside_the_training_range_are_a_time_counter(self) -> None:
+        """Strictly rising season medians are a clock even when later rows stay in range."""
+        records: list[dict[str, object]] = []
+        labels: list[int] = []
+        # Wide train values keep 2024 and 2025 inside the training min and max.
+        levels = {
+            2021: (0.0, 200.0),
+            2022: (10.0, 210.0),
+            2023: (20.0, 220.0),
+            2024: (50.0, 210.0),
+            2025: (60.0, 210.0),
+        }
+        for season, (low, high) in levels.items():
+            for index in range(8):
+                label = index % 2
+                records.append(
+                    {
+                        "season": season,
+                        "clock": low if index < 4 else high,
+                        "signal": float(label),
+                    }
+                )
+                labels.append(label)
+        report = run_feature_audit(
+            pd.DataFrame(records),
+            pd.Series(labels),
+            _fast_config(n_bootstrap=0, permutation_repeats=1),
+        )
+        clock = _row(report["feature_table"], "clock")
+        assert bool(clock["out_of_range"]) is False
+        assert clock["val_out_of_range_count"] == 0
+        assert bool(clock["time_counter"]) is True
 
     def test_all_null_train_values_do_not_invent_a_range(self) -> None:
         """No training observations means the out-of-range count is undefined."""
@@ -748,6 +808,32 @@ class TestOutputsAndCli:
             assert result["run"]["run_id"]
         finally:
             _reset_mlflow_tracking()
+
+
+class TestPackageImport:
+    """The audit package must stay lazy so ``python -m`` does not warn."""
+
+    def test_package_exports_run_feature_audit_on_demand(self) -> None:
+        """The public name resolves, and an unknown name does not."""
+        import src.analysis as analysis_pkg
+
+        assert analysis_pkg.run_feature_audit is run_feature_audit
+        with pytest.raises(AttributeError, match="not_a_real_export"):
+            getattr(analysis_pkg, "not_a_real_export")
+
+    def test_module_entrypoint_has_no_runpy_warning(self) -> None:
+        """Running the audit as a module does not double-import it."""
+        repo_root: Path = Path(__file__).resolve().parents[1]
+        completed = subprocess.run(
+            [sys.executable, "-m", "src.analysis.feature_audit", "--help"],
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=repo_root,
+        )
+        assert completed.returncode == 0
+        assert "RuntimeWarning" not in completed.stderr
+        assert "found in sys.modules" not in completed.stderr
 
 
 def _fixture_frames() -> tuple[pd.DataFrame, pd.DataFrame]:
