@@ -22,6 +22,7 @@ function Show-Help {
     Write-Host "  dbt-build-databricks - Build dbt models on Databricks target"
     Write-Host "  train               - Train NFL pregame prediction models with MLflow"
     Write-Host "  train-sweep         - Run training sweep (5+ configs for MLflow comparison)"
+    Write-Host "  train-cv            - Phase 1 rolling-origin CV (2016-2023, both feature sets)"
     Write-Host "  mlflow-ui           - Open MLflow UI against the local SQLite store"
     Write-Host "  audit-features      - Profile current pregame inputs (no feature changes)"
     Write-Host "  clean               - Remove build artifacts"
@@ -123,6 +124,12 @@ function Invoke-TrainSweep {
     & ".\scripts\train_sweep.ps1"
 }
 
+function Invoke-TrainCv {
+    Load-Env
+    Write-Host "Running phase 1 rolling-origin CV..."
+    python -m src.train.train --cv --output-dir reports/phase1
+}
+
 function Invoke-MlflowUi {
     # One worker: uvicorn's default pool raises WinError 10022 on Windows.
     mlflow ui --backend-store-uri sqlite:///mlflow.db --workers 1
@@ -179,6 +186,7 @@ switch ($Target.ToLower()) {
     "dbt-build-databricks" { Invoke-DbtBuildDatabricks }
     "train" { Invoke-Train }
     "train-sweep" { Invoke-TrainSweep }
+    "train-cv" { Invoke-TrainCv }
     "mlflow-ui" { Invoke-MlflowUi }
     "audit-features" { Invoke-AuditFeatures }
     "clean" { Invoke-Clean }

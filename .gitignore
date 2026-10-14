@@ -55,7 +55,7 @@ dbt/profiles.yml
 !dbt/**/*.json
 !.cursor/environment.json
 
-# Phase 0 audit outputs (make audit-features)
+# Local audit and CV reports (make audit-features, make train-cv)
 /reports/
 
 # MLflow

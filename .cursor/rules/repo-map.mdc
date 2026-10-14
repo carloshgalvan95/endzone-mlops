@@ -22,6 +22,6 @@ Catalog `workspace`. Staging schema `nfl_dev`. Marts schema `nfl_dev_marts` (dbt
 
 Split: train seasons through 2023, validation 2024, test 2025. Leakage rule: features for a game use only games with `gameday` strictly before that game.
 
-MLflow local store: `sqlite:///mlflow.db`. Experiment: `nfl_pregame`. Phase 0 audit: `nfl_pregame/phase0_audit`, tag `phase=0-audit`.
+MLflow local store: `sqlite:///mlflow.db`. Experiment: `nfl_pregame`. Phase 0 audit: `nfl_pregame/phase0_audit`, tag `phase=0-audit`. Phase 1 baselines: `nfl_pregame/phase1_baselines`, tag `phase=1`.
 
-Make targets: `setup`, `install`, `lint`, `test`, `dbt-compile`, `dbt-run`, `dbt-test`, `dbt-build-databricks`, `ingest`, `ingest-current`, `train`, `train-sweep`, `mlflow-ui`, `audit-features`, `reproduce`, `clean`.
+Make targets: `setup`, `install`, `lint`, `test`, `dbt-compile`, `dbt-run`, `dbt-test`, `dbt-build-databricks`, `ingest`, `ingest-current`, `train`, `train-sweep`, `train-cv`, `mlflow-ui`, `audit-features`, `reproduce`, `clean`.
