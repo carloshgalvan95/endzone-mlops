@@ -9,6 +9,8 @@ import pandas as pd
 import pytest
 
 from src.features.pregame import (
+    DIFF_FEATURE_COLUMNS,
+    DIFFERENTIAL_FEATURES,
     ELO_HOME_ADVANTAGE,
     ELO_K,
     ELO_MEAN_RATING,
@@ -20,6 +22,8 @@ from src.features.pregame import (
     build_pregame_features,
     elo_home_probabilities,
 )
+
+CHECKED_FEATURE_COLUMNS: tuple[str, ...] = PREGAME_COMPUTED_COLUMNS + DIFF_FEATURE_COLUMNS
 
 LOOKBACK_GAMES: int = 2
 
@@ -149,8 +153,9 @@ class TestPregameLeakage:
         games, epa = _games_and_epa()
         features = build_pregame_features(games, epa, lookback_games=LOOKBACK_GAMES)
 
-        assert list(features.columns) == ["game_id", *PREGAME_COMPUTED_COLUMNS]
+        assert list(features.columns) == ["game_id", *CHECKED_FEATURE_COLUMNS]
         assert set(PREGAME_FEATURE_COLUMNS).isdisjoint(GAMES_PLAYED_COLUMNS)
+        assert set(PREGAME_FEATURE_COLUMNS).isdisjoint(DIFF_FEATURE_COLUMNS)
         assert len(features) == len(games)
 
     def test_each_feature_matches_history_truncated_before_the_game(self) -> None:
@@ -162,7 +167,7 @@ class TestPregameLeakage:
             truncated = _history_before(games, epa, game)
             full_row = _feature_row(full, game["game_id"])
             truncated_row = _feature_row(truncated, game["game_id"])
-            for column in PREGAME_COMPUTED_COLUMNS:
+            for column in CHECKED_FEATURE_COLUMNS:
                 _assert_equal(
                     full_row[column],
                     truncated_row[column],
@@ -192,7 +197,7 @@ class TestPregameLeakage:
             )
             baseline_row = _feature_row(baseline, game["game_id"])
             poisoned_row = _feature_row(poisoned, game["game_id"])
-            for column in PREGAME_COMPUTED_COLUMNS:
+            for column in CHECKED_FEATURE_COLUMNS:
                 _assert_equal(
                     poisoned_row[column],
                     baseline_row[column],
@@ -276,6 +281,45 @@ class TestPregameLeakage:
 
         assert same_day["home_games_played"] == 4
         assert same_day["home_recent_offensive_epa_per_play"] == pytest.approx(0.60)
+
+    def test_differentials_are_home_minus_away_from_prior_games_only(self) -> None:
+        """Each gap is home minus away, and a missing side stays missing.
+
+        G5 is the 2024 opener. Home recent offense (0.60) beats away (0.55),
+        so that difference is positive. Home recent win rate (0.0) is below
+        away (0.5), so that difference is negative. Defensive EPA is allowed
+        EPA and is not flipped: home -0.60 minus away -0.55 is -0.05.
+        Season EPA is missing on both sides. Rest is 100 minus the away
+        default of 7. The opener's own EPA is not in the gap.
+        """
+        games, epa = _games_and_epa()
+        features = build_pregame_features(games, epa, lookback_games=LOOKBACK_GAMES)
+
+        for _, row in features.iterrows():
+            for item in DIFFERENTIAL_FEATURES:
+                actual = row[item.diff_column]
+                home_value = row[item.home_column]
+                away_value = row[item.away_column]
+                if pd.isna(home_value) or pd.isna(away_value):
+                    assert pd.isna(actual), item.diff_column
+                    continue
+                assert actual == pytest.approx(home_value - away_value), item.diff_column
+
+        opener = _feature_row(features, "G5")
+        assert opener["diff_recent_offensive_epa_per_play"] == pytest.approx(0.05)
+        assert opener["diff_recent_offensive_epa_per_play"] > 0
+        assert opener["diff_recent_defensive_epa_per_play"] == pytest.approx(-0.05)
+        assert opener["diff_recent_defensive_epa_per_play"] < 0
+        assert opener["diff_recent_win_rate"] == pytest.approx(-0.5)
+        assert opener["diff_recent_win_rate"] < 0
+        assert pd.isna(opener["diff_season_offensive_epa_per_play"])
+        assert opener["diff_rest_days"] == pytest.approx(93)
+        assert opener["diff_rest_days"] > 0
+
+        first = _feature_row(features, "G1")
+        assert pd.isna(first["diff_recent_offensive_epa_per_play"])
+        assert pd.isna(first["diff_recent_win_rate"])
+        assert first["diff_rest_days"] == pytest.approx(0)
 
     def test_first_game_for_a_new_team_is_empty_on_a_shared_gameday(self) -> None:
         """A team with no prior games stays empty even when other games share the date."""

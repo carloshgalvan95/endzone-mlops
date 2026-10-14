@@ -11,9 +11,15 @@ import pandas as pd
 import pytest
 
 from src.features.pregame import (
+    DIFF_FEATURE_COLUMNS,
+    FEATURE_SET_DIFF,
+    FEATURE_SET_DIFF_ONLY,
+    FEATURE_SET_NAMES,
     FEATURE_SET_WITH_GAMES_PLAYED,
     GAMES_PLAYED_COLUMNS,
     PREGAME_FEATURE_COLUMNS,
+    PREGAME_FEATURE_COLUMNS_DIFF,
+    PREGAME_FEATURE_COLUMNS_WITH_GAMES_PLAYED,
     build_pregame_features,
     feature_columns_for,
     prepare_training_data,
@@ -149,6 +155,7 @@ class TestBuildPregameFeatures:
             "away_season_offensive_epa_per_play",
             "home_games_played",
             "away_games_played",
+            *DIFF_FEATURE_COLUMNS,
         ]
 
         for feature_name in expected_features:
@@ -225,6 +232,8 @@ class TestPrepareTrainingData:
         assert "season" in X.columns
         assert all(y == 1)
         assert set(GAMES_PLAYED_COLUMNS).isdisjoint(X.columns)
+        assert set(DIFF_FEATURE_COLUMNS).isdisjoint(X.columns)
+        assert set(DIFF_FEATURE_COLUMNS) <= set(features.columns)
         assert list(feature_columns_for("current")) == list(PREGAME_FEATURE_COLUMNS)
 
         legacy_x, _legacy_y = prepare_training_data(
@@ -233,6 +242,37 @@ class TestPrepareTrainingData:
             feature_set=FEATURE_SET_WITH_GAMES_PLAYED,
         )
         assert set(GAMES_PLAYED_COLUMNS) <= set(legacy_x.columns)
+        assert set(DIFF_FEATURE_COLUMNS).isdisjoint(legacy_x.columns)
+
+    def test_feature_set_registry_adds_diff_without_changing_current(
+        self,
+        synthetic_games: pd.DataFrame,
+        synthetic_team_game_epa: pd.DataFrame,
+    ) -> None:
+        """``diff`` appends gaps. ``diff_only`` is only the gaps. The old sets stay put."""
+        assert FEATURE_SET_NAMES == ("current", "with_games_played", "diff", "diff_only")
+        assert feature_columns_for("current") == PREGAME_FEATURE_COLUMNS
+        assert feature_columns_for("with_games_played") == PREGAME_FEATURE_COLUMNS_WITH_GAMES_PLAYED
+        assert feature_columns_for(FEATURE_SET_DIFF) == PREGAME_FEATURE_COLUMNS_DIFF
+        assert feature_columns_for(FEATURE_SET_DIFF_ONLY) == DIFF_FEATURE_COLUMNS
+        assert (
+            PREGAME_FEATURE_COLUMNS_DIFF[: len(PREGAME_FEATURE_COLUMNS)] == PREGAME_FEATURE_COLUMNS
+        )
+        assert "home_games_played" not in feature_columns_for(FEATURE_SET_DIFF)
+        assert "home_recent_offensive_epa_per_play" not in feature_columns_for(
+            FEATURE_SET_DIFF_ONLY
+        )
+
+        features = build_pregame_features(synthetic_games, synthetic_team_game_epa)
+        diff_only, _target = prepare_training_data(
+            synthetic_games,
+            features,
+            feature_set=FEATURE_SET_DIFF_ONLY,
+        )
+        model_columns = [
+            column for column in diff_only.columns if column not in ("game_id", "gameday", "season")
+        ]
+        assert model_columns == list(DIFF_FEATURE_COLUMNS)
 
     def test_unknown_feature_set_is_rejected(
         self,
