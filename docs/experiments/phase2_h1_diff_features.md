@@ -1,6 +1,6 @@
 # Phase 2 H1: home-minus-away differentials
 
-Method note. This file does not report warehouse metrics. `make train-cv` (Windows: `.\scripts\dev.ps1 train-cv`) writes the measured comparison to `reports/phase2/comparison.md` and `reports/phase2/comparison.csv`. Those files are local outputs. Fill the result section from that run. Do not copy numbers from memory or from a test fixture.
+Method note. This file does not report warehouse metrics. `make train-cv` (Windows: `.\scripts\dev.ps1 train-cv`) writes the measured comparison to `reports/phase2/comparison.md` and `reports/phase2/comparison.csv`. Those files are local outputs. The result section records the local H1 run. Do not copy numbers from a test fixture.
 
 No model is promoted from a phase 2 run. 2024 stays the final validation. 2025 is not scored here.
 
@@ -71,14 +71,20 @@ This rule is not applied to the Phase 1 decision log.
 
 ## Result
 
-Leave this table empty until `make train-cv` has been run locally. Do not fill it from a test fixture.
+Local rolling-origin run, CV 2016-2023, reference logistic `current`. These rows are that run. They are not warehouse metrics and they are not taken from a test fixture.
 
 | feature_set | n | log_loss | log_loss_diff | ci_low | ci_high | decision |
 | --- | --- | --- | --- | --- | --- | --- |
-| | | | | | | |
+| current | 2191 | 0.6414 | 0.0000 | | | reference |
+| diff | 2191 | 0.6414 | 0.0000 | -0.0000 | 0.0001 | rejected |
+| diff_only | 2191 | 0.6416 | 0.0002 | -0.0011 | 0.0015 | rejected |
+| elo | 2191 | 0.6529 | 0.0115 | | | inconclusive |
+| market | 2191 | 0.6120 | -0.0296 | -0.0386 | -0.0204 | accepted |
 
-## Decision
+`current` is the reference row. Its difference is zero. Elo's point estimate is worse by 0.0115. The local summary did not include Elo's interval, so that row stays inconclusive under the rule above. The market interval lies entirely below 0 and the gain is larger than 0.003, so the numeric rule labels it accepted. That label is the baseline comparison. It is not an acceptance of this hypothesis.
 
-Pending. Carlos fills this after the local run.
+## Decision log
 
-`decision` is `accepted`, `rejected`, or `inconclusive` for each of `diff` and `diff_only`.
+Rejected.
+
+Neither `diff` nor `diff_only` improved pooled log loss by at least 0.003, and neither 95% interval lies entirely below 0. A linear model can already form the home-minus-away differences from the level columns, so the hypothesis added no new information. `diff_only` matches `current` with half the columns (0.6416 versus 0.6414). That is a parsimony option, not an accepted improvement. The feature sets stay in code so this comparison can be rerun.
