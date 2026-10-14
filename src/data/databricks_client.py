@@ -14,6 +14,68 @@ from src.utils.logging import setup_logger
 
 logger = setup_logger(__name__)
 
+# dbt target databricks (profiles.yml.example) uses schema nfl_dev.
+# dbt_project.yml sets models.marts +schema: marts. This repo has no
+# generate_schema_name macro, so dbt's default macro appends the custom
+# schema: nfl_dev_marts. Override with DATABRICKS_CATALOG and
+# DATABRICKS_MARTS_SCHEMA.
+DEFAULT_CATALOG: str = "workspace"
+DEFAULT_MARTS_SCHEMA: str = "nfl_dev_marts"
+
+
+def quote_identifier(identifier: str) -> str:
+    """Wrap one SQL identifier in Databricks backticks.
+
+    Args:
+        identifier: Unquoted catalog, schema, or table name.
+
+    Returns:
+        Backtick-quoted identifier. Embedded backticks are doubled.
+    """
+    escaped: str = identifier.replace("`", "``")
+    return f"`{escaped}`"
+
+
+def qualify_table_name(catalog: str, schema: str, table_name: str) -> str:
+    """Build one backticked table reference for a single SELECT.
+
+    A bare name becomes ``catalog.schema.table``. A name that already
+    contains dots is quoted part by part and is not prefixed again.
+
+    Args:
+        catalog: Unity Catalog name.
+        schema: Schema that holds the marts tables.
+        table_name: Bare table name or an already qualified name.
+
+    Returns:
+        One identifier safe to place after FROM.
+    """
+    stripped: str = table_name.strip()
+    if "." in stripped:
+        parts: list[str] = [part.strip().strip("`") for part in stripped.split(".") if part.strip()]
+    else:
+        parts = [catalog, schema, stripped.strip("`")]
+    return ".".join(quote_identifier(part) for part in parts)
+
+
+def _resolve_setting(explicit: str | None, env_name: str, default: str) -> str:
+    """Prefer an explicit argument, then a non-empty env var, then a default.
+
+    Args:
+        explicit: Value passed by the caller. None or blank means unset.
+        env_name: Environment variable that overrides the default.
+        default: Value used when neither argument nor env var is set.
+
+    Returns:
+        The resolved setting.
+    """
+    if explicit is not None and explicit.strip() != "":
+        return explicit
+    from_env: str | None = os.getenv(env_name)
+    if from_env is not None and from_env.strip() != "":
+        return from_env.strip()
+    return default
+
 
 class DatabricksClient:
     """Client for reading data from Databricks SQL warehouse or local fixtures."""
@@ -23,8 +85,8 @@ class DatabricksClient:
         host: str | None = None,
         http_path: str | None = None,
         token: str | None = None,
-        catalog: str = "workspace",
-        schema: str = "nfl_dev_marts",
+        catalog: str | None = None,
+        schema: str | None = None,
     ) -> None:
         """
         Initialize Databricks client.
@@ -33,8 +95,8 @@ class DatabricksClient:
             host: Databricks host (without https://)
             http_path: SQL warehouse HTTP path
             token: Databricks access token
-            catalog: Unity Catalog name
-            schema: Schema/database name
+            catalog: Unity Catalog name. Defaults to DATABRICKS_CATALOG or workspace.
+            schema: Marts schema. Defaults to DATABRICKS_MARTS_SCHEMA or nfl_dev_marts.
 
         Example:
             >>> client = DatabricksClient()  # Uses env vars or fixture mode
@@ -43,8 +105,8 @@ class DatabricksClient:
         self.host = host or os.getenv("DATABRICKS_HOST")
         self.http_path = http_path or os.getenv("DATABRICKS_HTTP_PATH")
         self.token = token or os.getenv("DATABRICKS_TOKEN")
-        self.catalog = catalog
-        self.schema = schema
+        self.catalog = _resolve_setting(catalog, "DATABRICKS_CATALOG", DEFAULT_CATALOG)
+        self.schema = _resolve_setting(schema, "DATABRICKS_MARTS_SCHEMA", DEFAULT_MARTS_SCHEMA)
 
         self._connection = None
         self._use_fixture = False
@@ -69,10 +131,14 @@ class DatabricksClient:
                     "Install with: pip install databricks-sql-connector"
                 ) from e
 
+            # Session catalog and schema are connection parameters.
+            # The SQL warehouse rejects a script that starts with USE.
             self._connection = sql.connect(
                 server_hostname=self.host,
                 http_path=self.http_path,
                 access_token=self.token,
+                catalog=self.catalog,
+                schema=self.schema,
             )
             logger.info(f"Connected to Databricks: {self.host}")
 
@@ -104,9 +170,10 @@ class DatabricksClient:
         cursor = conn.cursor()
 
         try:
-            full_sql = f"USE CATALOG {self.catalog};\nUSE SCHEMA {self.schema};\n{sql}"
-            logger.debug(f"Executing SQL: {sql[:100]}...")
-            cursor.execute(full_sql)
+            # One statement per execute. Catalog and schema are set on the connection.
+            statement: str = sql.strip()
+            logger.debug(f"Executing SQL: {statement[:100]}...")
+            cursor.execute(statement)
             result = cursor.fetchall()
             columns = [desc[0] for desc in cursor.description]
 
@@ -131,13 +198,14 @@ class DatabricksClient:
         Example:
             >>> df = client.read_table("fct_games", columns=["game_id", "season", "home_won"])
         """
+        qualified_name: str = qualify_table_name(self.catalog, self.schema, table_name)
         if columns:
             cols = ", ".join(columns)
-            sql = f"SELECT {cols} FROM {table_name}"
+            statement = f"SELECT {cols} FROM {qualified_name}"
         else:
-            sql = f"SELECT * FROM {table_name}"
+            statement = f"SELECT * FROM {qualified_name}"
 
-        return self.query(sql)
+        return self.query(statement)
 
     def read_fixture(self, fixture_path: str | Path) -> pd.DataFrame:
         """
