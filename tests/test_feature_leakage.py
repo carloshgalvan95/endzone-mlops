@@ -8,7 +8,18 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.features.pregame import PREGAME_FEATURE_COLUMNS, build_pregame_features
+from src.features.pregame import (
+    ELO_HOME_ADVANTAGE,
+    ELO_K,
+    ELO_MEAN_RATING,
+    ELO_SCALE,
+    ELO_SEASON_REVERSION,
+    GAMES_PLAYED_COLUMNS,
+    PREGAME_COMPUTED_COLUMNS,
+    PREGAME_FEATURE_COLUMNS,
+    build_pregame_features,
+    elo_home_probabilities,
+)
 
 LOOKBACK_GAMES: int = 2
 
@@ -112,7 +123,7 @@ def _assert_equal(actual: object, expected: float, column: str) -> None:
 def _assert_row(features: pd.DataFrame, game_id: str, expected: dict[str, float]) -> None:
     """Assert every expected column, and that the expectation covers all features."""
     row = _feature_row(features, game_id)
-    assert set(expected) == set(PREGAME_FEATURE_COLUMNS)
+    assert set(expected) == set(PREGAME_COMPUTED_COLUMNS)
     for column, expected_value in expected.items():
         _assert_equal(row[column], expected_value, f"{game_id}.{column}")
 
@@ -138,7 +149,8 @@ class TestPregameLeakage:
         games, epa = _games_and_epa()
         features = build_pregame_features(games, epa, lookback_games=LOOKBACK_GAMES)
 
-        assert list(features.columns) == ["game_id", *PREGAME_FEATURE_COLUMNS]
+        assert list(features.columns) == ["game_id", *PREGAME_COMPUTED_COLUMNS]
+        assert set(PREGAME_FEATURE_COLUMNS).isdisjoint(GAMES_PLAYED_COLUMNS)
         assert len(features) == len(games)
 
     def test_each_feature_matches_history_truncated_before_the_game(self) -> None:
@@ -150,7 +162,7 @@ class TestPregameLeakage:
             truncated = _history_before(games, epa, game)
             full_row = _feature_row(full, game["game_id"])
             truncated_row = _feature_row(truncated, game["game_id"])
-            for column in PREGAME_FEATURE_COLUMNS:
+            for column in PREGAME_COMPUTED_COLUMNS:
                 _assert_equal(
                     full_row[column],
                     truncated_row[column],
@@ -180,7 +192,7 @@ class TestPregameLeakage:
             )
             baseline_row = _feature_row(baseline, game["game_id"])
             poisoned_row = _feature_row(poisoned, game["game_id"])
-            for column in PREGAME_FEATURE_COLUMNS:
+            for column in PREGAME_COMPUTED_COLUMNS:
                 _assert_equal(
                     poisoned_row[column],
                     baseline_row[column],
@@ -247,7 +259,7 @@ class TestPregameLeakage:
         opener = _feature_row(features, "G5")
         same_day = _feature_row(features, "G8")
 
-        for column in PREGAME_FEATURE_COLUMNS:
+        for column in PREGAME_COMPUTED_COLUMNS:
             if column == "away_recent_offensive_epa_per_play":
                 continue
             if column == "away_recent_defensive_epa_per_play":
@@ -317,3 +329,154 @@ class TestPregameLeakage:
                 "away_games_played": 1,
             },
         )
+
+
+def _elo_games() -> pd.DataFrame:
+    """A short schedule with a shared gameday, a tie, and a second season."""
+    return pd.DataFrame(
+        {
+            "game_id": ["E1", "E2", "E3", "E4", "E5"],
+            "season": [2023, 2023, 2023, 2023, 2024],
+            "gameday": pd.to_datetime(
+                ["2023-09-10", "2023-09-17", "2023-09-17", "2023-09-24", "2024-09-08"]
+            ),
+            "home_team_franchise": ["A", "A", "B", "A", "A"],
+            "away_team_franchise": ["B", "C", "D", "B", "B"],
+            "home_score": [20, 10, 14, 21, 17],
+            "away_score": [10, 10, 7, 24, 20],
+            "home_won": [1, 0, 1, 0, 0],
+        }
+    )
+
+
+def _elo_map(games: pd.DataFrame) -> dict[str, float]:
+    """Home probabilities keyed by game id."""
+    fitted = elo_home_probabilities(games)
+    probabilities = fitted["probabilities"]
+    return dict(zip(games["game_id"], probabilities.tolist(), strict=True))
+
+
+class TestEloLeakage:
+    """Elo for game G uses only games with an earlier gameday."""
+
+    def test_probability_matches_history_truncated_before_the_gameday(self) -> None:
+        """Each game matches a rebuild that drops same-day and later games."""
+        games = _elo_games()
+        full = _elo_map(games)
+        for _, game in games.iterrows():
+            earlier = games.loc[games["gameday"] < game["gameday"]]
+            current = games.loc[games["game_id"] == game["game_id"]]
+            truncated = pd.concat([earlier, current], ignore_index=True)
+            rebuilt = _elo_map(truncated)
+            assert rebuilt[game["game_id"]] == pytest.approx(full[game["game_id"]])
+
+    def test_same_day_results_do_not_change_each_other(self) -> None:
+        """Flipping the other game on 2023-09-17 leaves both probabilities put."""
+        games = _elo_games()
+        baseline = _elo_map(games)
+        poisoned = games.copy()
+        poisoned.loc[poisoned["game_id"] == "E2", "home_won"] = 1
+        poisoned.loc[poisoned["game_id"] == "E2", "home_score"] = 30
+        poisoned.loc[poisoned["game_id"] == "E2", "away_score"] = 0
+        updated = _elo_map(poisoned)
+        assert updated["E2"] == pytest.approx(baseline["E2"])
+        assert updated["E3"] == pytest.approx(baseline["E3"])
+        assert updated["E4"] != pytest.approx(baseline["E4"])
+
+    def test_current_and_later_results_do_not_change_the_current_probability(self) -> None:
+        """Poisoning this game and every later game leaves this probability put."""
+        games = _elo_games()
+        baseline = _elo_map(games)
+        for _, game in games.iterrows():
+            poisoned = games.copy()
+            on_or_after = poisoned["gameday"] >= game["gameday"]
+            poisoned.loc[on_or_after, "home_won"] = 0
+            poisoned.loc[on_or_after, "home_score"] = 0
+            poisoned.loc[on_or_after, "away_score"] = 40
+            updated = _elo_map(poisoned)
+            assert updated[game["game_id"]] == pytest.approx(baseline[game["game_id"]])
+
+    def test_opening_game_uses_the_mean_and_home_advantage(self) -> None:
+        """Equal teams on the first game are separated only by home advantage."""
+        games = _elo_games()
+        opening = _elo_map(games)["E1"]
+        expected = 1.0 / (1.0 + 10.0 ** (-(ELO_HOME_ADVANTAGE) / ELO_SCALE))
+        assert opening == pytest.approx(expected)
+        assert opening > 0.5
+        assert ELO_K == 20.0
+        assert ELO_MEAN_RATING == 1505.0
+        assert ELO_SEASON_REVERSION == pytest.approx(1.0 / 3.0)
+
+    def test_a_win_raises_the_next_home_probability_and_the_offseason_pulls_it_back(
+        self,
+    ) -> None:
+        """The next-season opener is closer to the cold start than a same-season rematch."""
+        same_season = pd.DataFrame(
+            {
+                "game_id": ["S1", "S2"],
+                "season": [2023, 2023],
+                "gameday": pd.to_datetime(["2023-09-10", "2023-09-17"]),
+                "home_team_franchise": ["A", "A"],
+                "away_team_franchise": ["B", "B"],
+                "home_score": [24, 21],
+                "away_score": [10, 17],
+                "home_won": [1, 1],
+            }
+        )
+        next_season = same_season.copy()
+        next_season.loc[next_season["game_id"] == "S2", "season"] = 2024
+        next_season.loc[next_season["game_id"] == "S2", "gameday"] = pd.Timestamp("2024-09-08")
+        cold = _elo_map(same_season)["S1"]
+        same = _elo_map(same_season)["S2"]
+        later = _elo_map(next_season)["S2"]
+        assert same > cold
+        assert cold < later < same
+
+    def test_a_tie_does_not_move_the_rating_as_a_home_loss(self) -> None:
+        """Equal scores update as a draw even when home_won is stored as 0."""
+        tied = pd.DataFrame(
+            {
+                "game_id": ["T1", "T2"],
+                "season": [2023, 2023],
+                "gameday": pd.to_datetime(["2023-09-10", "2023-09-17"]),
+                "home_team_franchise": ["A", "A"],
+                "away_team_franchise": ["B", "C"],
+                "home_score": [17, 10],
+                "away_score": [17, 7],
+                "home_won": [0, 1],
+            }
+        )
+        decided = tied.copy()
+        decided.loc[decided["game_id"] == "T1", "away_score"] = 20
+        tied_next = _elo_map(tied)["T2"]
+        loss_next = _elo_map(decided)["T2"]
+        assert tied_next > loss_next
+
+    def test_a_missing_label_does_not_update_the_rating(self) -> None:
+        """An unknown result still gets a probability and does not move the next game."""
+        games = pd.DataFrame(
+            {
+                "game_id": ["U1", "U2"],
+                "season": [2023, 2023],
+                "gameday": pd.to_datetime(["2023-09-10", "2023-09-17"]),
+                "home_team_franchise": ["A", "A"],
+                "away_team_franchise": ["B", "B"],
+                "home_won": [np.nan, 1],
+            }
+        )
+        probabilities = _elo_map(games)
+        cold = 1.0 / (1.0 + 10.0 ** (-(ELO_HOME_ADVANTAGE) / ELO_SCALE))
+        assert probabilities["U1"] == pytest.approx(cold)
+        assert probabilities["U2"] == pytest.approx(cold)
+
+    def test_rejects_missing_columns_and_bad_settings(self) -> None:
+        """Elo refuses a frame it cannot order and settings outside their range."""
+        games = _elo_games().drop(columns=["home_won"])
+        with pytest.raises(ValueError, match="missing columns"):
+            elo_home_probabilities(games)
+        with pytest.raises(ValueError, match="k must be positive"):
+            elo_home_probabilities(_elo_games(), k=0)
+        with pytest.raises(ValueError, match="scale must be positive"):
+            elo_home_probabilities(_elo_games(), scale=0)
+        with pytest.raises(ValueError, match="season_reversion"):
+            elo_home_probabilities(_elo_games(), season_reversion=1.5)
