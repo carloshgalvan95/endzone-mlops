@@ -1,0 +1,12 @@
+---
+description: What a training run logs and how models are compared
+globs: src/train/**,src/features/**
+alwaysApply: false
+---
+
+# ML experiments
+
+- Inside `mlflow.start_run()`, log params, validation metrics (log loss, Brier, accuracy, AUC), and the git SHA (`git_commit` tag).
+- Model selection uses validation only. Do not read test (2025) metrics to pick a model.
+- Compare every candidate to the home-prior baseline (`baseline-home`: constant probability equal to the training home win rate).
+- Log sklearn models with the reviewed skops trusted-types allowlist only (`REVIEWED_SKOPS_TRUSTED_TYPES`). An unknown type fails closed.

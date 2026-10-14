@@ -1,0 +1,26 @@
+---
+description: Folder map, Unity Catalog schemas, split, leakage, MLflow, and make targets
+alwaysApply: true
+---
+
+# Repo map
+
+- `src/data`: feeds, loaders, and the Databricks SQL client that reads marts.
+- `src/features`: leakage-free pregame features (`pregame.py`).
+- `src/train`: `train.py` entrypoint and MLflow logging.
+- `src/utils`: config and logging.
+- `src/ingest`: bronze load of nflverse games and play-by-play into `workspace.nfl_raw`.
+- `src/models`: placeholder. Training lives in `src/train`.
+- `dbt/models/staging`: views `stg_nflverse__games`, `stg_nflverse__pbp`.
+- `dbt/models/marts`: tables `fct_games`, `fct_team_game_epa`, `fct_upcoming_games`.
+- `scripts`: `train_sweep.sh`, `train_sweep.ps1`, `dev.ps1`, `pr_guard.py`.
+- `tests`: pytest. CI fixtures stand in for the warehouse.
+- `docs`: architecture, ADR-001, runbook, ATTRIBUTION.
+
+Catalog `workspace`. Staging schema `nfl_dev`. Marts schema `nfl_dev_marts` (dbt appends the custom `marts` schema; this repo has no `generate_schema_name` macro).
+
+Split: train seasons through 2023, validation 2024, test 2025. Leakage rule: features for a game use only games with `gameday` strictly before that game.
+
+MLflow local store: `sqlite:///mlflow.db`. Experiment: `nfl_pregame`.
+
+Make targets: `setup`, `install`, `lint`, `test`, `dbt-compile`, `dbt-run`, `dbt-test`, `dbt-build-databricks`, `ingest`, `ingest-current`, `train`, `train-sweep`, `mlflow-ui`, `reproduce`, `clean`.

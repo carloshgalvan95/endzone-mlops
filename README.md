@@ -12,7 +12,7 @@ Build a reproducible lakehouse pipeline for NFL pregame predictions (win probabi
 
 ## Current Status
 
-**As of October 2026 (Day 7 of 14)**:
+**As of October 2026 (Day 7 done)**:
 
 - **Databricks Free Edition**: Spike completed and passed. Serverless SQL warehouse validated with dbt-databricks locally and from GitHub Actions. MLflow tracking connectivity confirmed.
 - **Bronze ingest**: Backfill complete (1999-2026, games and play-by-play). Unity Catalog tables: workspace.nfl_raw.games, workspace.nfl_raw.pbp (partitioned by season).
@@ -21,7 +21,16 @@ Build a reproducible lakehouse pipeline for NFL pregame predictions (win probabi
 - **CI**: GitHub Actions runs ruff lint + format check, pytest on Python 3.10/3.11, dbt compile against DuckDB, cross-platform matrix (Ubuntu, Windows, macOS). Tests verify column references against real nflverse schema (fixtures in tests/fixtures), schema conforming logic, feature leakage protection, and end-to-end training.
 - **PR Guard**: Branch protection with freshness check, Conventional Commit titles, PR template verification, no secrets/data files, commit identity validation.
 
-**Next**: First training runs on real Databricks data (real metrics pending), batch scoring (score.py).
+**Next**: Feature and model experimentation. Forecasting (batch scoring) comes after that.
+
+**2024 validation** (`make train-sweep`, 285 games). Rounded to 2 decimals. The 2025 test season is held out and is not reported.
+
+| Model | Accuracy | AUC | Brier | Log loss |
+| --- | --- | --- | --- | --- |
+| Home baseline (training prior) | 0.55 | 0.50 | 0.25 | 0.69 |
+| Logistic regression (best of C=0.1, C=10) | 0.67 | 0.73 | 0.21 | 0.61 |
+| Gradient boosting depth 3, 50 trees | 0.68 | 0.70 | 0.22 | 0.63 |
+| Gradient boosting depth 5, 100 trees | 0.52 | 0.54 | 0.27 | 0.75 |
 
 ## Architecture Overview
 
@@ -42,10 +51,10 @@ HistoricalFeed [done]       LiveFeed (stub) [planned]
     dbt: Staging [done] -> Marts [done]
                 |
                 v
-       Feature Engineering (Python) [planned]
+       Feature Engineering (Python) [done]
                 |
                 v
-    MLflow Tracking (train.py with hyperparameters) [planned]
+    MLflow Tracking (train.py with hyperparameters) [done]
                 |
                 v
        Model Registry + Artifacts [planned]
@@ -280,7 +289,7 @@ make mlflow-ui
 # Open http://localhost:5000 in browser
 ```
 
-**Note**: Training requires either Databricks credentials (in .env) or local fixture files. Metrics (accuracy, Brier score, log loss, ROC AUC) are logged to MLflow along with model artifacts. Real metrics pending first training run on Databricks data.
+**Note**: Training requires either Databricks credentials (in .env) or local fixture files. Metrics (accuracy, Brier score, log loss, ROC AUC) are logged to MLflow along with model artifacts. The Day 7 sweep on 2024 validation is in Current Status. The 2025 test season is held out.
 
 **Important .env notes**:
 - `.env` is for environment variables (e.g., Databricks credentials), not the Python virtual environment
@@ -361,7 +370,7 @@ See `docs/runbook.md` for credential setup, Unity Catalog volume paths, and veri
 - [x] MLflow experiment tracking (train.py with baseline, logistic, gradient boosting)
 - [x] Pregame feature engineering (rolling EPA, win rates, rest days, games played)
 - [x] Training sweep (5+ configs, make train-sweep)
-- [ ] First training runs on real Databricks data (real metrics pending)
+- [x] First training runs on real Databricks data (2024 validation metrics above)
 - [ ] Databricks integration job in CI
 - [ ] Batch scoring pipeline (score.py)
 - [ ] Documentation and demo
