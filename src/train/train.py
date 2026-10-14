@@ -6,6 +6,7 @@ Usage:
     python -m src.train.train --model gbm --max-depth 5 --n-estimators 100
     python -m src.train.train --model baseline-home
     python -m src.train.train --cv
+    python -m src.train.train --cv --phase 2
 """
 
 import argparse
@@ -37,6 +38,9 @@ from src.features.pregame import (
     ELO_SCALE,
     ELO_SEASON_REVERSION,
     FEATURE_SET_CURRENT,
+    FEATURE_SET_DIFF,
+    FEATURE_SET_DIFF_ONLY,
+    FEATURE_SET_NAMES,
     FEATURE_SET_WITH_GAMES_PLAYED,
     build_pregame_features,
     elo_home_probabilities,
@@ -68,10 +72,45 @@ FINAL_VALIDATION_SEASON: int = 2024
 HELD_OUT_TEST_SEASON: int = 2025
 PHASE1_EXPERIMENT_NAME: str = "nfl_pregame/phase1_baselines"
 PHASE1_TAG: str = "1"
+PHASE2_EXPERIMENT_NAME: str = "nfl_pregame/phase2_h1"
+PHASE2_TAG: str = "2"
+HYPOTHESIS_H1: str = "h1-diff"
 CV_SCHEME: str = "rolling_season_2016_2023"
 PHASE1_MARKDOWN_NAME: str = "comparison.md"
 PHASE1_CSV_NAME: str = "comparison.csv"
 REFERENCE_MODEL_NAME: str = "baseline-home"
+# Accept a set only when pooled log loss falls by at least this much.
+MIN_LOG_LOSS_IMPROVEMENT: float = 0.003
+PHASE1_LOGISTIC_FEATURE_SETS: tuple[str, ...] = (
+    FEATURE_SET_CURRENT,
+    FEATURE_SET_WITH_GAMES_PLAYED,
+)
+PHASE2_LOGISTIC_FEATURE_SETS: tuple[str, ...] = (
+    FEATURE_SET_CURRENT,
+    FEATURE_SET_DIFF,
+    FEATURE_SET_DIFF_ONLY,
+)
+# Phase 1 stays on the home prior. Phase 2 H1 uses logistic ``current``.
+DEFAULT_REFERENCE_BY_PHASE: dict[int, tuple[str, str]] = {
+    1: (REFERENCE_MODEL_NAME, "none"),
+    2: ("logistic", FEATURE_SET_CURRENT),
+}
+MODEL_DEFAULT_FEATURE_SET: dict[str, str] = {
+    REFERENCE_MODEL_NAME: "none",
+    "logistic": FEATURE_SET_CURRENT,
+    "elo": "elo",
+    "market": "market",
+}
+PHASE1_NOTE: str = (
+    "Phase 1 rolling-origin baselines. "
+    f"{FINAL_VALIDATION_SEASON} and {HELD_OUT_TEST_SEASON} are not scored. "
+    "No model is promoted from this run."
+)
+PHASE2_NOTE: str = (
+    "Phase 2 hypothesis h1-diff. "
+    f"{FINAL_VALIDATION_SEASON} and {HELD_OUT_TEST_SEASON} are not scored. "
+    "No model is promoted from this run."
+)
 
 # predict(train_x, train_y, eval_x, eval_y) -> P(home win) for eval rows.
 FoldPredictor = Callable[[pd.DataFrame, pd.Series, pd.DataFrame, pd.Series], np.ndarray]
@@ -187,6 +226,80 @@ def train_baseline_home(
     return model, metrics
 
 
+def feature_column_groups(feature_columns: list[str]) -> dict[str, list[str]]:
+    """Split model columns into imputation groups.
+
+    Level EPA is filled with 0 and level win rate with 0.5. Difference
+    columns are filled with 0. A missing home-minus-away win rate is not a
+    0.5 home edge. Other columns, including rest days, are left as they are.
+
+    Args:
+        feature_columns: Model columns in training-matrix order, without ids.
+
+    Returns:
+        Dict with keys ``epa``, ``win_rate``, ``other``, and ``diff``.
+        Each value keeps the input order. A group can be empty.
+    """
+    diff_features: list[str] = [column for column in feature_columns if column.startswith("diff_")]
+    level_features: list[str] = [
+        column for column in feature_columns if column not in diff_features
+    ]
+    epa_features: list[str] = [column for column in level_features if "epa" in column]
+    win_rate_features: list[str] = [column for column in level_features if "win_rate" in column]
+    other_features: list[str] = [
+        column
+        for column in level_features
+        if column not in epa_features and column not in win_rate_features
+    ]
+    return {
+        "epa": epa_features,
+        "win_rate": win_rate_features,
+        "other": other_features,
+        "diff": diff_features,
+    }
+
+
+def _imputation_preprocessor(feature_columns: list[str]) -> ColumnTransformer:
+    """Build the column-wise imputer used before a classifier.
+
+    Empty groups are omitted so a difference-only matrix does not pass an
+    empty column list to sklearn. When the matrix has no difference columns
+    the transformer list matches the pre-phase-2 pipeline: EPA, win rate, other.
+
+    Args:
+        feature_columns: Model columns, without game identifiers.
+
+    Returns:
+        An unfitted ``ColumnTransformer``.
+
+    Raises:
+        ValueError: There are no model columns to impute.
+    """
+    groups: dict[str, list[str]] = feature_column_groups(feature_columns)
+    transformers: list[tuple[str, Any, list[str]]] = []
+    if groups["epa"]:
+        transformers.append(
+            ("epa_imputer", SimpleImputer(strategy="constant", fill_value=0), groups["epa"])
+        )
+    if groups["win_rate"]:
+        transformers.append(
+            (
+                "win_rate_imputer",
+                SimpleImputer(strategy="constant", fill_value=0.5),
+                groups["win_rate"],
+            )
+        )
+    if groups["other"]:
+        transformers.append(("other_passthrough", "passthrough", groups["other"]))
+    if groups["diff"]:
+        transformers.append(
+            ("diff_imputer", SimpleImputer(strategy="constant", fill_value=0), groups["diff"])
+        )
+    if not transformers:
+        raise ValueError("feature matrix has no model columns")
+    return ColumnTransformer(transformers=transformers)
+
+
 def train_logistic_regression(
     X_train: pd.DataFrame,
     y_train: pd.Series,
@@ -207,23 +320,7 @@ def train_logistic_regression(
     """
     feature_cols = [col for col in X_train.columns if col not in ["game_id", "gameday", "season"]]
 
-    epa_features = [col for col in feature_cols if "epa" in col]
-    win_rate_features = [col for col in feature_cols if "win_rate" in col]
-    other_features = [
-        col for col in feature_cols if col not in epa_features and col not in win_rate_features
-    ]
-
-    preprocessor = ColumnTransformer(
-        transformers=[
-            ("epa_imputer", SimpleImputer(strategy="constant", fill_value=0), epa_features),
-            (
-                "win_rate_imputer",
-                SimpleImputer(strategy="constant", fill_value=0.5),
-                win_rate_features,
-            ),
-            ("other_passthrough", "passthrough", other_features),
-        ]
-    )
+    preprocessor = _imputation_preprocessor(feature_cols)
 
     pipeline = Pipeline(
         [
@@ -274,23 +371,7 @@ def train_gradient_boosting(
     """
     feature_cols = [col for col in X_train.columns if col not in ["game_id", "gameday", "season"]]
 
-    epa_features = [col for col in feature_cols if "epa" in col]
-    win_rate_features = [col for col in feature_cols if "win_rate" in col]
-    other_features = [
-        col for col in feature_cols if col not in epa_features and col not in win_rate_features
-    ]
-
-    preprocessor = ColumnTransformer(
-        transformers=[
-            ("epa_imputer", SimpleImputer(strategy="constant", fill_value=0), epa_features),
-            (
-                "win_rate_imputer",
-                SimpleImputer(strategy="constant", fill_value=0.5),
-                win_rate_features,
-            ),
-            ("other_passthrough", "passthrough", other_features),
-        ]
-    )
+    preprocessor = _imputation_preprocessor(feature_cols)
 
     pipeline = Pipeline(
         [
@@ -897,6 +978,288 @@ def _cv_result_record(
     }
 
 
+def resolve_reference_spec(
+    phase: int,
+    reference_model: str | None = None,
+    reference_feature_set: str | None = None,
+) -> dict[str, str]:
+    """Choose the paired-comparison reference for a CV phase.
+
+    Phase 1 defaults to the home prior. Phase 2 defaults to logistic
+    ``current``. Passing a model or a feature set replaces that default.
+    When only the model is set, its usual feature set is used. Logistic
+    stays on ``current`` unless a feature set is passed.
+
+    Args:
+        phase: ``1`` or ``2``.
+        reference_model: Model name, or None for the phase default.
+        reference_feature_set: Feature set name, or None to derive it.
+
+    Returns:
+        Dict with ``model`` and ``feature_set``.
+
+    Raises:
+        ValueError: The phase is unknown, or the model has no default set.
+    """
+    if phase not in DEFAULT_REFERENCE_BY_PHASE:
+        known_phases: str = ", ".join(str(item) for item in sorted(DEFAULT_REFERENCE_BY_PHASE))
+        raise ValueError(f"Unknown phase {phase}. Known phases: {known_phases}.")
+    default_model, default_feature_set = DEFAULT_REFERENCE_BY_PHASE[phase]
+    model_name: str = default_model if reference_model is None else reference_model
+    if reference_feature_set is not None:
+        feature_set = reference_feature_set
+    elif reference_model is None:
+        feature_set = default_feature_set
+    elif model_name in MODEL_DEFAULT_FEATURE_SET:
+        feature_set = MODEL_DEFAULT_FEATURE_SET[model_name]
+    else:
+        known_models: str = ", ".join(sorted(MODEL_DEFAULT_FEATURE_SET))
+        raise ValueError(
+            f"Unknown reference model {model_name!r}. "
+            f"Pass a feature set, or use one of: {known_models}."
+        )
+    return {"model": model_name, "feature_set": feature_set}
+
+
+def logistic_feature_sets_for(phase: int) -> tuple[str, ...]:
+    """Return the logistic feature sets scored by a phase.
+
+    Phase 1 scores ``current`` and ``with_games_played``. Phase 2 scores
+    ``current``, ``diff``, and ``diff_only``.
+
+    Args:
+        phase: ``1`` or ``2``.
+
+    Returns:
+        Feature set names in report order.
+
+    Raises:
+        ValueError: The phase is unknown.
+    """
+    if phase == 1:
+        return PHASE1_LOGISTIC_FEATURE_SETS
+    if phase == 2:
+        return PHASE2_LOGISTIC_FEATURE_SETS
+    raise ValueError(f"Unknown phase {phase}. Known phases: 1, 2.")
+
+
+def phase_tracking_settings(phase: int) -> dict[str, Any]:
+    """MLflow experiment, tags, note, and default output directory for a phase.
+
+    Args:
+        phase: ``1`` or ``2``.
+
+    Returns:
+        Dict with ``experiment_name``, ``phase_tag``, ``hypothesis``,
+        ``note``, and ``output_dir``. ``hypothesis`` is None for phase 1.
+
+    Raises:
+        ValueError: The phase is unknown.
+    """
+    if phase == 1:
+        return {
+            "experiment_name": PHASE1_EXPERIMENT_NAME,
+            "phase_tag": PHASE1_TAG,
+            "hypothesis": None,
+            "note": PHASE1_NOTE,
+            "output_dir": "reports/phase1",
+        }
+    if phase == 2:
+        return {
+            "experiment_name": PHASE2_EXPERIMENT_NAME,
+            "phase_tag": PHASE2_TAG,
+            "hypothesis": HYPOTHESIS_H1,
+            "note": PHASE2_NOTE,
+            "output_dir": "reports/phase2",
+        }
+    raise ValueError(f"Unknown phase {phase}. Known phases: 1, 2.")
+
+
+def resolve_cv_reference(
+    results: list[dict[str, Any]],
+    reference_model: str,
+    reference_feature_set: str,
+) -> dict[str, Any]:
+    """Return the one result row that is the paired reference.
+
+    Args:
+        results: Model records from a rolling-origin run.
+        reference_model: ``model`` value to match.
+        reference_feature_set: ``feature_set`` value to match.
+
+    Returns:
+        The matching result dict.
+
+    Raises:
+        ValueError: There is not exactly one match.
+    """
+    matches: list[dict[str, Any]] = [
+        result
+        for result in results
+        if result["model"] == reference_model and result["feature_set"] == reference_feature_set
+    ]
+    if len(matches) != 1:
+        available: str = ", ".join(f"{item['model']}/{item['feature_set']}" for item in results)
+        raise ValueError(
+            f"Reference {reference_model}/{reference_feature_set} is not in the CV results. "
+            f"Available: {available}."
+        )
+    return matches[0]
+
+
+def attach_reference_comparison(
+    results: list[dict[str, Any]],
+    reference_model: str,
+    reference_feature_set: str,
+    n_bootstrap: int,
+    seed: int,
+) -> dict[str, Any]:
+    """Pair every scored model to one reference and store the log loss gap.
+
+    The reference row is included. Its difference is zero when it scored.
+    A skipped model keeps ``comparison`` as None.
+
+    Args:
+        results: Model records. Updated in place.
+        reference_model: Model name of the reference.
+        reference_feature_set: Feature set of the reference.
+        n_bootstrap: Resamples passed to ``compare_oof_to_reference``.
+        seed: Bootstrap seed.
+
+    Returns:
+        The reference result dict.
+
+    Raises:
+        ValueError: The reference is not one of ``results``.
+    """
+    reference: dict[str, Any] = resolve_cv_reference(
+        results,
+        reference_model,
+        reference_feature_set,
+    )
+    reference_oof: pd.DataFrame | None = reference["oof"]
+    for result in results:
+        if result["status"] != "ok" or result["oof"] is None:
+            result["comparison"] = None
+            continue
+        result["comparison"] = compare_oof_to_reference(
+            result["oof"],
+            reference_oof,
+            n_bootstrap=n_bootstrap,
+            seed=seed,
+        )
+    return reference
+
+
+def _is_missing_metric(value: object) -> bool:
+    """Return True when a metric was not computed."""
+    if value is None:
+        return True
+    try:
+        return bool(pd.isna(value))
+    except (TypeError, ValueError):
+        return False
+
+
+def decide_log_loss_improvement(
+    log_loss_diff: float | None,
+    ci_low: float | None,
+    ci_high: float | None,
+    min_improvement: float = MIN_LOG_LOSS_IMPROVEMENT,
+) -> dict[str, Any]:
+    """Apply the H1 acceptance rule to one paired log loss difference.
+
+    Accept only when pooled log loss is at least ``min_improvement`` lower
+    than the reference and the 95% interval lies entirely below zero. That
+    is how "the interval excludes 0" is applied to an improvement: the upper
+    bound is negative. A missing interval is inconclusive. Every other
+    scored comparison is rejected.
+
+    Args:
+        log_loss_diff: Candidate log loss minus reference log loss.
+        ci_low: 2.5 percentile of the paired bootstrap.
+        ci_high: 97.5 percentile of the paired bootstrap.
+        min_improvement: Minimum log loss decrease required to accept.
+
+    Returns:
+        Dict with ``decision`` (``accepted``, ``rejected``, or
+        ``inconclusive``), ``min_improvement``, ``log_loss_diff``,
+        ``ci_low``, and ``ci_high``.
+    """
+    missing: bool = (
+        _is_missing_metric(log_loss_diff)
+        or _is_missing_metric(ci_low)
+        or _is_missing_metric(ci_high)
+    )
+    decision: str = "inconclusive"
+    if not missing:
+        assert log_loss_diff is not None
+        assert ci_low is not None
+        assert ci_high is not None
+        difference: float = float(log_loss_diff)
+        lower: float = float(ci_low)
+        upper: float = float(ci_high)
+        improves: bool = difference <= -float(min_improvement)
+        interval_below_zero: bool = lower <= upper and upper < 0.0
+        decision = "accepted" if improves and interval_below_zero else "rejected"
+    return {
+        "decision": decision,
+        "min_improvement": float(min_improvement),
+        "log_loss_diff": log_loss_diff,
+        "ci_low": ci_low,
+        "ci_high": ci_high,
+    }
+
+
+def acceptance_decisions(
+    results: list[dict[str, Any]],
+    reference_model: str,
+    reference_feature_set: str,
+    min_improvement: float = MIN_LOG_LOSS_IMPROVEMENT,
+) -> list[dict[str, Any]]:
+    """Label each CV row with the H1 rule. The reference row is not a candidate.
+
+    Args:
+        results: Model records that already have ``comparison`` attached.
+        reference_model: Model name of the reference.
+        reference_feature_set: Feature set of the reference.
+        min_improvement: Passed to ``decide_log_loss_improvement``.
+
+    Returns:
+        One dict per result, with ``model``, ``feature_set``, and the
+        decision fields. The reference decision is ``reference``.
+    """
+    rows: list[dict[str, Any]] = []
+    for result in results:
+        comparison: dict[str, Any] = result.get("comparison") or {}
+        is_reference: bool = (
+            result["model"] == reference_model and result["feature_set"] == reference_feature_set
+        )
+        if is_reference:
+            labeled: dict[str, Any] = {
+                "decision": "reference",
+                "min_improvement": float(min_improvement),
+                "log_loss_diff": comparison.get("log_loss_diff"),
+                "ci_low": comparison.get("log_loss_diff_ci_low"),
+                "ci_high": comparison.get("log_loss_diff_ci_high"),
+            }
+        else:
+            labeled = decide_log_loss_improvement(
+                comparison.get("log_loss_diff"),
+                comparison.get("log_loss_diff_ci_low"),
+                comparison.get("log_loss_diff_ci_high"),
+                min_improvement=min_improvement,
+            )
+        rows.append(
+            {
+                "model": result["model"],
+                "feature_set": result["feature_set"],
+                **labeled,
+            }
+        )
+    return rows
+
+
 def run_phase1_baselines(
     games: pd.DataFrame,
     team_games: pd.DataFrame,
@@ -905,12 +1268,20 @@ def run_phase1_baselines(
     logistic_c: float = 1.0,
     logistic_max_iter: int = 1000,
     random_state: int = 42,
+    logistic_feature_sets: tuple[str, ...] | None = None,
+    reference_model: str | None = None,
+    reference_feature_set: str | None = None,
+    phase: int = 1,
 ) -> dict[str, Any]:
-    """Score the home prior, both logistic feature sets, Elo, and the market.
+    """Score logistic feature sets, the home prior, Elo, and the market.
 
     The market is skipped when the moneyline columns are absent or every
-    line is missing. 2024 and 2025 are not scored. The reference for the
-    paired log loss interval is the home prior.
+    line is missing. 2024 and 2025 are not scored. Phase 1 logs logistic
+    ``current`` and ``with_games_played`` and pairs every model to the home
+    prior. Phase 2 logs logistic ``current``, ``diff``, and ``diff_only``
+    and pairs every model to logistic ``current``. Pass ``reference_model``
+    and ``reference_feature_set`` to choose a different reference. The phase
+    1 call with no extra arguments is unchanged.
 
     Args:
         games: Completed games, one row per game.
@@ -920,13 +1291,32 @@ def run_phase1_baselines(
         logistic_c: Inverse regularization strength.
         logistic_max_iter: Logistic solver iteration cap.
         random_state: Seed for the logistic fit and the stored config.
+        logistic_feature_sets: Logistic sets to score. None uses the phase default.
+        reference_model: Reference model name. None uses the phase default.
+        reference_feature_set: Reference feature set. None uses the phase default.
+        phase: ``1`` keeps the phase 1 report. ``2`` is hypothesis H1.
 
     Returns:
-        Dict with ``results``, ``comparison_table``, ``markdown``, and ``config``.
+        Dict with ``results``, ``comparison_table``, ``markdown``, ``config``,
+        ``reference_model``, and ``reference_feature_set``.
+
+    Raises:
+        ValueError: The phase, a feature set, or the reference cannot be used.
     """
     resolved: RollingOriginConfig = make_rolling_origin_config(
         **(config._asdict() if config is not None else {})
     )
+    reference_spec: dict[str, str] = resolve_reference_spec(
+        phase,
+        reference_model=reference_model,
+        reference_feature_set=reference_feature_set,
+    )
+    selected_sets: tuple[str, ...] = (
+        logistic_feature_sets_for(phase) if logistic_feature_sets is None else logistic_feature_sets
+    )
+    for feature_set_name in selected_sets:
+        feature_columns_for(feature_set_name)
+    tracking: dict[str, Any] = phase_tracking_settings(phase)
     features: pd.DataFrame = build_pregame_features(
         games,
         team_games,
@@ -939,6 +1329,8 @@ def run_phase1_baselines(
         "n_bootstrap": resolved.n_bootstrap,
         "bootstrap_seed": resolved.bootstrap_seed,
         "random_state": random_state,
+        "reference_model": reference_spec["model"],
+        "reference_feature_set": reference_spec["feature_set"],
     }
     results: list[dict[str, Any]] = []
 
@@ -965,7 +1357,7 @@ def run_phase1_baselines(
         )
     )
 
-    for feature_set in (FEATURE_SET_CURRENT, FEATURE_SET_WITH_GAMES_PLAYED):
+    for feature_set in selected_sets:
         matrix, target = prepare_training_data(games, features, feature_set=feature_set)
         logistic_cv: dict[str, Any] = rolling_origin_cv(
             matrix,
@@ -1077,27 +1469,36 @@ def run_phase1_baselines(
             )
         )
 
-    reference_oof: pd.DataFrame | None = results[0]["oof"]
-    for result in results:
-        if result["status"] != "ok" or result["oof"] is None:
-            result["comparison"] = None
-            continue
-        result["comparison"] = compare_oof_to_reference(
-            result["oof"],
-            reference_oof,
-            n_bootstrap=resolved.n_bootstrap,
-            seed=resolved.bootstrap_seed,
-        )
+    attach_reference_comparison(
+        results,
+        reference_spec["model"],
+        reference_spec["feature_set"],
+        n_bootstrap=resolved.n_bootstrap,
+        seed=resolved.bootstrap_seed,
+    )
 
     comparison_table: pd.DataFrame = _comparison_table(results)
+    apply_acceptance: bool = phase == 2
     report: dict[str, Any] = {
         "results": results,
         "comparison_table": comparison_table,
         "config": resolved._asdict(),
         "lookback_games": lookback_games,
-        "reference_model": REFERENCE_MODEL_NAME,
+        "reference_model": reference_spec["model"],
+        "reference_feature_set": reference_spec["feature_set"],
+        "phase": phase,
+        "hypothesis": tracking["hypothesis"],
+        "title": "Phase 2 H1 differential features" if phase == 2 else "Phase 1 baselines",
+        "apply_acceptance": apply_acceptance,
+        "min_log_loss_improvement": MIN_LOG_LOSS_IMPROVEMENT,
         "markdown": "",
     }
+    if apply_acceptance:
+        report["acceptance"] = acceptance_decisions(
+            results,
+            reference_spec["model"],
+            reference_spec["feature_set"],
+        )
     report["markdown"] = render_phase1_report(report)
     return report
 
@@ -1157,12 +1558,61 @@ def _markdown_table(headers: list[str], rows: list[list[object]]) -> str:
     return "\n".join([head, separator, *body])
 
 
+def _render_acceptance_section(report: dict[str, Any]) -> list[str]:
+    """Render the H1 rule and the per-row decision. Numbers come from ``report``."""
+    minimum: float = float(report.get("min_log_loss_improvement", MIN_LOG_LOSS_IMPROVEMENT))
+    rows: list[dict[str, Any]] = report.get("acceptance") or []
+    lines: list[str] = [
+        "## Acceptance",
+        "",
+        "Accept a feature set only when both are true:",
+        f"pooled log loss improves by at least {minimum:.3f}",
+        f"(`log_loss_diff` <= -{minimum:.3f}) and the 95% paired interval",
+        "excludes 0 by lying entirely below 0 (`log_loss_diff_ci_high` < 0).",
+        "Otherwise a scored row is rejected. A row without an interval is",
+        "inconclusive. The reference row is not a candidate.",
+        "",
+    ]
+    if not rows:
+        lines.append("No acceptance rows were computed.")
+        lines.append("")
+        return lines
+    table_rows: list[list[object]] = [
+        [
+            row["model"],
+            row["feature_set"],
+            row["log_loss_diff"],
+            row["ci_low"],
+            row["ci_high"],
+            row["decision"],
+        ]
+        for row in rows
+    ]
+    lines.append(
+        _markdown_table(
+            ["model", "feature_set", "log_loss_diff", "ci_low", "ci_high", "decision"],
+            table_rows,
+        )
+    )
+    lines.append("")
+    return lines
+
+
 def render_phase1_report(report: dict[str, Any]) -> str:
-    """Render the phase 1 comparison. Numbers come only from ``report``."""
+    """Render the rolling-origin comparison. Numbers come only from ``report``."""
     config: dict[str, Any] = report["config"]
     table: pd.DataFrame = report["comparison_table"]
+    title: str = str(report.get("title") or "Phase 1 baselines")
+    reference_feature_set: str = str(report.get("reference_feature_set") or "none")
+    if reference_feature_set == "none":
+        reference_line: str = f"Reference model: `{report['reference_model']}`."
+    else:
+        reference_line = (
+            f"Reference model: `{report['reference_model']}` "
+            f"on feature set `{reference_feature_set}`."
+        )
     lines: list[str] = [
-        "# Phase 1 baselines",
+        f"# {title}",
         "",
         "Rolling-origin CV. For each season S from",
         f"{config['cv_start_season']} through {config['cv_end_season']}, a model",
@@ -1170,7 +1620,7 @@ def render_phase1_report(report: dict[str, Any]) -> str:
         f"{FINAL_VALIDATION_SEASON} is the final validation and is not scored.",
         f"{HELD_OUT_TEST_SEASON} is not scored.",
         "",
-        f"Reference model: `{report['reference_model']}`.",
+        reference_line,
         "`log_loss_diff` is candidate log loss minus reference log loss on the",
         "same out-of-fold games. A negative difference favors the candidate.",
         "The interval is the 2.5 and 97.5 percentiles of a paired bootstrap",
@@ -1196,6 +1646,9 @@ def render_phase1_report(report: dict[str, Any]) -> str:
         "## Folds",
         "",
     ]
+    if report.get("hypothesis"):
+        lines.insert(2, f"Hypothesis: `{report['hypothesis']}`.")
+        lines.insert(3, "")
     for result in report["results"]:
         lines.append(f"### {result['model']} ({result['feature_set']})")
         lines.append("")
@@ -1232,6 +1685,8 @@ def render_phase1_report(report: dict[str, Any]) -> str:
             )
         )
         lines.append("")
+    if report.get("apply_acceptance"):
+        lines.extend(_render_acceptance_section(report))
     lines.append("No model is promoted from this report.")
     lines.append("")
     return "\n".join(lines)
@@ -1274,14 +1729,23 @@ def log_phase1_to_mlflow(
     paths: dict[str, Any],
     tracking_uri: str,
     experiment_name: str = PHASE1_EXPERIMENT_NAME,
+    phase_tag: str = PHASE1_TAG,
+    hypothesis: str | None = None,
+    note: str | None = None,
 ) -> dict[str, Any]:
-    """Log one phase=1 run per scored model.
+    """Log one run per scored model.
+
+    Phase 1 callers can omit the tag arguments. Phase 2 passes ``phase_tag``
+    ``2`` and ``hypothesis`` ``h1-diff``.
 
     Args:
         report: Result of ``run_phase1_baselines``.
         paths: Paths from ``write_phase1_outputs``.
         tracking_uri: MLflow tracking URI, passed through ``resolve_tracking_uri``.
         experiment_name: Experiment to create or activate.
+        phase_tag: Value of the ``phase`` tag.
+        hypothesis: Value of the ``hypothesis`` tag. Omitted when None.
+        note: Run note. The phase 1 note is used when this is None.
 
     Returns:
         Dict with ``run_ids``, ``experiment_name``, and ``tracking_uri``.
@@ -1294,16 +1758,13 @@ def log_phase1_to_mlflow(
             continue
         run_name: str = f"{result['model']}-{result['feature_set']}"
         with mlflow.start_run(run_name=run_name) as active_run:
-            mlflow.set_tag("phase", PHASE1_TAG)
+            mlflow.set_tag("phase", phase_tag)
+            if hypothesis is not None:
+                mlflow.set_tag("hypothesis", hypothesis)
             mlflow.set_tag("feature_set", result["feature_set"])
             mlflow.set_tag("cv_scheme", CV_SCHEME)
             mlflow.set_tag("git_commit", get_git_sha())
-            mlflow.set_tag(
-                "mlflow.note.content",
-                "Phase 1 rolling-origin baselines. "
-                f"{FINAL_VALIDATION_SEASON} and {HELD_OUT_TEST_SEASON} are not scored. "
-                "No model is promoted from this run.",
-            )
+            mlflow.set_tag("mlflow.note.content", PHASE1_NOTE if note is None else note)
             params: dict[str, Any] = {
                 key: value
                 for key, value in result["params"].items()
@@ -1356,15 +1817,20 @@ def log_phase1_to_mlflow(
 
 
 def _run_phase1_cli(args: argparse.Namespace) -> None:
-    """Fit the phase 1 baselines, write the report, and log MLflow."""
+    """Fit a rolling-origin CV phase, write the report, and log MLflow."""
     config: RollingOriginConfig = make_rolling_origin_config(
         cv_start_season=args.cv_start_season,
         cv_end_season=args.cv_end_season,
         n_bootstrap=args.n_bootstrap,
         bootstrap_seed=args.bootstrap_seed,
     )
+    settings: dict[str, Any] = phase_tracking_settings(args.phase)
+    output_dir: str = args.output_dir
+    if args.phase != 1 and args.output_dir == "reports/phase1":
+        output_dir = str(settings["output_dir"])
     logger.info(
-        "Running phase 1 rolling-origin CV for seasons %s through %s",
+        "Running phase %s rolling-origin CV for seasons %s through %s",
+        args.phase,
         config.cv_start_season,
         config.cv_end_season,
     )
@@ -1378,15 +1844,26 @@ def _run_phase1_cli(args: argparse.Namespace) -> None:
         logistic_c=args.C,
         logistic_max_iter=args.max_iter,
         random_state=args.seed,
+        reference_model=args.reference_model,
+        reference_feature_set=args.reference_feature_set,
+        phase=args.phase,
     )
-    paths: dict[str, Any] = write_phase1_outputs(report, Path(args.output_dir))
+    paths: dict[str, Any] = write_phase1_outputs(report, Path(output_dir))
     tracking_uri: str = resolve_tracking_uri(
         os.getenv("MLFLOW_TRACKING_URI", DEFAULT_MLFLOW_TRACKING_URI)
     )
-    logged: dict[str, Any] = log_phase1_to_mlflow(report, paths, tracking_uri)
+    logged: dict[str, Any] = log_phase1_to_mlflow(
+        report,
+        paths,
+        tracking_uri,
+        experiment_name=str(settings["experiment_name"]),
+        phase_tag=str(settings["phase_tag"]),
+        hypothesis=settings["hypothesis"],
+        note=str(settings["note"]),
+    )
     logger.info("Wrote %s and %s", paths["markdown_path"], paths["csv_path"])
     run_list: str = ", ".join(item["run_id"] for item in logged["run_ids"])
-    logger.info("MLflow runs tagged phase=%s: %s", PHASE1_TAG, run_list)
+    logger.info("MLflow runs tagged phase=%s: %s", settings["phase_tag"], run_list)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -1439,22 +1916,61 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--feature-set",
         type=str,
-        choices=[FEATURE_SET_CURRENT, FEATURE_SET_WITH_GAMES_PLAYED],
+        choices=list(FEATURE_SET_NAMES),
         default=FEATURE_SET_CURRENT,
-        help="Columns for a single split. --cv always logs both feature sets.",
+        help=("Columns for a single split. --cv selects the logistic sets for --phase."),
     )
 
     parser.add_argument(
         "--cv",
         action="store_true",
-        help=("Run phase 1 rolling-origin CV on 2016-2023. Does not score 2024 or 2025."),
+        help=(
+            "Run rolling-origin CV on 2016-2023. "
+            "--phase 1 is the baseline report. "
+            "--phase 2 scores diff feature sets against logistic current. "
+            "Does not score 2024 or 2025."
+        ),
+    )
+
+    parser.add_argument(
+        "--phase",
+        type=int,
+        choices=(1, 2),
+        default=1,
+        help=(
+            "1 keeps the phase 1 report (home prior, current, with_games_played). "
+            "2 scores logistic current, diff, and diff_only against logistic current."
+        ),
+    )
+
+    parser.add_argument(
+        "--reference-model",
+        type=str,
+        default=None,
+        help=(
+            "Model for the paired log loss reference. "
+            "Default is baseline-home for phase 1 and logistic for phase 2."
+        ),
+    )
+
+    parser.add_argument(
+        "--reference-feature-set",
+        type=str,
+        default=None,
+        help=(
+            "Feature set of the reference model. "
+            "Default is none for the home prior and current for logistic."
+        ),
     )
 
     parser.add_argument(
         "--output-dir",
         type=str,
         default="reports/phase1",
-        help="Directory for the phase 1 comparison report",
+        help=(
+            "Directory for the comparison report. "
+            "Phase 2 with this default writes reports/phase2 instead."
+        ),
     )
 
     parser.add_argument("--cv-start-season", type=int, default=2016)

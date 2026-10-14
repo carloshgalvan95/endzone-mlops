@@ -8,19 +8,30 @@ import pandas as pd
 import pytest
 
 from src.features.pregame import (
+    DIFF_FEATURE_COLUMNS,
+    PREGAME_FEATURE_COLUMNS,
     american_odds_to_implied_probability,
     market_home_probabilities,
     no_vig_home_probability,
 )
 from src.train.train import (
+    HYPOTHESIS_H1,
+    MIN_LOG_LOSS_IMPROVEMENT,
     PHASE1_EXPERIMENT_NAME,
     PHASE1_TAG,
+    PHASE2_EXPERIMENT_NAME,
+    PHASE2_TAG,
+    attach_reference_comparison,
     binary_classification_metrics,
     compare_oof_to_reference,
+    decide_log_loss_improvement,
+    feature_column_groups,
     log_phase1_to_mlflow,
+    logistic_feature_sets_for,
     main,
     make_rolling_origin_config,
     paired_log_loss_difference,
+    resolve_reference_spec,
     rolling_origin_cv,
     run_phase1_baselines,
     write_phase1_outputs,
@@ -419,8 +430,18 @@ class TestPhase1Report:
         pairs = set(zip(table["model"], table["feature_set"], strict=True))
         assert ("logistic", "current") in pairs
         assert ("logistic", "with_games_played") in pairs
+        assert ("logistic", "diff") not in pairs
+        assert ("logistic", "diff_only") not in pairs
         assert ("baseline-home", "none") in pairs
         assert ("elo", "elo") in pairs
+        assert report["phase"] == 1
+        assert report["reference_model"] == "baseline-home"
+        assert report["reference_feature_set"] == "none"
+        assert report["hypothesis"] is None
+        assert "h1-diff" not in report["markdown"]
+        assert "Acceptance" not in report["markdown"]
+        baseline = next(item for item in report["results"] if item["model"] == "baseline-home")
+        assert baseline["comparison"]["log_loss_diff"] == pytest.approx(0.0)
         market = table.loc[table["model"] == "market"].iloc[0]
         assert market["status"] == "skipped"
         assert market["reason"] == "moneyline_columns_absent"
@@ -562,5 +583,233 @@ class TestPhase1Report:
             runs = client.search_runs(experiment_ids=[experiment.experiment_id])
             assert runs
             assert all(run.data.tags.get("phase") == PHASE1_TAG for run in runs)
+            assert all(run.data.tags.get("hypothesis") is None for run in runs)
+        finally:
+            _reset_mlflow_tracking()
+
+
+def _oof(probabilities: list[float]) -> pd.DataFrame:
+    """Four scored games with fixed labels and the given home probabilities."""
+    return pd.DataFrame(
+        {
+            "game_id": ["a", "b", "c", "d"],
+            "season": [2022, 2022, 2023, 2023],
+            "y_true": [1, 0, 1, 0],
+            "y_proba": probabilities,
+        }
+    )
+
+
+def _scored(model_name: str, feature_set: str, probabilities: list[float]) -> dict[str, object]:
+    """One CV result row with an out-of-fold table and no comparison yet."""
+    return {
+        "model": model_name,
+        "feature_set": feature_set,
+        "status": "ok",
+        "oof": _oof(probabilities),
+        "comparison": None,
+    }
+
+
+class TestReferenceSelection:
+    """The paired reference is chosen by phase, model, and feature set."""
+
+    def test_phase_defaults_and_explicit_overrides(self) -> None:
+        """Phase 1 stays on the home prior. Phase 2 uses logistic current."""
+        phase1 = resolve_reference_spec(1)
+        assert phase1 == {"model": "baseline-home", "feature_set": "none"}
+        phase2 = resolve_reference_spec(2)
+        assert phase2 == {"model": "logistic", "feature_set": "current"}
+        elo = resolve_reference_spec(2, reference_model="elo")
+        assert elo == {"model": "elo", "feature_set": "elo"}
+        logistic_diff = resolve_reference_spec(
+            1,
+            reference_model="logistic",
+            reference_feature_set="diff",
+        )
+        assert logistic_diff == {"model": "logistic", "feature_set": "diff"}
+        assert logistic_feature_sets_for(1) == ("current", "with_games_played")
+        assert logistic_feature_sets_for(2) == ("current", "diff", "diff_only")
+        with pytest.raises(ValueError, match="Unknown phase"):
+            resolve_reference_spec(3)
+        with pytest.raises(ValueError, match="Unknown reference model"):
+            resolve_reference_spec(2, reference_model="gbm")
+
+    def test_attach_uses_the_named_reference_and_rejects_a_missing_one(self) -> None:
+        """Log loss gaps are versus the selected row, which differs from itself by zero."""
+        results = [
+            _scored("baseline-home", "none", [0.55, 0.55, 0.55, 0.55]),
+            _scored("logistic", "current", [0.70, 0.20, 0.80, 0.30]),
+            _scored("logistic", "diff", [0.90, 0.10, 0.85, 0.15]),
+        ]
+        attach_reference_comparison(results, "logistic", "current", n_bootstrap=25, seed=1)
+        current = results[1]["comparison"]
+        diff = results[2]["comparison"]
+        home = results[0]["comparison"]
+        assert isinstance(current, dict)
+        assert isinstance(diff, dict)
+        assert isinstance(home, dict)
+        assert current["log_loss_diff"] == pytest.approx(0.0)
+        assert current["log_loss_diff_ci_low"] == pytest.approx(0.0)
+        assert current["log_loss_diff_ci_high"] == pytest.approx(0.0)
+        assert diff["reference_log_loss"] == pytest.approx(current["log_loss"])
+        assert home["reference_log_loss"] == pytest.approx(current["log_loss"])
+        assert diff["log_loss_diff"] != pytest.approx(0.0)
+        with pytest.raises(ValueError, match="not in the CV results"):
+            attach_reference_comparison(results, "logistic", "diff_only", n_bootstrap=0, seed=1)
+
+    def test_acceptance_rule_requires_both_the_margin_and_an_interval_below_zero(self) -> None:
+        """0.003 and a 95% interval entirely below 0 are both required."""
+        minimum = MIN_LOG_LOSS_IMPROVEMENT
+        accepted = decide_log_loss_improvement(-minimum, -0.01, -0.0001)
+        assert accepted["decision"] == "accepted"
+        short = decide_log_loss_improvement(-0.0029, -0.01, -0.001)
+        assert short["decision"] == "rejected"
+        includes_zero = decide_log_loss_improvement(-0.01, -0.02, 0.0)
+        assert includes_zero["decision"] == "rejected"
+        wrong_side = decide_log_loss_improvement(0.01, 0.001, 0.02)
+        assert wrong_side["decision"] == "rejected"
+        missing = decide_log_loss_improvement(-0.01, None, -0.001)
+        assert missing["decision"] == "inconclusive"
+        empty = decide_log_loss_improvement(None, None, None)
+        assert empty["decision"] == "inconclusive"
+
+    def test_difference_columns_impute_at_zero_and_level_win_rate_stays_at_half(self) -> None:
+        """A missing differential win rate is not filled with a home edge."""
+        groups = feature_column_groups(
+            [
+                "home_recent_offensive_epa_per_play",
+                "home_recent_win_rate",
+                "home_rest_days",
+                "diff_recent_win_rate",
+                "diff_rest_days",
+            ]
+        )
+        assert groups["epa"] == ["home_recent_offensive_epa_per_play"]
+        assert groups["win_rate"] == ["home_recent_win_rate"]
+        assert groups["other"] == ["home_rest_days"]
+        assert groups["diff"] == ["diff_recent_win_rate", "diff_rest_days"]
+
+
+class TestPhase2Hypothesis:
+    """H1 scores diff and diff_only against logistic current, plus the baselines."""
+
+    def test_phase2_report_uses_logistic_current_as_the_reference(self) -> None:
+        """The phase 1 sets stay out. The reference difference is zero."""
+        games, team_games = _schedule(with_moneyline=False)
+        report = run_phase1_baselines(
+            games,
+            team_games,
+            config=_fast_config(n_bootstrap=8),
+            lookback_games=2,
+            logistic_max_iter=200,
+            phase=2,
+        )
+        table = report["comparison_table"]
+        pairs = set(zip(table["model"], table["feature_set"], strict=True))
+        assert pairs == {
+            ("baseline-home", "none"),
+            ("logistic", "current"),
+            ("logistic", "diff"),
+            ("logistic", "diff_only"),
+            ("elo", "elo"),
+            ("market", "market"),
+        }
+        assert report["reference_model"] == "logistic"
+        assert report["reference_feature_set"] == "current"
+        assert report["phase"] == 2
+        assert report["hypothesis"] == HYPOTHESIS_H1
+        current = next(item for item in report["results"] if item["feature_set"] == "current")
+        diff = next(item for item in report["results"] if item["feature_set"] == "diff")
+        diff_only = next(item for item in report["results"] if item["feature_set"] == "diff_only")
+        assert current["comparison"]["log_loss_diff"] == pytest.approx(0.0)
+        assert diff["comparison"]["reference_log_loss"] == pytest.approx(
+            current["comparison"]["log_loss"]
+        )
+        assert diff_only["comparison"]["n"] == current["comparison"]["n"]
+        current_features = current["params"]["features"].split(",")
+        diff_features = diff["params"]["features"].split(",")
+        diff_only_features = diff_only["params"]["features"].split(",")
+        assert current_features == list(PREGAME_FEATURE_COLUMNS)
+        assert diff_features[: len(PREGAME_FEATURE_COLUMNS)] == list(PREGAME_FEATURE_COLUMNS)
+        assert diff_features[len(PREGAME_FEATURE_COLUMNS) :] == list(DIFF_FEATURE_COLUMNS)
+        assert diff_only_features == list(DIFF_FEATURE_COLUMNS)
+        assert "home_games_played" not in diff_features
+        decisions = {row["feature_set"]: row["decision"] for row in report["acceptance"]}
+        assert decisions["current"] == "reference"
+        assert decisions["diff"] in {"accepted", "rejected", "inconclusive"}
+        assert decisions["diff_only"] in {"accepted", "rejected", "inconclusive"}
+        assert "Hypothesis: `h1-diff`" in report["markdown"]
+        assert "0.003" in report["markdown"]
+        assert "No model is promoted" in report["markdown"]
+        assert "\u2014" not in report["markdown"]
+        for result in report["results"]:
+            if result["oof"] is None:
+                continue
+            assert set(result["oof"]["season"]).isdisjoint({2024, 2025})
+
+    def test_cli_phase2_tags_hypothesis_and_keeps_phase1_available(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """``--phase 2`` logs phase=2 and hypothesis=h1-diff. ``--reference-model`` selects."""
+        import mlflow
+
+        games, team_games = _schedule(with_moneyline=True)
+        fixture_dir = tmp_path / "fixtures"
+        fixture_dir.mkdir()
+        games.to_parquet(fixture_dir / "fct_games.parquet")
+        team_games.to_parquet(fixture_dir / "fct_team_game_epa.parquet")
+        tracking_uri: str = "sqlite:///" + (tmp_path / "mlflow.db").as_posix()
+        monkeypatch.setenv("MLFLOW_TRACKING_URI", tracking_uri)
+        monkeypatch.setattr("src.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
+        output_dir = tmp_path / "phase2"
+        try:
+            main(
+                [
+                    "--cv",
+                    "--phase",
+                    "2",
+                    "--reference-model",
+                    "logistic",
+                    "--reference-feature-set",
+                    "current",
+                    "--fixture-path",
+                    str(fixture_dir),
+                    "--output-dir",
+                    str(output_dir),
+                    "--cv-start-season",
+                    "2022",
+                    "--cv-end-season",
+                    "2023",
+                    "--n-bootstrap",
+                    "4",
+                    "--lookback",
+                    "2",
+                    "--max-iter",
+                    "200",
+                    "--seed",
+                    "7",
+                ]
+            )
+            table = pd.read_csv(output_dir / "comparison.csv")
+            pairs = set(zip(table["model"], table["feature_set"], strict=True))
+            assert ("logistic", "diff") in pairs
+            assert ("logistic", "diff_only") in pairs
+            assert ("logistic", "with_games_played") not in pairs
+            assert ("elo", "elo") in pairs
+            markdown = (output_dir / "comparison.md").read_text(encoding="utf-8")
+            assert "on feature set `current`" in markdown
+            assert "\u2014" not in markdown
+            client = mlflow.tracking.MlflowClient(tracking_uri=tracking_uri)
+            experiment = client.get_experiment_by_name(PHASE2_EXPERIMENT_NAME)
+            assert experiment is not None
+            runs = client.search_runs(experiment_ids=[experiment.experiment_id])
+            assert runs
+            assert all(run.data.tags.get("phase") == PHASE2_TAG for run in runs)
+            assert all(run.data.tags.get("hypothesis") == HYPOTHESIS_H1 for run in runs)
+            phase1 = client.get_experiment_by_name(PHASE1_EXPERIMENT_NAME)
+            assert phase1 is None
         finally:
             _reset_mlflow_tracking()
