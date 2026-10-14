@@ -1,9 +1,5 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/header_dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="docs/assets/header.png">
-    <img alt="endzone-mlops: NFL pregame win probability · Databricks · dbt · MLflow" src="docs/assets/header.png" width="100%">
-  </picture>
+  <img alt="endzone-mlops: NFL pregame win probability, Databricks, dbt, MLflow" src="docs/assets/header.png" width="100%">
 </p>
 
 # endzone-mlops
