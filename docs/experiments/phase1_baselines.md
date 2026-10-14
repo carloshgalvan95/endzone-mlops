@@ -1,6 +1,6 @@
 # Phase 1 baselines
 
-Method note. This file does not report warehouse metrics. `make train-cv` (Windows: `.\scripts\dev.ps1 train-cv`) writes the measured comparison to `reports/phase1/comparison.md` and `reports/phase1/comparison.csv`. Those files are local outputs.
+Method note. This file does not report warehouse metrics. Phase 1 is `python -m src.train.train --cv` (`--phase 1`), which writes `reports/phase1/comparison.md` and `reports/phase1/comparison.csv`. `make train-cv` runs Phase 2 hypothesis H1 and writes `reports/phase2/`. See `docs/experiments/phase2_h1_diff_features.md`.
 
 No model is promoted from a phase 1 run. 2024 stays the final validation. 2025 is not scored here.
 
@@ -33,7 +33,7 @@ MLflow experiment: `nfl_pregame/phase1_baselines`. Each scored model is one run 
 | `current` | `PREGAME_FEATURE_COLUMNS` | Default training matrix. Omits the two games-played columns. |
 | `with_games_played` | `PREGAME_FEATURE_COLUMNS_WITH_GAMES_PLAYED` | Previous matrix, kept so that set can be rerun. |
 
-`prepare_training_data(..., feature_set="current")` is the default. Pass `with_games_played` for the old matrix. Phase 1 logs a logistic model on each set. The single-split trainer takes `--feature-set` with the same two names.
+`prepare_training_data(..., feature_set="current")` is the default. Pass `with_games_played` for the old matrix. Phase 1 logs a logistic model on `current` and `with_games_played` only. The single-split trainer also accepts `diff` and `diff_only`. Phase 2 defines those sets and scores them.
 
 The games-played columns stay in the builder so leakage tests still cover them. They are not in the default model.
 
@@ -67,10 +67,12 @@ Home no-vig probability: `home_raw / (home_raw + away_raw)`.
 
 ## Decision log
 
-Copy a row here after `make train-cv`. Leave it blank until that run exists. Do not fill this table from memory.
+Copy a row here after `python -m src.train.train --cv` (phase 1, reference `baseline-home`). Leave it blank until that run exists. Do not fill this table from `make train-cv`. That command is hypothesis H1, and its differences are versus logistic `current`, not versus the home prior.
 
 | id | date | run_id | model | feature_set | log_loss_diff_vs_home_prior | ci_low | ci_high | decision |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | | | | | | | | | |
 
-`decision` is `accepted`, `rejected`, or `inconclusive`. Phase 1 records the baselines. It does not accept a champion. A later feature hypothesis can use a paired interval that excludes zero as its decision rule. That rule is not applied in this note.
+`decision` is `accepted`, `rejected`, or `inconclusive`. Phase 1 records the baselines. It does not accept a champion.
+
+Hypothesis H1 applies a stricter rule: pooled log loss must improve by at least 0.003 and the 95% paired interval must exclude 0. That rule is specified in `docs/experiments/phase2_h1_diff_features.md` and is not applied to this table.

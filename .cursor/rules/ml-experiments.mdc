@@ -8,6 +8,7 @@ alwaysApply: false
 
 - Inside `mlflow.start_run()`, log params, validation metrics (log loss, Brier, accuracy, AUC), and the git SHA (`git_commit` tag).
 - Model selection uses validation only. Do not read test (2025) metrics to pick a model.
-- Compare every candidate to the home-prior baseline (`baseline-home`: constant probability equal to the training home win rate).
-- Phase 1 (`make train-cv`) is rolling-origin CV on seasons 2016-2023. 2024 stays the final validation. 2025 is not scored. The paired comparison is log loss against the home prior.
+- Compare every candidate to the configured reference. Phase 1's default reference is the home-prior baseline (`baseline-home`: constant probability equal to the training home win rate). Phase 2 H1 (`make train-cv`) compares to logistic feature set `current`.
+- Phase 1 (`python -m src.train.train --cv`) is rolling-origin CV on seasons 2016-2023. 2024 stays the final validation. 2025 is not scored. The paired comparison is log loss against the home prior.
+- Phase 2 H1 (`make train-cv`) uses the same window and scores logistic `current`, `diff`, and `diff_only`, plus the home prior, Elo, and the market. Tags are `phase=2` and `hypothesis=h1-diff`. Accept a set only when pooled log loss improves by at least 0.003 and the 95% interval lies entirely below 0.
 - Log sklearn models with the reviewed skops trusted-types allowlist only (`REVIEWED_SKOPS_TRUSTED_TYPES`). An unknown type fails closed.
