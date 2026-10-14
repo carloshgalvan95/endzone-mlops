@@ -20,6 +20,8 @@ function Show-Help {
     Write-Host "  ingest              - Load all seasons (1999-2026, games and pbp)"
     Write-Host "  ingest-current      - Refresh current season only (for weekly update)"
     Write-Host "  dbt-build-databricks - Build dbt models on Databricks target"
+    Write-Host "  train               - Train NFL pregame prediction models with MLflow"
+    Write-Host "  train-sweep         - Run training sweep (5+ configs for MLflow comparison)"
     Write-Host "  clean               - Remove build artifacts"
     Write-Host "  reproduce           - Full reproduction pipeline"
     Write-Host ""
@@ -108,10 +110,21 @@ function Invoke-Clean {
     Write-Host "Clean complete"
 }
 
+function Invoke-Train {
+    Load-Env
+    Write-Host "Training NFL pregame prediction models with MLflow..."
+    python -m src.train.train --model logistic --lookback 10 --seed 42
+}
+
+function Invoke-TrainSweep {
+    Write-Host "Running training sweep..."
+    & ".\scripts\train_sweep.ps1"
+}
+
 function Invoke-Reproduce {
     Invoke-Install
-    Invoke-DbtRun
-    Write-Host "Reproduction pipeline complete. Next: run train.py when implemented."
+    Invoke-DbtCompile
+    Write-Host "Reproduction pipeline complete (dependencies installed, dbt compiled on DuckDB)."
 }
 
 function Invoke-Ingest {
@@ -151,6 +164,8 @@ switch ($Target.ToLower()) {
     "ingest" { Invoke-Ingest }
     "ingest-current" { Invoke-IngestCurrent }
     "dbt-build-databricks" { Invoke-DbtBuildDatabricks }
+    "train" { Invoke-Train }
+    "train-sweep" { Invoke-TrainSweep }
     "clean" { Invoke-Clean }
     "reproduce" { Invoke-Reproduce }
     default {

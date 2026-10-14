@@ -1,4 +1,4 @@
-.PHONY: help setup install lint test dbt-compile dbt-run dbt-test clean reproduce ingest ingest-current dbt-build-databricks
+.PHONY: help setup install lint test dbt-compile dbt-run dbt-test clean reproduce ingest ingest-current dbt-build-databricks train train-sweep
 
 help:
 	@echo "Available targets:"
@@ -12,7 +12,9 @@ help:
 	@echo "  ingest              - Load nflverse data (all seasons 1999-2026, games and pbp)"
 	@echo "  ingest-current      - Refresh current season only (for weekly update)"
 	@echo "  dbt-build-databricks - Build dbt models on Databricks target"
-	@echo "  reproduce           - Full reproduction pipeline (install -> dbt -> train)"
+	@echo "  train               - Train NFL pregame prediction models with MLflow"
+	@echo "  train-sweep         - Run training sweep (5+ configs for MLflow comparison)"
+	@echo "  reproduce           - Full reproduction pipeline (install -> dbt compile)"
 	@echo "  clean               - Remove build artifacts"
 	@echo ""
 	@echo "Note: Most targets expect an activated virtualenv (source .venv/bin/activate)"
@@ -67,5 +69,12 @@ dbt-build-databricks:
 	@echo "Building dbt models on Databricks target..."
 	cd dbt && dbt build --profiles-dir . --target databricks
 
-reproduce: install dbt-run
-	@echo "Reproduction pipeline complete. Next: run train.py when implemented."
+train:
+	@if [ -f .env ]; then set -a && . ./.env && set +a; fi; \
+	python -m src.train.train --model logistic --lookback 10 --seed 42
+
+train-sweep:
+	bash scripts/train_sweep.sh
+
+reproduce: install dbt-compile
+	@echo "Reproduction pipeline complete (dependencies installed, dbt compiled on DuckDB)."

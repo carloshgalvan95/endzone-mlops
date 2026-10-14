@@ -48,6 +48,8 @@ select = [
 ]
 ignore = [
     "E501",  # line too long (handled by formatter)
+    "N803",  # argument name should be lowercase (ML convention: X, y)
+    "N806",  # variable in function should be lowercase (ML convention: X, y)
 ]
 
 [tool.pytest.ini_options]
