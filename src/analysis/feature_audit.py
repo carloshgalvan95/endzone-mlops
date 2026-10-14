@@ -242,14 +242,19 @@ def _strictly_monotone(values: list[float]) -> bool:
     return increasing or decreasing
 
 
-def _entirely_outside(values: pd.Series, low: float, high: float) -> bool:
-    """True when every non-null value sits strictly outside ``[low, high]``."""
-    observed = values.dropna()
-    if observed.empty:
+# A later slice is a clock when more than this share of its rows sits
+# outside the closed training range. 5 percent is the phase 1 bar.
+TIME_COUNTER_OUT_OF_RANGE_SHARE: float = 0.05
+
+
+def _out_of_range_share_exceeds(count: int | None, n_rows: int, threshold: float) -> bool:
+    """True when ``count / n_rows`` is strictly above ``threshold``.
+
+    A null count or an empty slice is not a material share.
+    """
+    if count is None or n_rows <= 0:
         return False
-    above = bool((observed > high).all())
-    below = bool((observed < low).all())
-    return above or below
+    return (count / n_rows) > threshold
 
 
 def _count_outside(values: pd.Series, low: float | None, high: float | None) -> int | None:
@@ -270,10 +275,11 @@ def _distribution_flags(
 ) -> dict[str, Any]:
     """Compare 2024 and 2025 to the training range, and flag a time counter.
 
-    A time counter has a strictly monotone season median (at least three
-    seasons) and a later slice whose values all sit outside the training range.
-    ``games_played``, counted from the start of the frame, is the motivating
-    case. The rule is not limited to that column name.
+    A time counter is a strictly monotone season median (at least three
+    seasons), or a later slice where the share of rows outside the closed
+    training range is above ``TIME_COUNTER_OUT_OF_RANGE_SHARE``. An
+    entirely-outside rule missed columns that only partly leave the
+    training range. The rule is not limited to the ``games_played`` name.
     """
     train_summary = _numeric_summary(slices["train_features"][column])
     val_summary = _numeric_summary(slices["val_features"][column])
@@ -284,12 +290,13 @@ def _distribution_flags(
     test_outside = _count_outside(slices["test_features"][column], train_min, train_max)
     out_of_range = bool((val_outside or 0) > 0 or (test_outside or 0) > 0)
 
-    time_counter = False
-    medians = _season_medians(features, column)
-    if train_min is not None and train_max is not None and _strictly_monotone(medians):
-        val_clock = _entirely_outside(slices["val_features"][column], train_min, train_max)
-        test_clock = _entirely_outside(slices["test_features"][column], train_min, train_max)
-        time_counter = val_clock or test_clock
+    val_rows: int = len(slices["val_features"])
+    test_rows: int = len(slices["test_features"])
+    material_shift: bool = _out_of_range_share_exceeds(
+        val_outside, val_rows, TIME_COUNTER_OUT_OF_RANGE_SHARE
+    ) or _out_of_range_share_exceeds(test_outside, test_rows, TIME_COUNTER_OUT_OF_RANGE_SHARE)
+    monotone: bool = _strictly_monotone(_season_medians(features, column))
+    time_counter: bool = material_shift or monotone
 
     return {
         "train": train_summary,
@@ -692,8 +699,9 @@ def render_markdown_report(report: dict[str, Any]) -> str:
         "## Distribution",
         "",
         "Out of range counts values in that slice outside the closed training",
-        "min and max. `time_counter` is yes when season medians are strictly",
-        "monotone and 2024 or 2025 sits entirely outside that training range.",
+        "min and max. `time_counter` is yes when the share of 2024 or 2025",
+        "rows outside that range is above 0.05, or when season medians are",
+        "strictly monotone across at least three seasons.",
         "",
         _markdown_table(
             [

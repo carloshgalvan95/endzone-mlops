@@ -17,13 +17,13 @@ Build a reproducible lakehouse pipeline for NFL pregame predictions (win probabi
 - **Databricks Free Edition**: Spike completed and passed. Serverless SQL warehouse validated with dbt-databricks locally and from GitHub Actions. MLflow tracking connectivity confirmed.
 - **Bronze ingest**: Backfill complete (1999-2026, games and play-by-play). Unity Catalog tables: workspace.nfl_raw.games, workspace.nfl_raw.pbp (partitioned by season).
 - **dbt**: 2 staging views (stg_nflverse__games, stg_nflverse__pbp), 3 marts tables (fct_games, fct_team_game_epa, fct_upcoming_games), 2 sources, 2 seeds. dbt build on Databricks: 64/64 nodes passing (57 data tests).
-- **Training pipeline**: `src/train/train.py` with MLflow tracking. Supports a home baseline (constant probability equal to the training home win rate, hard home label when that rate is above one half), logistic regression (impute then standard-scale), and gradient boosting models. Features include rolling EPA metrics, win rates, rest days, games played counts (10-game lookback). Time-based split (train through 2023, validate 2024, test 2025). Logs params, metrics (log loss, Brier, accuracy, AUC), feature list, data window, git SHA. Can run against Databricks or local fixtures. Includes SimpleImputer for missing history (EPA imputed to 0, win_rate to 0.5). Tests include leakage protection and January playoff season handling. Local tracking uses `sqlite:///mlflow.db` in the repo root, with run artifacts under `mlartifacts/`.
+- **Training pipeline**: `src/train/train.py` with MLflow tracking. Supports a home baseline (constant probability equal to the training home win rate, hard home label when that rate is above one half), logistic regression (impute then standard-scale), and gradient boosting models. The default feature set is rolling EPA, win rate, rest days, and season offensive EPA (10-game lookback). `home_games_played` and `away_games_played` are still computed and available as `--feature-set with_games_played`. Time-based split (train through 2023, validate 2024, test 2025). Logs params, metrics (log loss, Brier, accuracy, AUC), feature list, data window, git SHA. Can run against Databricks or local fixtures. Includes SimpleImputer for missing history (EPA imputed to 0, win_rate to 0.5). Tests include leakage protection and January playoff season handling. Local tracking uses `sqlite:///mlflow.db` in the repo root, with run artifacts under `mlartifacts/`.
 - **CI**: GitHub Actions runs ruff lint + format check, pytest on Python 3.10/3.11, dbt compile against DuckDB, cross-platform matrix (Ubuntu, Windows, macOS). Tests verify column references against real nflverse schema (fixtures in tests/fixtures), schema conforming logic, feature leakage protection, and end-to-end training.
 - **PR Guard**: Branch protection with freshness check, Conventional Commit titles, PR template verification, no secrets/data files, commit identity validation.
 
 **Next**: Feature and model experimentation. Forecasting (batch scoring) comes after that.
 
-**2024 validation** (`make train-sweep`, 285 games). Rounded to 2 decimals. The 2025 test season is held out and is not reported.
+**2024 validation** (`make train-sweep`, 285 games, feature set that included `games_played`). Rounded to 2 decimals. The 2025 test season is held out and is not reported. Phase 1 does not replace this table. `make train-cv` writes a separate comparison under `reports/phase1/`.
 
 | Model | Accuracy | AUC | Brier | Log loss |
 | --- | --- | --- | --- | --- |
@@ -295,6 +295,10 @@ make mlflow-ui
 
 `make audit-features` (Windows: `.\scripts\dev.ps1 audit-features`) profiles the current pregame inputs and does not change them. It writes `reports/phase0/feature_audit.md` and `reports/phase0/feature_audit.csv`, and logs both on an MLflow run tagged `phase=0-audit` under experiment `nfl_pregame/phase0_audit`. Those files are local outputs. Code-reading findings are in `docs/experiments/phase0_input_audit.md`. The command uses the same Databricks credentials as training, or `--fixture-path` for a local frame. Pass extra CLI flags with `make audit-features AUDIT_ARGS="--fixture-path path/to/fixtures"`. 2025 is included in the distribution tables and is not scored.
 
+### Phase 1 baselines
+
+`make train-cv` (Windows: `.\scripts\dev.ps1 train-cv`) runs rolling-origin cross-validation: for each season S from 2016 through 2023, models train on seasons strictly before S and score S. 2024 is not scored. 2025 is not scored. The command logs the home prior, logistic regression on feature set `current` (no `games_played`) and on `with_games_played`, a simple Elo rating, and a no-vig closing moneyline when `home_moneyline` and `away_moneyline` are on the games table. Runs go to MLflow experiment `nfl_pregame/phase1_baselines` with tag `phase=1`. The comparison is written to `reports/phase1/` (gitignored). The method and an empty decision log are in `docs/experiments/phase1_baselines.md`. This README does not add measured CV numbers.
+
 **Important .env notes**:
 - `.env` is for environment variables (e.g., Databricks credentials), not the Python virtual environment
 - Format: `KEY=value` with no spaces around `=`
@@ -372,7 +376,7 @@ See `docs/runbook.md` for credential setup, Unity Catalog volume paths, and veri
 - [x] dbt build on Databricks: 64/64 nodes passing (57 data tests)
 - [x] CI with GitHub Actions (lint, tests, cross-platform, PR guard)
 - [x] MLflow experiment tracking (train.py with baseline, logistic, gradient boosting)
-- [x] Pregame feature engineering (rolling EPA, win rates, rest days, games played)
+- [x] Pregame feature engineering (rolling EPA, win rates, rest days; games played stays available as a legacy set)
 - [x] Training sweep (5+ configs, make train-sweep)
 - [x] First training runs on real Databricks data (2024 validation metrics above)
 - [ ] Databricks integration job in CI

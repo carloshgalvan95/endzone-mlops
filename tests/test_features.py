@@ -10,7 +10,15 @@ Critical tests:
 import pandas as pd
 import pytest
 
-from src.features.pregame import build_pregame_features, prepare_training_data, split_by_season
+from src.features.pregame import (
+    FEATURE_SET_WITH_GAMES_PLAYED,
+    GAMES_PLAYED_COLUMNS,
+    PREGAME_FEATURE_COLUMNS,
+    build_pregame_features,
+    feature_columns_for,
+    prepare_training_data,
+    split_by_season,
+)
 
 
 @pytest.fixture
@@ -216,6 +224,25 @@ class TestPrepareTrainingData:
         assert "game_id" in X.columns
         assert "season" in X.columns
         assert all(y == 1)
+        assert set(GAMES_PLAYED_COLUMNS).isdisjoint(X.columns)
+        assert list(feature_columns_for("current")) == list(PREGAME_FEATURE_COLUMNS)
+
+        legacy_x, _legacy_y = prepare_training_data(
+            synthetic_games,
+            features,
+            feature_set=FEATURE_SET_WITH_GAMES_PLAYED,
+        )
+        assert set(GAMES_PLAYED_COLUMNS) <= set(legacy_x.columns)
+
+    def test_unknown_feature_set_is_rejected(
+        self,
+        synthetic_games: pd.DataFrame,
+        synthetic_team_game_epa: pd.DataFrame,
+    ) -> None:
+        """A typo in the feature set name fails before a model is fit."""
+        features = build_pregame_features(synthetic_games, synthetic_team_game_epa)
+        with pytest.raises(ValueError, match="Unknown feature set"):
+            prepare_training_data(synthetic_games, features, feature_set="both")
 
 
 class TestSplitBySeason:
