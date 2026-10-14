@@ -322,7 +322,7 @@ If Databricks spike fails:
          schema: PUBLIC
    ```
 6. Run `dbt compile` to verify
-7. For MLflow: Use local tracking (`./mlruns`) or deploy separate tracking server
+7. For MLflow: Use local tracking (`sqlite:///mlflow.db`) or deploy separate tracking server
 
 ---
 
@@ -636,8 +636,8 @@ with mlflow.start_run():
 ```python
 import mlflow
 
-# Local tracking
-mlflow.set_tracking_uri("./mlruns")
+# Local tracking database in the repo root
+mlflow.set_tracking_uri("sqlite:///mlflow.db")
 mlflow.set_experiment("nfl_pregame")
 
 # Same API as Databricks
@@ -648,7 +648,7 @@ with mlflow.start_run():
 ### View Experiments
 
 - **Databricks**: Experiments sidebar in workspace
-- **Local**: `mlflow ui` (opens http://localhost:5000)
+- **Local**: `mlflow ui --backend-store-uri sqlite:///mlflow.db` (opens http://localhost:5000)
 
 ---
 

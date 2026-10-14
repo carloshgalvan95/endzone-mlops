@@ -53,8 +53,13 @@ dbt/profiles.yml
 !dbt/seeds/*.csv
 *.json
 !dbt/**/*.json
+!.cursor/environment.json
 
 # MLflow
+mlflow.db
+mlflow.db-journal
+mlflow.db-wal
+mlflow.db-shm
 mlruns/
 mlartifacts/
 

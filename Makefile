@@ -1,4 +1,4 @@
-.PHONY: help setup install lint test dbt-compile dbt-run dbt-test clean reproduce ingest ingest-current dbt-build-databricks train train-sweep
+.PHONY: help setup install lint test dbt-compile dbt-run dbt-test clean reproduce ingest ingest-current dbt-build-databricks train train-sweep mlflow-ui
 
 help:
 	@echo "Available targets:"
@@ -14,6 +14,7 @@ help:
 	@echo "  dbt-build-databricks - Build dbt models on Databricks target"
 	@echo "  train               - Train NFL pregame prediction models with MLflow"
 	@echo "  train-sweep         - Run training sweep (5+ configs for MLflow comparison)"
+	@echo "  mlflow-ui           - Open MLflow UI against the local SQLite store"
 	@echo "  reproduce           - Full reproduction pipeline (install -> dbt compile)"
 	@echo "  clean               - Remove build artifacts"
 	@echo ""
@@ -75,6 +76,9 @@ train:
 
 train-sweep:
 	bash scripts/train_sweep.sh
+
+mlflow-ui:
+	mlflow ui --backend-store-uri sqlite:///mlflow.db
 
 reproduce: install dbt-compile
 	@echo "Reproduction pipeline complete (dependencies installed, dbt compiled on DuckDB)."

@@ -17,7 +17,7 @@ Build a reproducible lakehouse pipeline for NFL pregame predictions (win probabi
 - **Databricks Free Edition**: Spike completed and passed. Serverless SQL warehouse validated with dbt-databricks locally and from GitHub Actions. MLflow tracking connectivity confirmed.
 - **Bronze ingest**: Backfill complete (1999-2026, games and play-by-play). Unity Catalog tables: workspace.nfl_raw.games, workspace.nfl_raw.pbp (partitioned by season).
 - **dbt**: 2 staging views (stg_nflverse__games, stg_nflverse__pbp), 3 marts tables (fct_games, fct_team_game_epa, fct_upcoming_games), 2 sources, 2 seeds. dbt build on Databricks: 64/64 nodes passing (57 data tests).
-- **Training pipeline**: `src/train/train.py` with MLflow tracking. Supports baseline (home-always), logistic regression, and gradient boosting models. Features include rolling EPA metrics, win rates, rest days, games played counts (10-game lookback). Time-based split (train through 2023, validate 2024, test 2025). Logs params, metrics (log loss, Brier, accuracy, AUC), feature list, data window, git SHA. Can run against Databricks or local fixtures. Includes SimpleImputer for missing history (EPA imputed to 0, win_rate to 0.5). Tests include leakage protection and January playoff season handling.
+- **Training pipeline**: `src/train/train.py` with MLflow tracking. Supports baseline (home-always), logistic regression, and gradient boosting models. Features include rolling EPA metrics, win rates, rest days, games played counts (10-game lookback). Time-based split (train through 2023, validate 2024, test 2025). Logs params, metrics (log loss, Brier, accuracy, AUC), feature list, data window, git SHA. Can run against Databricks or local fixtures. Includes SimpleImputer for missing history (EPA imputed to 0, win_rate to 0.5). Tests include leakage protection and January playoff season handling. Local tracking uses `sqlite:///mlflow.db` in the repo root, with run artifacts under `mlartifacts/`.
 - **CI**: GitHub Actions runs ruff lint + format check, pytest on Python 3.10/3.11, dbt compile against DuckDB, cross-platform matrix (Ubuntu, Windows, macOS). Tests verify column references against real nflverse schema (fixtures in tests/fixtures), schema conforming logic, feature leakage protection, and end-to-end training.
 - **PR Guard**: Branch protection with freshness check, Conventional Commit titles, PR template verification, no secrets/data files, commit identity validation.
 
@@ -143,6 +143,8 @@ endzone-mlops/
 
 ### Local Setup (Day 1 Path)
 
+Cloud dev environment config (`.cursor/environment.json`) creates `.venv` and installs `requirements.txt`, with ruff pinned to 0.17.0 so it matches CI.
+
 #### macOS / Linux
 
 ```bash
@@ -210,7 +212,7 @@ Copy-Item dbt\profiles.yml.example dbt\profiles.yml
 
 ### Training Models
 
-After setting up the environment and building dbt models, you can train prediction models:
+After setting up the environment and building dbt models, you can train prediction models. Local runs record experiments in `sqlite:///mlflow.db` (repo root) and write model artifacts under `mlartifacts/`. Both paths are gitignored. If an existing `.env` still sets `MLFLOW_TRACKING_URI` to a filesystem path, remove that line so training uses the SQLite default.
 
 #### macOS / Linux
 
@@ -227,7 +229,8 @@ python -m src.train.train --model baseline-home
 make train-sweep
 
 # View MLflow UI to compare runs
-mlflow ui --backend-store-uri ./mlruns
+make mlflow-ui
+# or: mlflow ui --backend-store-uri sqlite:///mlflow.db
 # Open http://localhost:5000 in browser
 ```
 
@@ -246,7 +249,32 @@ python -m src.train.train --model baseline-home
 .\scripts\dev.ps1 train-sweep
 
 # View MLflow UI to compare runs
-mlflow ui --backend-store-uri ./mlruns
+.\scripts\dev.ps1 mlflow-ui
+# or: mlflow ui --backend-store-uri sqlite:///mlflow.db
+# Open http://localhost:5000 in browser
+```
+
+#### Windows (Git Bash)
+
+Git Bash rewrites arguments that look like Unix paths. Set `MSYS_NO_PATHCONV=1` before training or opening the UI so `sqlite:///` is left intact.
+
+```bash
+export MSYS_NO_PATHCONV=1
+
+# Train with default settings (logistic regression, lookback=10)
+make train
+
+# Or specify model and hyperparameters
+python -m src.train.train --model logistic --lookback 10 --C 1.0 --seed 42
+python -m src.train.train --model gbm --n-estimators 100 --max-depth 5 --learning-rate 0.1
+python -m src.train.train --model baseline-home
+
+# Run training sweep (5+ configs for MLflow comparison)
+make train-sweep
+
+# View MLflow UI to compare runs
+make mlflow-ui
+# or: mlflow ui --backend-store-uri sqlite:///mlflow.db
 # Open http://localhost:5000 in browser
 ```
 

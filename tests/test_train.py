@@ -7,14 +7,60 @@ Tests:
 - Git SHA extraction
 """
 
-import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 
 import pandas as pd
 import pytest
 
 from src.train.train import get_git_sha, load_data, train_baseline_home, train_logistic_regression
-from src.utils.config import resolve_tracking_uri
+
+# In-memory store: no SQLite file, so it cannot stay locked on Windows.
+_NEUTRAL_TRACKING_URI: str = "sqlite:///:memory:"
+
+
+def _release_mlflow_sqlalchemy_engines() -> None:
+    """Dispose cached SQLAlchemy engines that keep a SQLite file open."""
+    from mlflow.store.jobs.sqlalchemy_store import SqlAlchemyJobStore
+    from mlflow.store.model_registry.sqlalchemy_store import SqlAlchemyStore as RegistryStore
+    from mlflow.store.tracking.sqlalchemy_store import SqlAlchemyStore as TrackingStore
+    from mlflow.tracking._model_registry.utils import _get_store_registry
+    from mlflow.tracking._tracking_service.utils import _tracking_store_registry
+
+    for store_cls in (TrackingStore, RegistryStore, SqlAlchemyJobStore):
+        engine_map = getattr(store_cls, "_engine_map", None)
+        if not isinstance(engine_map, dict):
+            continue
+        for engine in list(engine_map.values()):
+            engine.dispose()
+        engine_map.clear()
+
+    tracking_cache = _tracking_store_registry._get_store_with_resolved_uri
+    tracking_cache.cache_clear()
+    registry_cache = _get_store_registry()._get_store_with_resolved_uri
+    registry_cache.cache_clear()
+
+
+def _reset_mlflow_tracking() -> None:
+    """End any open run, drop SQLite engines, and leave a non-file tracking URI."""
+    import mlflow
+
+    if mlflow.active_run() is not None:
+        mlflow.end_run()
+    _release_mlflow_sqlalchemy_engines()
+    mlflow.set_tracking_uri(_NEUTRAL_TRACKING_URI)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_mlflow_tracking_uri(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Restore MLflow's process-global tracking URI after each test."""
+    import mlflow.tracking._tracking_service.utils as tracking_utils
+
+    monkeypatch.setattr(tracking_utils, "_tracking_uri", tracking_utils._tracking_uri)
+    monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
+    monkeypatch.delenv("MLFLOW_ALLOW_FILE_STORE", raising=False)
+    yield
+    _reset_mlflow_tracking()
 
 
 @pytest.fixture
@@ -159,13 +205,12 @@ class TestTrainModels:
 class TestEndToEndTraining:
     """End-to-end training test with local MLflow."""
 
-    def test_end_to_end_train(
-        self, train_fixture_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_end_to_end_train(self, train_fixture_path: Path, tmp_path: Path) -> None:
         """
         End-to-end training pipeline test.
 
-        Uses temporary MLflow directory to avoid polluting workspace.
+        ``tmp_path`` is left in place when the test returns, so Windows can
+        still have the SQLite file open without a cleanup PermissionError.
         """
         import mlflow
 
@@ -176,14 +221,16 @@ class TestEndToEndTraining:
         )
         from src.train.train import load_data, train_logistic_regression
 
-        # Allow file store for testing
-        monkeypatch.setenv("MLFLOW_ALLOW_FILE_STORE", "true")
-
-        # Use temporary MLflow directory
-        with tempfile.TemporaryDirectory() as tmp_mlflow:
-            tracking_uri = resolve_tracking_uri(tmp_mlflow)
+        # SQLite URI with a POSIX path so the same string works on Windows.
+        tracking_uri = "sqlite:///" + Path(tmp_path, "mlflow.db").as_posix()
+        artifact_location = Path(tmp_path, "mlartifacts").resolve().as_uri()
+        try:
             mlflow.set_tracking_uri(tracking_uri)
-            mlflow.set_experiment("test_experiment")
+            experiment_id = mlflow.create_experiment(
+                "test_experiment",
+                artifact_location=artifact_location,
+            )
+            mlflow.set_experiment(experiment_id=experiment_id)
 
             # Load data
             games, epa = load_data(fixture_path=str(train_fixture_path))
@@ -216,3 +263,5 @@ class TestEndToEndTraining:
 
             assert run.data.params["test_run"] == "True"
             assert "val_accuracy" in run.data.metrics
+        finally:
+            _reset_mlflow_tracking()

@@ -308,6 +308,21 @@ class TestPRGuard:
         assert len(mock_pr_guard.errors) == 2
         assert any("blocked pattern" in e.message.lower() for e in mock_pr_guard.errors)
 
+    def test_cursor_environment_json_passes(self, mock_pr_guard: PRGuard) -> None:
+        """Cloud dev environment config is not a blocked path."""
+        files = [
+            {
+                "filename": ".cursor/environment.json",
+                "status": "added",
+                "changes": 8,
+                "additions": 8,
+                "patch": '@@ -0,0 +1,4 @@\n+{\n+  "name": "endzone-mlops",\n+  "install": "python3 -m venv .venv"\n+}',
+            }
+        ]
+
+        mock_pr_guard.check_changed_files(files)
+        assert len(mock_pr_guard.errors) == 0
+
     def test_allowlisted_file_passes(self, mock_pr_guard: PRGuard) -> None:
         """Allowlisted file passes check."""
         files = [

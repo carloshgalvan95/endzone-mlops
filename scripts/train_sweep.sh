@@ -34,4 +34,4 @@ echo "5/5: Gradient Boosting (depth=5, n=100)"
 python -m src.train.train --model gbm --max-depth 5 --n-estimators 100 --learning-rate 0.1 --seed 42
 
 echo ""
-echo "Training sweep complete. View results: mlflow ui --backend-store-uri ./mlruns"
+echo "Training sweep complete. View results: mlflow ui --backend-store-uri sqlite:///mlflow.db"

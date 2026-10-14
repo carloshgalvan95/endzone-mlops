@@ -76,7 +76,7 @@ Must validate within Day 1 (see `../runbook.md` for detailed status):
 If Databricks Free Edition spike fails, switch to:
 - Snowflake 30-day trial (no credit card until trial ends)
 - dbt-snowflake adapter (mature, well-documented)
-- MLflow sidecar (separate tracking server or local ./mlruns)
+- MLflow sidecar (separate tracking server or local sqlite:///mlflow.db)
 - **Same repository layout** (only adapter and profiles.yml change)
 
 ADR-001b will document the switch with specific failure reasons.

@@ -25,10 +25,14 @@ from sklearn.pipeline import Pipeline
 
 from src.data.databricks_client import DatabricksClient
 from src.features.pregame import build_pregame_features, prepare_training_data, split_by_season
-from src.utils.config import resolve_tracking_uri
+from src.utils.config import DEFAULT_MLFLOW_TRACKING_URI, resolve_tracking_uri
 from src.utils.logging import setup_logger
 
 logger = setup_logger(__name__)
+
+# Fluent SQLite tracking stores artifacts under ./mlruns unless an experiment
+# sets another location. Keep them in a gitignored directory.
+LOCAL_ARTIFACT_DIR: str = "mlartifacts"
 
 
 def get_git_sha() -> str:
@@ -233,6 +237,46 @@ def train_gradient_boosting(
     return pipeline, metrics
 
 
+def activate_tracking_experiment(experiment_name: str, tracking_uri: str) -> None:
+    """Point MLflow at a tracking URI and activate an experiment.
+
+    Scheme URIs such as ``sqlite:///mlflow.db`` are used as given.
+    ``databricks`` targets keep the workspace artifact root. A new SQLite
+    experiment stores artifacts under ``mlartifacts/`` so they do not land
+    in the filesystem tracking directory.
+
+    Args:
+        experiment_name: Experiment to create or activate.
+        tracking_uri: URI already normalized by ``resolve_tracking_uri``.
+    """
+    mlflow.set_tracking_uri(tracking_uri)
+    is_databricks_target: bool = tracking_uri == "databricks" or tracking_uri.startswith(
+        "databricks"
+    )
+    if is_databricks_target:
+        logger.info("Using Databricks MLflow tracking")
+        mlflow.set_experiment(experiment_name)
+        return
+
+    logger.info(f"Using local MLflow tracking: {tracking_uri}")
+    if not tracking_uri.startswith("sqlite:"):
+        mlflow.set_experiment(experiment_name)
+        return
+
+    client = mlflow.MlflowClient()
+    experiment = client.get_experiment_by_name(experiment_name)
+    if experiment is not None:
+        mlflow.set_experiment(experiment_id=experiment.experiment_id)
+        return
+
+    artifact_location: str = Path(LOCAL_ARTIFACT_DIR).resolve().as_uri()
+    experiment_id: str = client.create_experiment(
+        experiment_name,
+        artifact_location=artifact_location,
+    )
+    mlflow.set_experiment(experiment_id=experiment_id)
+
+
 def main() -> None:
     """Main training pipeline."""
     parser = argparse.ArgumentParser(description="Train NFL pregame prediction models")
@@ -325,16 +369,13 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    # Set up MLflow. Local paths become absolute file URIs so Windows
-    # drive letters are not parsed as an invalid remote store.
-    tracking_uri = resolve_tracking_uri(os.getenv("MLFLOW_TRACKING_URI", "./mlruns"))
-    if tracking_uri == "databricks" or tracking_uri.startswith("databricks"):
-        logger.info("Using Databricks MLflow tracking")
-    else:
-        logger.info(f"Using local MLflow tracking: {tracking_uri}")
-
-    mlflow.set_tracking_uri(tracking_uri)
-    mlflow.set_experiment("nfl_pregame")
+    # Local paths become absolute file URIs so Windows drive letters are
+    # not parsed as an invalid remote store. sqlite:// and databricks pass
+    # through resolve_tracking_uri unchanged.
+    tracking_uri = resolve_tracking_uri(
+        os.getenv("MLFLOW_TRACKING_URI", DEFAULT_MLFLOW_TRACKING_URI)
+    )
+    activate_tracking_experiment("nfl_pregame", tracking_uri)
 
     # Load data
     logger.info("Loading data...")
