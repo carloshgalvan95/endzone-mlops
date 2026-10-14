@@ -32,11 +32,13 @@ The only feature limited to the current `season` column is season-to-date offens
 
 Season features are `home_season_offensive_epa_per_play` and `away_season_offensive_epa_per_play` only. Defensive EPA is the rolling columns `home_recent_defensive_epa_per_play` and `away_recent_defensive_epa_per_play`, taken from `avg_defensive_epa_allowed`. There is no season-to-date defensive feature in `PREGAME_FEATURE_COLUMNS`.
 
-### 4. No home-minus-away differentials
+### 4. The default matrix has no home-minus-away differentials
 
 **Verified.**
 
-Each model input is a separate home column or away column. `build_pregame_features` and `prepare_training_data` do not subtract away from home.
+`prepare_training_data` defaults to feature set `current`. Those columns are separate home and away levels. The audit profiles that matrix.
+
+`build_pregame_features` also appends five home-minus-away columns. They are not in `current` or `with_games_played`. Feature sets `diff` and `diff_only` select them. See `docs/experiments/phase2_h1_diff_features.md`.
 
 ### 5. location and game_type are ignored
 

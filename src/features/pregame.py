@@ -8,10 +8,11 @@ Features computed:
 - Rolling/expanding team performance metrics (EPA per play, win rate)
 - Rest days
 - Prior-game counts (legacy feature set only)
+- Home-minus-away differences of the level features (diff sets only)
 - A simple Elo rating and a no-vig market probability
 """
 
-from typing import Any
+from typing import Any, NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -24,8 +25,11 @@ GAMES_PLAYED_COLUMNS: tuple[str, ...] = ("home_games_played", "away_games_played
 
 FEATURE_SET_CURRENT: str = "current"
 FEATURE_SET_WITH_GAMES_PLAYED: str = "with_games_played"
+FEATURE_SET_DIFF: str = "diff"
+FEATURE_SET_DIFF_ONLY: str = "diff_only"
 
-# Every column build_pregame_features emits, in training-matrix order.
+# Level columns, in the pre-phase-1 order. Differentials are appended after
+# these so ``current`` and ``with_games_played`` stay the same matrices.
 # This is the pre-phase-1 set and stays available for a reproducible rerun.
 PREGAME_COMPUTED_COLUMNS: tuple[str, ...] = (
     "home_recent_offensive_epa_per_play",
@@ -49,6 +53,66 @@ PREGAME_FEATURE_COLUMNS: tuple[str, ...] = tuple(
 
 # Old training matrix, including the games_played clock.
 PREGAME_FEATURE_COLUMNS_WITH_GAMES_PLAYED: tuple[str, ...] = PREGAME_COMPUTED_COLUMNS
+
+
+class DifferentialFeature(NamedTuple):
+    """One home-minus-away column and the two level columns it subtracts."""
+
+    home_column: str
+    away_column: str
+    diff_column: str
+
+
+# Home minus away. Defensive EPA is EPA allowed and is not sign-flipped.
+DIFFERENTIAL_FEATURES: tuple[DifferentialFeature, ...] = (
+    DifferentialFeature(
+        "home_recent_offensive_epa_per_play",
+        "away_recent_offensive_epa_per_play",
+        "diff_recent_offensive_epa_per_play",
+    ),
+    DifferentialFeature(
+        "home_recent_defensive_epa_per_play",
+        "away_recent_defensive_epa_per_play",
+        "diff_recent_defensive_epa_per_play",
+    ),
+    DifferentialFeature(
+        "home_recent_win_rate",
+        "away_recent_win_rate",
+        "diff_recent_win_rate",
+    ),
+    DifferentialFeature(
+        "home_season_offensive_epa_per_play",
+        "away_season_offensive_epa_per_play",
+        "diff_season_offensive_epa_per_play",
+    ),
+    DifferentialFeature(
+        "home_rest_days",
+        "away_rest_days",
+        "diff_rest_days",
+    ),
+)
+
+DIFF_FEATURE_COLUMNS: tuple[str, ...] = tuple(item.diff_column for item in DIFFERENTIAL_FEATURES)
+
+# ``current`` plus the five differences. Levels stay, so this is not a replacement.
+PREGAME_FEATURE_COLUMNS_DIFF: tuple[str, ...] = PREGAME_FEATURE_COLUMNS + DIFF_FEATURE_COLUMNS
+
+# Differences only. Parsimony check against ``diff``.
+PREGAME_FEATURE_COLUMNS_DIFF_ONLY: tuple[str, ...] = DIFF_FEATURE_COLUMNS
+
+FEATURE_SET_NAMES: tuple[str, ...] = (
+    FEATURE_SET_CURRENT,
+    FEATURE_SET_WITH_GAMES_PLAYED,
+    FEATURE_SET_DIFF,
+    FEATURE_SET_DIFF_ONLY,
+)
+
+FEATURE_SET_COLUMNS: dict[str, tuple[str, ...]] = {
+    FEATURE_SET_CURRENT: PREGAME_FEATURE_COLUMNS,
+    FEATURE_SET_WITH_GAMES_PLAYED: PREGAME_FEATURE_COLUMNS_WITH_GAMES_PLAYED,
+    FEATURE_SET_DIFF: PREGAME_FEATURE_COLUMNS_DIFF,
+    FEATURE_SET_DIFF_ONLY: PREGAME_FEATURE_COLUMNS_DIFF_ONLY,
+}
 
 # FiveThirtyEight-style Elo. Home advantage is added only when a game is
 # scored, not stored on the team rating. One third of the gap to the mean
@@ -95,12 +159,19 @@ def build_pregame_features(
         - away_season_offensive_epa_per_play: Away team's season-to-date avg offensive EPA
         - home_games_played: Count of prior games for home team (legacy set only)
         - away_games_played: Count of prior games for away team (legacy set only)
+        - diff_recent_offensive_epa_per_play: Home recent offensive EPA minus away
+        - diff_recent_defensive_epa_per_play: Home recent defensive EPA allowed minus away
+        - diff_recent_win_rate: Home recent win rate minus away
+        - diff_season_offensive_epa_per_play: Home season offensive EPA minus away
+        - diff_rest_days: Home rest days minus away rest days
 
     Missing history handling: Features use NaN (not 0) when insufficient prior games exist.
-    Use sklearn SimpleImputer(strategy='constant', fill_value=0) for EPA features and
-    SimpleImputer(strategy='constant', fill_value=0.5) for win_rate in training pipeline.
+    A difference is NaN when either side is NaN. Use sklearn
+    SimpleImputer(strategy='constant', fill_value=0) for EPA features and for
+    difference columns, and SimpleImputer(strategy='constant', fill_value=0.5)
+    for level win_rate columns in the training pipeline.
     games_played is still computed so the old matrix can be reproduced. The default
-    training set omits it. See ``feature_columns_for``.
+    training set omits it and omits the differences. See ``feature_columns_for``.
     """
     # Validate required columns
     required_games_cols = [
@@ -251,17 +322,53 @@ def build_pregame_features(
             }
         )
 
-    return pd.DataFrame(features_list)
+    return add_home_minus_away_features(pd.DataFrame(features_list))
+
+
+def add_home_minus_away_features(features: pd.DataFrame) -> pd.DataFrame:
+    """Append home-minus-away columns. A missing side stays missing.
+
+    Each difference is the home level minus the away level. Defensive EPA is
+    EPA allowed, and that gap is not flipped. The function does not look at
+    another row. Leakage protection is the level columns it subtracts.
+
+    Args:
+        features: One row per game, including both sides of each pair in
+            ``DIFFERENTIAL_FEATURES``.
+
+    Returns:
+        A copy with ``DIFF_FEATURE_COLUMNS`` appended, in that order.
+
+    Raises:
+        ValueError: A level column required by a difference is missing.
+    """
+    missing: list[str] = [
+        column
+        for item in DIFFERENTIAL_FEATURES
+        for column in (item.home_column, item.away_column)
+        if column not in features.columns
+    ]
+    if missing:
+        missing_list: str = ", ".join(sorted(set(missing)))
+        raise ValueError(f"features missing columns for differentials: {missing_list}")
+
+    frame: pd.DataFrame = features.copy()
+    for item in DIFFERENTIAL_FEATURES:
+        frame[item.diff_column] = frame[item.home_column] - frame[item.away_column]
+    return frame
 
 
 def feature_columns_for(feature_set: str) -> tuple[str, ...]:
     """Return the model columns for a named feature set.
 
-    ``current`` is the default and omits ``home_games_played`` and
-    ``away_games_played``. ``with_games_played`` is the previous matrix.
+    ``current`` is the default and omits ``home_games_played``,
+    ``away_games_played``, and the differential columns.
+    ``with_games_played`` is the previous matrix.
+    ``diff`` is ``current`` plus home-minus-away columns.
+    ``diff_only`` is the differences and nothing else.
 
     Args:
-        feature_set: ``current`` or ``with_games_played``.
+        feature_set: One of ``FEATURE_SET_NAMES``.
 
     Returns:
         Column names in training-matrix order.
@@ -269,12 +376,11 @@ def feature_columns_for(feature_set: str) -> tuple[str, ...]:
     Raises:
         ValueError: The name is not a known feature set.
     """
-    if feature_set == FEATURE_SET_CURRENT:
-        return PREGAME_FEATURE_COLUMNS
-    if feature_set == FEATURE_SET_WITH_GAMES_PLAYED:
-        return PREGAME_FEATURE_COLUMNS_WITH_GAMES_PLAYED
-    known: str = ", ".join((FEATURE_SET_CURRENT, FEATURE_SET_WITH_GAMES_PLAYED))
-    raise ValueError(f"Unknown feature set {feature_set!r}. Known sets: {known}.")
+    columns: tuple[str, ...] | None = FEATURE_SET_COLUMNS.get(feature_set)
+    if columns is None:
+        known: str = ", ".join(FEATURE_SET_NAMES)
+        raise ValueError(f"Unknown feature set {feature_set!r}. Known sets: {known}.")
+    return columns
 
 
 def prepare_training_data(
@@ -290,7 +396,7 @@ def prepare_training_data(
         fct_games: Games fact table with target column
         features: Feature DataFrame from build_pregame_features
         target_column: Name of target column in fct_games
-        feature_set: ``current`` (default) or ``with_games_played``
+        feature_set: One of ``FEATURE_SET_NAMES``. Default is ``current``.
 
     Returns:
         Tuple of (X: feature DataFrame, y: target Series)
