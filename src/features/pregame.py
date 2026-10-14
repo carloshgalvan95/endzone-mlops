@@ -12,6 +12,25 @@ Features computed:
 
 import pandas as pd
 
+# Columns that identify a game. They are not model inputs.
+MODEL_ID_COLUMNS: tuple[str, ...] = ("game_id", "gameday", "season")
+
+# Model inputs produced by build_pregame_features, in training-matrix order.
+PREGAME_FEATURE_COLUMNS: tuple[str, ...] = (
+    "home_recent_offensive_epa_per_play",
+    "home_recent_defensive_epa_per_play",
+    "away_recent_offensive_epa_per_play",
+    "away_recent_defensive_epa_per_play",
+    "home_recent_win_rate",
+    "away_recent_win_rate",
+    "home_rest_days",
+    "away_rest_days",
+    "home_season_offensive_epa_per_play",
+    "away_season_offensive_epa_per_play",
+    "home_games_played",
+    "away_games_played",
+)
+
 
 def build_pregame_features(
     fct_games: pd.DataFrame,
@@ -227,22 +246,9 @@ def prepare_training_data(
         fct_games[["game_id", target_column, "gameday", "season"]], on="game_id", how="inner"
     )
 
-    feature_cols = [
-        "home_recent_offensive_epa_per_play",
-        "home_recent_defensive_epa_per_play",
-        "away_recent_offensive_epa_per_play",
-        "away_recent_defensive_epa_per_play",
-        "home_recent_win_rate",
-        "away_recent_win_rate",
-        "home_rest_days",
-        "away_rest_days",
-        "home_season_offensive_epa_per_play",
-        "away_season_offensive_epa_per_play",
-        "home_games_played",
-        "away_games_played",
-    ]
+    feature_cols = list(PREGAME_FEATURE_COLUMNS)
 
-    X = merged[["game_id", "gameday", "season"] + feature_cols].copy()
+    X = merged[list(MODEL_ID_COLUMNS) + feature_cols].copy()
     y = merged[target_column].copy()
 
     return X, y
