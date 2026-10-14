@@ -12,15 +12,16 @@ Build a reproducible lakehouse pipeline for NFL pregame predictions (win probabi
 
 ## Current Status
 
-**As of October 2026 (Day 4 of 14)**:
+**As of October 2026 (Day 7 of 14)**:
 
-- **Databricks Free Edition**: Spike completed and passed. Serverless SQL warehouse validated with dbt-databricks locally and from GitHub Actions. MLflow tracking connectivity confirmed (no training runs yet).
-- **Bronze ingest**: `src/ingest/load_raw_nflverse.py` supports multi-season backfill (1999-2026) with per-season pbp ingestion and pyarrow schema conforming across 27 seasons. Uploads to Unity Catalog partitioned volumes (workspace.nfl_raw.landing/pbp/{season}/). Creates Delta tables via read_files. Code exists and is tested; full backfill pending owner execution (row counts will be updated post-backfill).
-- **dbt**: 2 staging views (stg_nflverse__games, stg_nflverse__pbp), 3 marts tables (fct_games, fct_team_game_epa, fct_upcoming_games), 2 sources, 46 data tests. Marts filter for completed games only (scores not null); fct_upcoming_games provides scoring input for pregame predictions.
-- **CI**: GitHub Actions runs ruff lint + format check, pytest on Python 3.10/3.11, dbt compile against DuckDB, cross-platform matrix (Ubuntu, Windows, macOS). Tests verify column references against real nflverse schema (fixtures in tests/fixtures) and schema conforming logic.
+- **Databricks Free Edition**: Spike completed and passed. Serverless SQL warehouse validated with dbt-databricks locally and from GitHub Actions. MLflow tracking connectivity confirmed.
+- **Bronze ingest**: Backfill complete (1999-2026, games and play-by-play). Unity Catalog tables: workspace.nfl_raw.games, workspace.nfl_raw.pbp (partitioned by season).
+- **dbt**: 2 staging views (stg_nflverse__games, stg_nflverse__pbp), 3 marts tables (fct_games, fct_team_game_epa, fct_upcoming_games), 2 sources, 2 seeds. dbt build on Databricks: 64/64 nodes passing (57 data tests).
+- **Training pipeline**: `src/train/train.py` with MLflow tracking. Supports baseline (home-always), logistic regression, and gradient boosting models. Features include rolling EPA metrics, win rates, rest days, games played counts (10-game lookback). Time-based split (train through 2023, validate 2024, test 2025). Logs params, metrics (log loss, Brier, accuracy, AUC), feature list, data window, git SHA. Can run against Databricks or local fixtures. Includes SimpleImputer for missing history (EPA imputed to 0, win_rate to 0.5). Tests include leakage protection and January playoff season handling.
+- **CI**: GitHub Actions runs ruff lint + format check, pytest on Python 3.10/3.11, dbt compile against DuckDB, cross-platform matrix (Ubuntu, Windows, macOS). Tests verify column references against real nflverse schema (fixtures in tests/fixtures), schema conforming logic, feature leakage protection, and end-to-end training.
 - **PR Guard**: Branch protection with freshness check, Conventional Commit titles, PR template verification, no secrets/data files, commit identity validation.
 
-**Next**: Owner runs full backfill (`make ingest`), then MLflow training (train.py with hyperparameters and experiment tracking), batch scoring (score.py).
+**Next**: First training runs on real Databricks data (real metrics pending), batch scoring (score.py).
 
 ## Architecture Overview
 
@@ -207,6 +208,50 @@ Copy-Item dbt\profiles.yml.example dbt\profiles.yml
 
 **Tip**: Use `.\scripts\dev.ps1 setup` to automate virtualenv creation and dependency installation.
 
+### Training Models
+
+After setting up the environment and building dbt models, you can train prediction models:
+
+#### macOS / Linux
+
+```bash
+# Train with default settings (logistic regression, lookback=10)
+make train
+
+# Or specify model and hyperparameters
+python -m src.train.train --model logistic --lookback 10 --C 1.0 --seed 42
+python -m src.train.train --model gbm --n-estimators 100 --max-depth 5 --learning-rate 0.1
+python -m src.train.train --model baseline-home
+
+# Run training sweep (5+ configs for MLflow comparison)
+make train-sweep
+
+# View MLflow UI to compare runs
+mlflow ui --backend-store-uri ./mlruns
+# Open http://localhost:5000 in browser
+```
+
+#### Windows (PowerShell)
+
+```powershell
+# Train with default settings
+.\scripts\dev.ps1 train
+
+# Or specify model and hyperparameters
+python -m src.train.train --model logistic --lookback 10 --C 1.0 --seed 42
+python -m src.train.train --model gbm --n-estimators 100 --max-depth 5 --learning-rate 0.1
+python -m src.train.train --model baseline-home
+
+# Run training sweep (5+ configs for MLflow comparison)
+.\scripts\dev.ps1 train-sweep
+
+# View MLflow UI to compare runs
+mlflow ui --backend-store-uri ./mlruns
+# Open http://localhost:5000 in browser
+```
+
+**Note**: Training requires either Databricks credentials (in .env) or local fixture files. Metrics (accuracy, Brier score, log loss, ROC AUC) are logged to MLflow along with model artifacts. Real metrics pending first training run on Databricks data.
+
 **Important .env notes**:
 - `.env` is for environment variables (e.g., Databricks credentials), not the Python virtual environment
 - Format: `KEY=value` with no spaces around `=`
@@ -277,12 +322,16 @@ See `docs/runbook.md` for credential setup, Unity Catalog volume paths, and veri
 
 ### v0.1 (Day 14 Target)
 - [x] Repository scaffold
-- [x] Bronze ingest to Unity Catalog Delta tables (games, play_by_play)
-- [x] Staging dbt models from nflverse (2 views, 22 tests)
+- [x] Bronze ingest to Unity Catalog Delta tables (games, play_by_play, 1999-2026 backfill complete)
+- [x] Staging dbt models from nflverse (2 views)
+- [x] Marts dbt models (fct_games, fct_team_game_epa, fct_upcoming_games)
+- [x] dbt build on Databricks: 64/64 nodes passing (57 data tests)
 - [x] CI with GitHub Actions (lint, tests, cross-platform, PR guard)
+- [x] MLflow experiment tracking (train.py with baseline, logistic, gradient boosting)
+- [x] Pregame feature engineering (rolling EPA, win rates, rest days, games played)
+- [x] Training sweep (5+ configs, make train-sweep)
+- [ ] First training runs on real Databricks data (real metrics pending)
 - [ ] Databricks integration job in CI
-- [ ] Marts for pregame features
-- [ ] MLflow experiment tracking (train.py)
 - [ ] Batch scoring pipeline (score.py)
 - [ ] Documentation and demo
 

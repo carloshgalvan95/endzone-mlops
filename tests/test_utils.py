@@ -4,10 +4,11 @@ Follows DoD: smoke tests for pure functions.
 """
 
 from pathlib import Path
+from urllib.parse import urlparse
 
 import pytest
 
-from src.utils.config import Config, load_config
+from src.utils.config import Config, load_config, resolve_tracking_uri
 from src.utils.logging import setup_logger
 
 
@@ -37,6 +38,33 @@ class TestConfig:
         config = Config()
         with pytest.raises(Exception):
             config.data_dir = Path("/new/path")  # type: ignore
+
+
+class TestResolveTrackingUri:
+    """MLflow tracking URI normalization."""
+
+    def test_databricks_passthrough(self) -> None:
+        """Databricks targets stay unchanged, including prefixed names."""
+        assert resolve_tracking_uri("databricks") == "databricks"
+        prefixed: str = "databricks-uc"
+        assert resolve_tracking_uri(prefixed) == prefixed
+
+    def test_existing_scheme_passthrough(self) -> None:
+        """Values that already contain a scheme are returned unchanged."""
+        remote_uri: str = "http://127.0.0.1:5000"
+        sqlite_uri: str = "sqlite:///mlflow.db"
+        assert resolve_tracking_uri(remote_uri) == remote_uri
+        assert resolve_tracking_uri(sqlite_uri) == sqlite_uri
+
+    def test_relative_path_becomes_file_uri(self) -> None:
+        """A relative path becomes the absolute URI from Path.as_uri."""
+        relative_path: str = "./mlruns"
+        expected: str = Path(relative_path).resolve().as_uri()
+        resolved: str = resolve_tracking_uri(relative_path)
+        assert resolved == expected
+        parsed = urlparse(resolved)
+        assert parsed.scheme == "file"
+        assert parsed.path.endswith("/mlruns")
 
 
 class TestLogging:
