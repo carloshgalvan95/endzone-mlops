@@ -14,7 +14,7 @@ if (Test-Path .env) {
 }
 
 # 1. Baseline
-Write-Host "1/5: Baseline (home-always)"
+Write-Host "1/5: Baseline (training home win rate)"
 python -m src.train.train --model baseline-home --seed 42
 
 # 2. Logistic C=0.1

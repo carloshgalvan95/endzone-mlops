@@ -14,7 +14,7 @@ if [ -f .env ]; then
 fi
 
 # 1. Baseline
-echo "1/5: Baseline (home-always)"
+echo "1/5: Baseline (training home win rate)"
 python -m src.train.train --model baseline-home --seed 42
 
 # 2. Logistic C=0.1

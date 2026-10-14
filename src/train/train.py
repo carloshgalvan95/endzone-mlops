@@ -10,6 +10,7 @@ Usage:
 import argparse
 import os
 import subprocess
+import tempfile
 from pathlib import Path
 
 import mlflow
@@ -22,6 +23,7 @@ from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, brier_score_loss, log_loss, roc_auc_score
 from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 
 from src.data.databricks_client import DatabricksClient
 from src.features.pregame import build_pregame_features, prepare_training_data, split_by_season
@@ -33,6 +35,15 @@ logger = setup_logger(__name__)
 # Fluent SQLite tracking stores artifacts under ./mlruns unless an experiment
 # sets another location. Keep them in a gitignored directory.
 LOCAL_ARTIFACT_DIR: str = "mlartifacts"
+
+# Types skops refuses by default that these pipelines are known to contain.
+# Anything else fails closed. Do not replace this with skops' full untrusted list.
+REVIEWED_SKOPS_TRUSTED_TYPES: frozenset[str] = frozenset(
+    {
+        "numpy.dtype",
+        "sklearn.tree._tree.Tree",
+    }
+)
 
 
 def get_git_sha() -> str:
@@ -92,17 +103,24 @@ def train_baseline_home(
     X_val: pd.DataFrame,
     y_val: pd.Series,
 ) -> tuple[DummyClassifier, dict]:
-    """
-    Train baseline model (always predict home team wins).
+    """Train a home baseline whose probability is the training home win rate.
+
+    ``predict_proba`` is that rate on every row, so log loss and Brier stay
+    finite. Hard labels are the majority class. When the training home win
+    rate is above one half, every hard label is home and accuracy matches
+    an always-home rule.
 
     Returns:
         Tuple of (model, metrics_dict)
     """
-    model = DummyClassifier(strategy="constant", constant=1, random_state=42)
-    model.fit(X_train.drop(columns=["game_id", "gameday", "season"]), y_train)
+    id_columns: list[str] = ["game_id", "gameday", "season"]
+    train_features: pd.DataFrame = X_train.drop(columns=id_columns)
+    val_features: pd.DataFrame = X_val.drop(columns=id_columns)
+    model = DummyClassifier(strategy="prior", random_state=42)
+    model.fit(train_features, y_train)
 
-    y_pred_proba = model.predict_proba(X_val.drop(columns=["game_id", "gameday", "season"]))[:, 1]
-    y_pred = model.predict(X_val.drop(columns=["game_id", "gameday", "season"]))
+    y_pred_proba = model.predict_proba(val_features)[:, 1]
+    y_pred = model.predict(val_features)
 
     metrics = {
         "accuracy": accuracy_score(y_val, y_pred),
@@ -123,8 +141,11 @@ def train_logistic_regression(
     max_iter: int = 1000,
     random_state: int = 42,
 ) -> tuple[Pipeline, dict]:
-    """
-    Train logistic regression model with imputation pipeline.
+    """Train logistic regression with imputation and standard scaling.
+
+    Scaling is applied only in this pipeline, after imputation, so lbfgs
+    can converge when ``C`` is large and feature scales differ. Gradient
+    boosting keeps its own unscaled pipeline.
 
     Returns:
         Tuple of (pipeline, metrics_dict)
@@ -152,7 +173,16 @@ def train_logistic_regression(
     pipeline = Pipeline(
         [
             ("preprocessor", preprocessor),
-            ("classifier", LogisticRegression(C=C, max_iter=max_iter, random_state=random_state)),
+            ("scaler", StandardScaler()),
+            (
+                "classifier",
+                LogisticRegression(
+                    C=C,
+                    max_iter=max_iter,
+                    solver="lbfgs",
+                    random_state=random_state,
+                ),
+            ),
         ]
     )
 
@@ -235,6 +265,60 @@ def train_gradient_boosting(
     }
 
     return pipeline, metrics
+
+
+def resolve_skops_trusted_types(model: object) -> dict[str, list[str]]:
+    """Return the reviewed skops types required to reload this model.
+
+    The model is written to a temporary skops file and inspected with
+    ``skops.io.get_untrusted_types``. Only types on
+    ``REVIEWED_SKOPS_TRUSTED_TYPES`` are returned. An untrusted type outside
+    that allowlist raises ``ValueError`` instead of being trusted.
+
+    Args:
+        model: Fitted sklearn estimator or pipeline.
+
+    Returns:
+        Dict with key ``trusted_types``, sorted and safe to pass to
+        ``mlflow.sklearn.log_model``.
+    """
+    import skops.io
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        model_path: Path = Path(tmp_dir) / "model.skops"
+        skops.io.dump(model, model_path)
+        untrusted: set[str] = set(skops.io.get_untrusted_types(file=model_path))
+
+    unknown: set[str] = untrusted - REVIEWED_SKOPS_TRUSTED_TYPES
+    if unknown:
+        unknown_list: str = ", ".join(sorted(unknown))
+        allowlist: str = ", ".join(sorted(REVIEWED_SKOPS_TRUSTED_TYPES))
+        raise ValueError(
+            "Refusing to trust skops types that are not on the reviewed "
+            f"allowlist: {unknown_list}. Allowlist: {allowlist}."
+        )
+    return {"trusted_types": sorted(untrusted)}
+
+
+def log_sklearn_model(model: object) -> dict[str, list[str]]:
+    """Log a fitted sklearn model on the active MLflow run.
+
+    The artifact name is ``model``. Trusted skops types are limited to the
+    reviewed types this specific model needs.
+
+    Args:
+        model: Fitted estimator produced by a training function.
+
+    Returns:
+        Dict with key ``trusted_types`` listing the types that were trusted.
+    """
+    trusted: dict[str, list[str]] = resolve_skops_trusted_types(model)
+    mlflow.sklearn.log_model(
+        model,
+        name="model",
+        skops_trusted_types=trusted["trusted_types"],
+    )
+    return trusted
 
 
 def activate_tracking_experiment(experiment_name: str, tracking_uri: str) -> None:
@@ -432,7 +516,7 @@ def main() -> None:
 
         # Train model based on type
         if args.model == "baseline-home":
-            logger.info("Training baseline model (always predict home wins)")
+            logger.info("Training baseline model (training home win rate probability)")
             model, metrics = train_baseline_home(X_train, y_train, X_val, y_val)
 
         elif args.model == "logistic":
@@ -478,8 +562,8 @@ def main() -> None:
         for metric_name, metric_value in metrics.items():
             mlflow.log_metric(f"val_{metric_name}", metric_value)
 
-        # Log model (trust numpy.dtype for sklearn Pipeline compatibility)
-        mlflow.sklearn.log_model(model, "model", skops_trusted_types=["numpy.dtype"])
+        trusted_types: dict[str, list[str]] = log_sklearn_model(model)
+        logger.info(f"Trusted skops types: {trusted_types['trusted_types']}")
 
         logger.info("Training complete. MLflow run logged.")
         logger.info(f"Run ID: {mlflow.active_run().info.run_id}")

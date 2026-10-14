@@ -628,7 +628,7 @@ with mlflow.start_run():
     mlflow.log_param("C", 1.0)
     mlflow.log_metric("accuracy", 0.72)
     mlflow.log_artifact("plots/confusion_matrix.png")
-    mlflow.sklearn.log_model(model, "model")
+    mlflow.sklearn.log_model(model, name="model")
 ```
 
 ### Local Path
