@@ -55,6 +55,9 @@ dbt/profiles.yml
 !dbt/**/*.json
 !.cursor/environment.json
 
+# Phase 0 audit outputs (make audit-features)
+/reports/
+
 # MLflow
 mlflow.db
 mlflow.db-journal
