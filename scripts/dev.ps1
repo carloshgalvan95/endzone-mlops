@@ -22,7 +22,7 @@ function Show-Help {
     Write-Host "  dbt-build-databricks - Build dbt models on Databricks target"
     Write-Host "  train               - Train NFL pregame prediction models with MLflow"
     Write-Host "  train-sweep         - Run training sweep (5+ configs for MLflow comparison)"
-    Write-Host "  train-cv            - Phase 2 H3 rolling-origin CV (pass/rush vs logistic h2_full)"
+    Write-Host "  train-cv            - Phase 2 ridge reference CV (L2 C tuned inside each training fold)"
     Write-Host "  mlflow-ui           - Open MLflow UI against the local SQLite store"
     Write-Host "  audit-features      - Profile current pregame inputs (no feature changes)"
     Write-Host "  clean               - Remove build artifacts"
@@ -126,8 +126,8 @@ function Invoke-TrainSweep {
 
 function Invoke-TrainCv {
     Load-Env
-    Write-Host "Running phase 2 H3 rolling-origin CV..."
-    python -m src.train.train --cv --phase 2 --hypothesis h3 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h3
+    Write-Host "Running phase 2 ridge reference CV..."
+    python -m src.train.train --cv --phase 2 --hypothesis ridge --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_ridge
 }
 
 function Invoke-MlflowUi {

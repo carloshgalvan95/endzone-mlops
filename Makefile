@@ -19,7 +19,7 @@ help:
 	@echo "  dbt-build-databricks - Build dbt models on Databricks target"
 	@echo "  train               - Train NFL pregame prediction models with MLflow"
 	@echo "  train-sweep         - Run training sweep (5+ configs for MLflow comparison)"
-	@echo "  train-cv            - Phase 2 H3 rolling-origin CV (pass/rush vs logistic h2_full)"
+	@echo "  train-cv            - Phase 2 ridge reference CV (L2 C tuned inside each training fold)"
 	@echo "  mlflow-ui           - Open MLflow UI against the local SQLite store"
 	@echo "  audit-features      - Profile current pregame inputs (no feature changes)"
 	@echo "  reproduce           - Full reproduction pipeline (install -> dbt compile)"
@@ -86,7 +86,7 @@ train-sweep:
 
 train-cv:
 	@if [ -f .env ]; then set -a && . ./.env && set +a; fi; \
-	python -m src.train.train --cv --phase 2 --hypothesis h3 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h3
+	python -m src.train.train --cv --phase 2 --hypothesis ridge --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_ridge
 
 mlflow-ui:
 	mlflow ui --backend-store-uri sqlite:///mlflow.db --workers 1

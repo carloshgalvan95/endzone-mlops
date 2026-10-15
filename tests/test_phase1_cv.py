@@ -26,16 +26,20 @@ from src.train.train import (
     HYPOTHESIS_H1,
     HYPOTHESIS_H2,
     HYPOTHESIS_H3,
+    HYPOTHESIS_RIDGE,
     MIN_LOG_LOSS_IMPROVEMENT,
     PHASE1_EXPERIMENT_NAME,
     PHASE1_TAG,
     PHASE2_EXPERIMENT_NAME,
     PHASE2_H2_EXPERIMENT_NAME,
     PHASE2_H3_EXPERIMENT_NAME,
+    PHASE2_RIDGE_EXPERIMENT_NAME,
     PHASE2_TAG,
+    CvModelSpec,
     attach_reference_comparison,
     binary_classification_metrics,
     compare_oof_to_reference,
+    cv_model_specs_for,
     decide_log_loss_improvement,
     feature_column_groups,
     log_phase1_to_mlflow,
@@ -727,6 +731,18 @@ class TestReferenceSelection:
             "h3_split",
             "h3_replace",
         )
+        ridge_reference = resolve_reference_spec(2, hypothesis="ridge")
+        assert ridge_reference == {"model": "logistic", "feature_set": "h2_full"}
+        assert logistic_feature_sets_for(2, hypothesis="ridge") == ("h2_full",)
+        assert cv_model_specs_for(2, hypothesis="ridge") == (
+            CvModelSpec("logistic", "h2_full"),
+            CvModelSpec("logistic_l2", "h2_full"),
+            CvModelSpec("logistic_l2", "h3_split"),
+            CvModelSpec("logistic_l2", "h3_replace"),
+        )
+        assert cv_model_specs_for(2, hypothesis="ridge-reference") == cv_model_specs_for(
+            2, hypothesis="ridge"
+        )
         h1_settings = phase_tracking_settings(2)
         assert h1_settings["hypothesis"] == HYPOTHESIS_H1
         assert h1_settings["output_dir"] == "reports/phase2"
@@ -741,6 +757,11 @@ class TestReferenceSelection:
         assert h3_settings["output_dir"] == "reports/phase2_h3"
         assert h3_settings["experiment_name"] == PHASE2_H3_EXPERIMENT_NAME
         assert h3_settings["phase_tag"] == PHASE2_TAG
+        ridge_settings = phase_tracking_settings(2, hypothesis="ridge")
+        assert ridge_settings["hypothesis"] == HYPOTHESIS_RIDGE
+        assert ridge_settings["output_dir"] == "reports/phase2_ridge"
+        assert ridge_settings["experiment_name"] == PHASE2_RIDGE_EXPERIMENT_NAME
+        assert ridge_settings["phase_tag"] == PHASE2_TAG
         with pytest.raises(ValueError, match="Unknown phase"):
             resolve_reference_spec(3)
         with pytest.raises(ValueError, match="Unknown reference model"):
@@ -1267,6 +1288,9 @@ class TestCvRunStructure:
         assert parent_run_name(2, HYPOTHESIS_H1, timestamp=stamp) == "phase2-h1-20261015T010203Z"
         assert parent_run_name(2, HYPOTHESIS_H2, timestamp=stamp) == "phase2-h2-20261015T010203Z"
         assert parent_run_name(2, HYPOTHESIS_H3, timestamp=stamp) == "phase2-h3-20261015T010203Z"
+        assert parent_run_name(2, HYPOTHESIS_RIDGE, timestamp=stamp) == (
+            "phase2-ridge-20261015T010203Z"
+        )
         assert parent_run_name(2, "not-a-hypothesis", timestamp=stamp) == "phase2-20261015T010203Z"
 
     def test_decision_tag_marks_reference_baseline_and_candidates(self) -> None:
@@ -1285,6 +1309,8 @@ class TestCvRunStructure:
         assert mlflow_decision_tag(rejected, "logistic", "h2_full") == "rejected"
         missing = _labeled_result("logistic", "h3_split", 0.63, None, None, None)
         assert mlflow_decision_tag(missing, "logistic", "h2_full") == "inconclusive"
+        tuned = _labeled_result("logistic_l2", "h2_full", 0.639, -0.001, -0.002, 0.001)
+        assert mlflow_decision_tag(tuned, "logistic", "h2_full") == "rejected"
 
     def test_best_feature_set_prefers_the_accepted_logistic_set(self) -> None:
         """A lower rejected loss does not replace an accepted set."""
@@ -1311,3 +1337,155 @@ class TestCvRunStructure:
             _labeled_result("logistic", "current", 0.680, -0.010, -0.020, -0.004),
         ]
         assert select_best_feature_set(phase1, "baseline-home", "none") == "current"
+        tuned_accepted = [
+            _labeled_result("logistic", "h2_full", 0.640, 0.0, 0.0, 0.0),
+            _labeled_result("logistic_l2", "h2_full", 0.639, -0.001, -0.002, 0.001),
+            _labeled_result("logistic_l2", "h3_split", 0.630, -0.010, -0.020, -0.004),
+        ]
+        assert select_best_feature_set(tuned_accepted, "logistic", "h2_full") == "h3_split"
+
+
+class TestPhase2RidgeReference:
+    """Ridge scores tuned L2 against fixed-C logistic h2_full, plus the baselines."""
+
+    def test_ridge_report_keeps_h2_full_and_tunes_c_inside_the_fold(self) -> None:
+        """logistic_l2 rows replace the fixed-C H3 rows. The scored season does not pick C."""
+        games, team_games = _schedule(with_moneyline=False)
+        report = run_phase1_baselines(
+            games,
+            team_games,
+            config=_fast_config(n_bootstrap=8),
+            lookback_games=2,
+            logistic_max_iter=200,
+            phase=2,
+            hypothesis="ridge",
+        )
+        table = report["comparison_table"]
+        pairs = set(zip(table["model"], table["feature_set"], strict=True))
+        assert pairs == {
+            ("baseline-home", "none"),
+            ("logistic", "h2_full"),
+            ("logistic_l2", "h2_full"),
+            ("logistic_l2", "h3_split"),
+            ("logistic_l2", "h3_replace"),
+            ("elo", "elo"),
+            ("market", "market"),
+        }
+        assert report["reference_model"] == "logistic"
+        assert report["reference_feature_set"] == "h2_full"
+        assert report["hypothesis"] == HYPOTHESIS_RIDGE
+        assert report["title"] == "Phase 2 ridge reference"
+        reference = next(
+            item
+            for item in report["results"]
+            if item["model"] == "logistic" and item["feature_set"] == "h2_full"
+        )
+        tuned = next(
+            item
+            for item in report["results"]
+            if item["model"] == "logistic_l2" and item["feature_set"] == "h2_full"
+        )
+        assert reference["comparison"]["log_loss_diff"] == pytest.approx(0.0)
+        assert tuned["comparison"]["reference_log_loss"] == pytest.approx(
+            reference["comparison"]["log_loss"]
+        )
+        assert tuned["comparison"]["n"] == reference["comparison"]["n"]
+        assert "chosen_c_by_fold" in tuned["params"]
+        assert tuned["params"]["regularization"] == "l2"
+        assert "0.01" in tuned["params"]["c_grid"]
+        scored_folds = [fold for fold in tuned["folds"] if fold["status"] == "scored"]
+        assert scored_folds
+        for fold in scored_folds:
+            assert fold["chosen_c"] in {0.01, 0.1, 1.0, 10.0, 100.0}
+            assert fold["c_selection"] in {"inner_season", "fallback"}
+        by_season = {fold["season"]: fold for fold in scored_folds}
+        assert by_season[2022]["c_selection"] == "fallback"
+        assert by_season[2023]["c_selection"] == "inner_season"
+        decisions = {
+            (row["model"], row["feature_set"]): row["decision"] for row in report["acceptance"]
+        }
+        assert decisions[("logistic", "h2_full")] == "reference"
+        assert decisions[("logistic_l2", "h2_full")] in {"accepted", "rejected", "inconclusive"}
+        assert decisions[("logistic_l2", "h3_split")] in {"accepted", "rejected", "inconclusive"}
+        assert "Hypothesis: `ridge-reference`" in report["markdown"]
+        assert "chosen_c" in report["markdown"]
+        assert "0.003" in report["markdown"]
+        assert "Acceptance" in report["markdown"]
+        assert "No model is promoted" in report["markdown"]
+        assert "\u2014" not in report["markdown"]
+        for result in report["results"]:
+            if result["oof"] is None:
+                continue
+            assert set(result["oof"]["season"]).isdisjoint({2024, 2025})
+
+    def test_cli_ridge_logs_chosen_c_on_the_child_run(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """``--hypothesis ridge`` writes reports/phase2_ridge and logs one C per fold."""
+        import mlflow
+
+        games, team_games = _schedule(with_moneyline=True)
+        fixture_dir = tmp_path / "fixtures"
+        fixture_dir.mkdir()
+        games.to_parquet(fixture_dir / "fct_games.parquet")
+        team_games.to_parquet(fixture_dir / "fct_team_game_epa.parquet")
+        tracking_uri: str = "sqlite:///" + (tmp_path / "mlflow.db").as_posix()
+        monkeypatch.setenv("MLFLOW_TRACKING_URI", tracking_uri)
+        monkeypatch.setattr("src.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
+        output_dir = tmp_path / "phase2_ridge"
+        try:
+            main(
+                [
+                    "--cv",
+                    "--phase",
+                    "2",
+                    "--hypothesis",
+                    "ridge",
+                    "--fixture-path",
+                    str(fixture_dir),
+                    "--output-dir",
+                    str(output_dir),
+                    "--cv-start-season",
+                    "2022",
+                    "--cv-end-season",
+                    "2023",
+                    "--n-bootstrap",
+                    "4",
+                    "--lookback",
+                    "2",
+                    "--max-iter",
+                    "200",
+                    "--seed",
+                    "7",
+                ]
+            )
+            table = pd.read_csv(output_dir / "comparison.csv")
+            pairs = set(zip(table["model"], table["feature_set"], strict=True))
+            assert ("logistic", "h2_full") in pairs
+            assert ("logistic_l2", "h2_full") in pairs
+            assert ("logistic_l2", "h3_split") in pairs
+            assert ("logistic", "h3_split") not in pairs
+            markdown = (output_dir / "comparison.md").read_text(encoding="utf-8")
+            assert "Hypothesis: `ridge-reference`" in markdown
+            assert "chosen_c" in markdown
+            assert "\u2014" not in markdown
+            client = mlflow.tracking.MlflowClient(tracking_uri=tracking_uri)
+            experiment = client.get_experiment_by_name(PHASE2_RIDGE_EXPERIMENT_NAME)
+            assert experiment is not None
+            runs = client.search_runs(experiment_ids=[experiment.experiment_id])
+            assert runs
+            assert all(run.data.tags.get("phase") == PHASE2_TAG for run in runs)
+            assert all(run.data.tags.get("hypothesis") == HYPOTHESIS_RIDGE for run in runs)
+            parent = next(run for run in runs if run.data.tags.get("mlflow.parentRunId") is None)
+            assert parent.info.run_name.startswith("phase2-ridge-")
+            child = next(run for run in runs if run.info.run_name == "logistic_l2-h2_full")
+            assert "chosen_c_by_fold" in child.data.params
+            assert "chosen_c_2022" in child.data.params
+            assert "chosen_c_2023" in child.data.params
+            assert child.data.params["regularization"] == "l2"
+            h3_experiment = client.get_experiment_by_name(PHASE2_H3_EXPERIMENT_NAME)
+            assert h3_experiment is None
+        finally:
+            _reset_mlflow_tracking()

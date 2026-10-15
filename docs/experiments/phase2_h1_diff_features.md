@@ -1,6 +1,6 @@
 # Phase 2 H1: home-minus-away differentials
 
-Method note. This file does not report warehouse metrics. Reproduce this comparison with `python -m src.train.train --cv --phase 2 --hypothesis h1 --reference-model logistic --reference-feature-set current --output-dir reports/phase2`. It writes `reports/phase2/comparison.md` and `reports/phase2/comparison.csv`. `make train-cv` runs hypothesis H3 and writes `reports/phase2_h3/`. Hypothesis H2 is `--phase 2 --hypothesis h2 --reference-model logistic --reference-feature-set current --output-dir reports/phase2_h2`. Those files are local outputs. The result section records the local H1 run. Do not copy numbers from a test fixture.
+Method note. This file does not report warehouse metrics. Reproduce this comparison with `python -m src.train.train --cv --phase 2 --hypothesis h1 --reference-model logistic --reference-feature-set current --output-dir reports/phase2`. It writes `reports/phase2/comparison.md` and `reports/phase2/comparison.csv`. `make train-cv` runs the ridge reference comparison and writes `reports/phase2_ridge/`. Hypothesis H2 is `--phase 2 --hypothesis h2 --reference-model logistic --reference-feature-set current --output-dir reports/phase2_h2`. Hypothesis H3 is `--phase 2 --hypothesis h3` and writes `reports/phase2_h3/`. Those files are local outputs. The result section records the local H1 run. Do not copy numbers from a test fixture.
 
 No model is promoted from a phase 2 run. 2024 stays the final validation. 2025 is not scored here.
 
