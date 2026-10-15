@@ -88,7 +88,7 @@ The default reference is logistic `h2_full`. `log_loss_diff` is candidate log lo
 
 Choose another reference with `--reference-model` and `--reference-feature-set`. Phase 1 (`python -m src.train.train --cv`, which is `--phase 1`) still uses `baseline-home`. H1 (`--phase 2 --hypothesis h1`) still scores `current`, `diff`, and `diff_only` into `reports/phase2/` against logistic `current`. H2 (`--phase 2 --hypothesis h2`) still scores `current`, `h2_def`, and `h2_full` into `reports/phase2_h2/` against logistic `current`.
 
-MLflow experiment: `nfl_pregame/phase2_h3`. Each scored model is one run tagged `phase=2` and `hypothesis=h3-pass-rush-epa`, with `feature_set`, `cv_scheme=rolling_season_2016_2023`, `git_commit`, and the model params. H3 runs also log `shrink_factor` and `blend_k`. 2024 metrics are not logged.
+MLflow experiment: `nfl_pregame/phase2_h3`. One invocation is a parent run named `phase2-h3-<timestamp>`, tagged `phase=2`, `hypothesis=h3-pass-rush-epa`, `cv_scheme=rolling_season_2016_2023`, `git_commit`, `reference_model`, `reference_feature_set`, `best_feature_set`, and `data_digest`. The comparison report and CSV are artifacts on that parent. Each scored model is a nested child with the same `data_digest`, `feature_set`, the model params, `log_loss_diff`, `log_loss_diff_ci_low`, `log_loss_diff_ci_high`, and a `decision` tag (`reference`, `baseline`, `accepted`, `rejected`, or `inconclusive`). H3 children also log `shrink_factor` and `blend_k`. 2024 metrics are not logged. In the MLflow UI, filter child runs with `tags.decision` and compare them.
 
 ## Acceptance rule
 

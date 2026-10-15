@@ -315,6 +315,20 @@ make mlflow-ui
 
 `make train-cv` (Windows: `.\scripts\dev.ps1 train-cv`) is `--phase 2 --hypothesis h3`. It scores logistic regression on `h2_full`, `h3_split`, and `h3_replace`, plus the home prior, Elo, and the market. The paired comparison is the same bootstrap against logistic `h2_full`, and the acceptance rule is the same 0.003 log loss gain with the 95% interval entirely below 0. Runs go to MLflow experiment `nfl_pregame/phase2_h3` with tags `phase=2` and `hypothesis=h3-pass-rush-epa`. The comparison is written to `reports/phase2_h3/` (gitignored). The method and an empty result section are in `docs/experiments/phase2_h3_pass_rush_epa.md`. This README does not add measured H3 numbers.
 
+### Reading CV runs in the MLflow UI
+
+Every `--cv` invocation, including phase 1 and each phase 2 hypothesis, logs one parent run and one nested child per scored model. The parent name is `phase1-<timestamp>`, `phase2-h1-<timestamp>`, `phase2-h2-<timestamp>`, or `phase2-h3-<timestamp>`. Open the parent to read `comparison.md` and `comparison.csv`. Its tags include `phase`, `hypothesis` when the phase has one, `cv_scheme`, `git_commit`, `reference_model`, `reference_feature_set`, `best_feature_set`, and `data_digest`. The dataset input is named `nfl_pregame_cv`. Its source text says the rows are `fct_games` joined to pregame features for seasons through the CV end season. `data_n_rows` and `data_n_columns` are params on the parent and on each child. The same `data_digest` on the parent and every child means those runs compared the same matrix.
+
+Each child logs `log_loss_diff`, `log_loss_diff_ci_low`, and `log_loss_diff_ci_high` against the reference, plus a `decision` tag:
+
+- `accepted`: pooled log loss improves by at least 0.003 and `log_loss_diff_ci_high` is below 0
+- `rejected`: the candidate was scored and that rule failed
+- `inconclusive`: the paired interval is missing
+- `reference`: the reference model and feature set
+- `baseline`: the home prior, Elo, or the market, when that row is not the reference
+
+In the MLflow UI, filter with `tags.decision = 'accepted'` (or `rejected`, `reference`, `baseline`, `inconclusive`). Select the children of one parent and use Compare. `best_feature_set` on the parent is the accepted logistic set with the lowest pooled log loss. If none was accepted, it is the reference feature set.
+
 **Important .env notes**:
 - `.env` is for environment variables (e.g., Databricks credentials), not the Python virtual environment
 - Format: `KEY=value` with no spaces around `=`

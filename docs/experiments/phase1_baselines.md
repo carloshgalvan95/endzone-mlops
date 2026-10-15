@@ -22,7 +22,7 @@ Pooled log loss, Brier, AUC, and accuracy use the scored out-of-fold games only.
 
 The reference model is `baseline-home`: on each fold, the probability is the training home win rate. `log_loss_diff` is candidate log loss minus reference log loss on the games both models scored. A negative difference favors the candidate. The interval is the 2.5 and 97.5 percentiles of a paired bootstrap that draws the same game indexes for both models.
 
-MLflow experiment: `nfl_pregame/phase1_baselines`. Each scored model is one run tagged `phase=1`, with `feature_set`, `cv_scheme=rolling_season_2016_2023`, `git_commit`, and the model params. Child metrics are the pooled CV metrics and the paired difference. 2024 metrics are not logged.
+MLflow experiment: `nfl_pregame/phase1_baselines`. One `--cv` invocation is a parent run named `phase1-<timestamp>`. It is tagged `phase=1`, `cv_scheme=rolling_season_2016_2023`, `git_commit`, `reference_model`, `reference_feature_set`, `best_feature_set`, and `data_digest`. The comparison report and CSV are artifacts on that parent. Each scored model is a nested child with the same `data_digest`, the model params, the pooled CV metrics, `log_loss_diff`, `log_loss_diff_ci_low`, `log_loss_diff_ci_high`, and a `decision` tag. The home prior is `reference`. Elo is `baseline`. A logistic set is `accepted`, `rejected`, or `inconclusive`. 2024 metrics are not logged. In the MLflow UI, filter child runs with `tags.decision` and compare them. The dataset input is named `nfl_pregame_cv`.
 
 ## Feature sets
 
