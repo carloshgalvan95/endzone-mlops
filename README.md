@@ -25,7 +25,7 @@ Build a reproducible lakehouse pipeline for NFL pregame predictions (win probabi
 - **CI**: GitHub Actions runs ruff lint + format check, pytest on Python 3.10/3.11, dbt compile against DuckDB, cross-platform matrix (Ubuntu, Windows, macOS). Tests verify column references against real nflverse schema (fixtures in tests/fixtures), schema conforming logic, feature leakage protection, and end-to-end training.
 - **PR Guard**: Branch protection with freshness check, Conventional Commit titles, PR template verification, no secrets/data files, commit identity validation.
 
-**Next**: H4, clean EPA, is implemented and waiting on the warehouse run. The `play = 1` filter is about 6.9% `no_play` (penalty) rows, not special teams. `make train-cv` scores `h4_clean` and `h4_clean_sr` against logistic `h2_full` after `make dbt-build-databricks`. Forecasting (batch scoring) comes after that result.
+**Next**: H4, clean EPA, is rejected. `h4_clean` is 0.6398 and `h4_clean_sr` is 0.6379 against logistic `h2_full` 0.6377 (n=2191). Removing `no_play`, kneels, spikes, and garbage time adds no signal. The reference stays logistic `h2_full`. Forecasting (batch scoring) comes after the Phase 2 feature search.
 
 **2024 validation** (`make train-sweep`, 285 games, feature set that included `games_played`). Rounded to 2 decimals. The 2025 test season is held out and is not reported. Phase 1 does not replace this table. `make train-cv` writes the Phase 2 H4 comparison under `reports/phase2_h4/`. The Phase 1 report stays `python -m src.train.train --cv`, which writes `reports/phase1/`. Hypothesis H1 writes `reports/phase2/`. Hypothesis H2 writes `reports/phase2_h2/`. Hypothesis H3 writes `reports/phase2_h3/`. The ridge comparison writes `reports/phase2_ridge/` from the explicit `--hypothesis ridge` command.
 
@@ -360,9 +360,19 @@ The parent run name for this comparison is `phase2-ridge-<timestamp>`.
 
 ### Phase 2 H4: clean EPA
 
-`make train-cv` (Windows: `.\scripts\dev.ps1 train-cv`) is `--phase 2 --hypothesis h4`. It scores logistic regression on `h2_full` (the reference), `h4_clean`, and `h4_clean_sr`, plus the home prior, Elo, and the market. `h4_clean` is `h2_full` with every EPA input taken from pass and run plays only, excluding kneels, spikes, `no_play`, and garbage time (`wp` below 0.05 or above 0.95). A missing `wp` stays in. `h4_clean_sr` adds the recent clean success rate. Shrinkage (1/3), blend (`n / (n + 4)`), the lookback, and the garbage-time cutoffs are fixed. They are not tuned on this run. The paired comparison and the 0.003 acceptance rule are the same, against logistic `h2_full`. Runs go to MLflow experiment `nfl_pregame/phase2_h4` with tags `phase=2` and `hypothesis=h4-clean-epa`. The comparison is written to `reports/phase2_h4/` (gitignored). The method and the empty result table are in `docs/experiments/phase2_h4_clean_epa.md`. This README does not invent a warehouse result.
+`make train-cv` (Windows: `.\scripts\dev.ps1 train-cv`) is `--phase 2 --hypothesis h4`. It scores logistic regression on `h2_full` (the reference), `h4_clean`, and `h4_clean_sr`, plus the home prior, Elo, and the market. `h4_clean` is `h2_full` with every EPA input taken from pass and run plays only, excluding kneels, spikes, `no_play`, and garbage time (`wp` below 0.05 or above 0.95). A missing `wp` stays in. `h4_clean_sr` adds the recent clean success rate. Shrinkage (1/3), blend (`n / (n + 4)`), the lookback, and the garbage-time cutoffs are fixed. They are not tuned on this run. The paired comparison and the 0.003 acceptance rule are the same, against logistic `h2_full`. Runs go to MLflow experiment `nfl_pregame/phase2_h4` with tags `phase=2` and `hypothesis=h4-clean-epa`. The comparison is written to `reports/phase2_h4/` (gitignored). The frozen copy is `docs/experiments/reports/phase2_h4_comparison.md`. The method is in `docs/experiments/phase2_h4_clean_epa.md`.
 
-`qb_kneel`, `qb_spike`, and `wp` are already on `workspace.nfl_raw.play_by_play`. `wp` is already staged as `win_probability`. Do not run `make ingest`. Run `make dbt-build-databricks`, then `make train-cv`. Training before the rebuild leaves the clean columns absent.
+`qb_kneel`, `qb_spike`, and `wp` are already on `workspace.nfl_raw.play_by_play`. `wp` is already staged as `win_probability`. Do not run `make ingest` for this hypothesis. Run `make dbt-build-databricks`, then `make train-cv`. Chain them with `&&` so training does not start after a failed build.
+
+Both clean sets are rejected against logistic `h2_full` 0.6377 (n=2191). `h4_clean` is 0.6398 (difference +0.0021, interval -0.0012 to 0.0053). `h4_clean_sr` is 0.6379 (difference +0.0002, interval -0.0036 to 0.0039). Removing `no_play`, kneels, spikes, and garbage time adds no signal. Averaging over many plays already absorbs that noise.
+
+| feature_set | n | log_loss | log_loss_diff | ci_low | ci_high | decision |
+| --- | --- | --- | --- | --- | --- | --- |
+| h2_full | 2191 | 0.6377 | 0.0000 | 0.0000 | 0.0000 | reference |
+| h4_clean | 2191 | 0.6398 | +0.0021 | -0.0012 | 0.0053 | rejected |
+| h4_clean_sr | 2191 | 0.6379 | +0.0002 | -0.0036 | 0.0039 | rejected |
+
+A first local run before the dbt rebuild printed the same log loss 0.6509 for both clean sets. The clean columns were absent, so the imputer filled empty features with constants. That number is not the comparison.
 
 The parent run name for this comparison is `phase2-h4-<timestamp>`.
 

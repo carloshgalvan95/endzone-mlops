@@ -12,6 +12,7 @@
 | [phase2_h2_comparison.md](phase2_h2_comparison.md) | [phase2_h2_season_def_regression.md](../phase2_h2_season_def_regression.md) | H2 season defense and regression, `h2_full` accepted |
 | [phase2_h3_comparison.md](phase2_h3_comparison.md) | [phase2_h3_pass_rush_epa.md](../phase2_h3_pass_rush_epa.md) | H3 pass and rush EPA, rejected |
 | [phase2_ridge_comparison.md](phase2_ridge_comparison.md) | [phase2_ridge_reference.md](../phase2_ridge_reference.md) | Fold-tuned L2 versus logistic `h2_full` |
+| [phase2_h4_comparison.md](phase2_h4_comparison.md) | [phase2_h4_clean_epa.md](../phase2_h4_clean_epa.md) | H4 clean EPA, rejected |
 | [epa_filter_check.md](epa_filter_check.md) | [phase0_input_audit.md](../phase0_input_audit.md) | `play = 1` play types, plus kneel and spike counts |
 
 The copies are verbatim local reports. A Databricks hostname, if one were present, is stripped before commit. These files do not contain one.
