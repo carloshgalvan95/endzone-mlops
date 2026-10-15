@@ -66,11 +66,11 @@ Feature sets `h3_split` and `h3_replace` turn those sums into pass and rush EPA 
 
 ### 8. What play = 1 includes
 
-**Verified for the filter this repo applies. Pending for a warehouse check that loaded rows still match the upstream rule.**
+**Verified for the filter this repo applies. The warehouse counts are frozen elsewhere. This note does not restate them.**
 
 `fct_team_game_epa` keeps play-by-play rows with `where play = 1`. It does not filter `play_type`, `aborted_play`, quarter, or score differential. Garbage time stays in the average. Staging describes `play` as "Play validity flag (1 = valid play, 0 = no play)." That sentence is coarser than the upstream definition.
 
-Upstream, nflfastR sets `play` to 1 when EPA and posteam are present, the description is not a review and does not start with "Timeout ", and `play_type` is one of `no_play`, `pass`, or `run` (`clean_pbp` in `nflverse/nflfastR` `R/helper_additional_functions.R`). That includes penalty rows (`no_play`). Special-teams types (`kickoff`, `punt`, `field_goal`, `extra_point`) are outside that list. This repo does not recompute the flag. A check that the parquet in `workspace.nfl_raw.play_by_play` still matches that rule is pending. No row counts are stated here.
+Upstream, nflfastR sets `play` to 1 when EPA and posteam are present, the description is not a review and does not start with "Timeout ", and `play_type` is one of `no_play`, `pass`, or `run` (`clean_pbp` in `nflverse/nflfastR` `R/helper_additional_functions.R`). That includes penalty rows (`no_play`). Special-teams types (`kickoff`, `punt`, `field_goal`, `extra_point`) are outside that list. This repo does not recompute the flag. The warehouse check is frozen in `docs/experiments/reports/epa_filter_check.md`. No row counts are stated in this note.
 
 ### 9. Week 1 rest
 
@@ -82,5 +82,5 @@ Upstream, nflfastR sets `play` to 1 when EPA and posteam are present, the descri
 
 - Run `make audit-features` on the marts and read the out-of-range and time-counter flags, univariate log loss and AUC, Spearman pairs, and 2024 permutation importance.
 - Count ties in `fct_games` before deciding whether to drop them or score them as 0.5.
-- Confirm `play = 1` on the loaded parquet against the nflfastR rule above.
+- The `play = 1` warehouse check is frozen in `docs/experiments/reports/epa_filter_check.md`. The reading (no_play contamination, H4 next) is in `docs/experiments/phase2_ridge_reference.md`.
 - Inspect week-1 `home_rest` and `away_rest` on the games mart before changing the fill value of 7.

@@ -7,6 +7,7 @@ alwaysApply: true
 
 - Use the repo `.venv`. Ruff is pinned at `ruff==0.17.0`.
 - Before finishing, run `ruff format src/ tests/`, then `ruff check src/ tests/` and `ruff format --check src/ tests/`. Full `pytest tests/ -v` must pass. Paste the real command output in the final report.
+- `src/analysis` coverage stays at 100%. The CI command is `pytest tests/test_feature_leakage.py tests/test_feature_audit.py tests/test_epa_play_filter_check.py --cov=src/analysis --cov-report=term-missing --cov-fail-under=100`.
 - Extend the existing module. Do not recreate a parallel one.
 - Keep diffs small. Do not reformat unrelated lines.
 - Run the change before claiming it works.

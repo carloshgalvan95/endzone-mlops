@@ -55,7 +55,8 @@ dbt/profiles.yml
 !dbt/**/*.json
 !.cursor/environment.json
 
-# Local audit and CV reports (make audit-features, make train-cv)
+# Local audit and CV scratch (make audit-features, make train-cv, make check-epa-filter).
+# Frozen decision snapshots live in docs/experiments/reports/ and are committed.
 /reports/
 
 # MLflow

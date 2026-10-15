@@ -3,7 +3,7 @@
 **Project:** Portfolio endzone-mlops (MLOps / DevOps) for Carlos Galvan  
 **Stack primario:** Databricks Free Edition + dbt-databricks + MLflow + GitHub Actions + Python modular  
 **Plan B:** Snowflake trial + dbt Core + MLflow sidecar, solo si el spike D1 de CE falla  
-**Outline ancla:** outline_14d_2026-10-06.md (in project uploads/)  
+**Outline ancla:** the 14-day outline is not in this repo. Do not look for `outline_14d_2026-10-06.md` here.  
 **Idioma de trabajo:** español (términos técnicos en inglés cuando el dominio los usa: dbt, MLflow, DoD, ADR, MoSCoW, CI, ASR, etc.)  
 **Regla tipográfica permanente:** nunca usar el carácter em dash (U+2014). Usar coma, punto, dos puntos o guion corto (-).
 
@@ -94,6 +94,8 @@ Examples:
 
 ### Pull requests
 
+- Agents push the working branch only. Carlos opens the pull request. Do not open one from the agent.
+- Before committing, disable the `commit-msg.cursor.co-author` hook or any other trailer hook. Identity, trailers, and the em dash rule are in `git-and-commits.mdc`. Do not restate them here.
 - PR title must follow Conventional Commit format: `type(scope): description`
 - PR body in first person or imperative voice
 - Complete the PR template sections: Summary, Changes, Verification (with at least one item checked), Risks
@@ -132,7 +134,7 @@ If PR Guard fails, fix the reported issues and push again.
 
 ### 4.3 Design (Wilson 9/10)
 
-- Entrypoints modulares (train.py, score.py); config inyectada
+- Entrypoint real: `src/train/train.py`. `score.py` está planificado y no está en el repo. `src/models` es un placeholder. Config inyectada.
 - Nombres descriptivos; retornos dict/namedtuple
 - Sin except desnudo; sin estado global mutable
 - Contratos dbt schema.yml + test de negocio
@@ -176,11 +178,11 @@ Una historia/PR está Done solo si cumple todos los puntos aplicables:
 - [x] Actions verde
 
 ### DoD Día 7 - Pipeline + MLOps mínimo
-- [ ] dbt: staging + >=2 marts + schema tests + >=1 test de negocio
-- [ ] Python: features + train.py (argparse, >=3 HP, seed) + MLflow (>=5 runs, params/metrics/artifact/model)
-- [ ] CI: pytest + dbt compile/build
-- [ ] Docs: C4 L1 + secuencia raw -> mart -> score
-- [ ] make reproduce deja marts + modelo en MLflow; badge CI
+- [x] dbt: staging + >=2 marts + schema tests + >=1 test de negocio
+- [x] Python: features + `src/train/train.py` (argparse, >=3 HP, seed) + MLflow (>=5 runs, params/metrics/artifact/model)
+- [x] CI: pytest + dbt compile (DuckDB). dbt build sigue en el target Databricks, no en CI.
+- [x] Docs: C4 L1 + secuencia en `docs/architecture.md` (score.py sigue como paso futuro)
+- [ ] make reproduce deja marts + modelo en MLflow. Hoy es solo `install` y `dbt-compile` local. Badge CI sí está.
 
 ### DoD Día 14 - Production-shaped + demo
 - [ ] score.py batch -> tabla de predicciones
@@ -205,4 +207,4 @@ Una historia/PR está Done solo si cumple todos los puntos aplicables:
 
 ---
 
-Este documento es vivo. Dueño: Carlos Galvan + agente Idaho. Cambios a ASRs requieren ADR.
+Este documento es vivo. Dueño: Carlos Galvan. Cambios a ASRs requieren ADR. El estado de los experimentos está en `ml-experiments.mdc`.

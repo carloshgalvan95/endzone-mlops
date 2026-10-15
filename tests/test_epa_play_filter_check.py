@@ -63,7 +63,7 @@ def _flags(kneel: int, kneel_play: int, spike: int, spike_play: int) -> pd.DataF
 def _locations() -> dict[str, str]:
     """Default qualified names."""
     return resolve_epa_filter_locations(
-        catalog="workspace", staging_schema="nfl_dev", raw_schema="nfl_raw"
+        catalog="workspace", staging_schema="nfl_dev_staging", raw_schema="nfl_raw"
     )
 
 
@@ -71,23 +71,23 @@ class TestLocationsAndSql:
     """Table names follow the dbt schemas, and each query is one statement."""
 
     def test_defaults_and_overrides(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Explicit arguments win, then env vars, then nfl_dev and nfl_raw."""
+        """Explicit arguments win, then env vars, then nfl_dev_staging and nfl_raw."""
         monkeypatch.delenv("DATABRICKS_CATALOG", raising=False)
         monkeypatch.delenv("DATABRICKS_STAGING_SCHEMA", raising=False)
         monkeypatch.delenv("DATABRICKS_RAW_SCHEMA", raising=False)
         defaults = resolve_epa_filter_locations()
         assert defaults["catalog"] == "workspace"
-        assert defaults["staging_schema"] == "nfl_dev"
+        assert defaults["staging_schema"] == "nfl_dev_staging"
         assert defaults["raw_schema"] == "nfl_raw"
-        assert defaults["staging_table"] == "`workspace`.`nfl_dev`.`stg_nflverse__pbp`"
+        assert defaults["staging_table"] == "`workspace`.`nfl_dev_staging`.`stg_nflverse__pbp`"
         assert defaults["raw_table"] == "`workspace`.`nfl_raw`.`play_by_play`"
 
         monkeypatch.setenv("DATABRICKS_CATALOG", " other ")
-        monkeypatch.setenv("DATABRICKS_STAGING_SCHEMA", " nfl_dev_staging ")
+        monkeypatch.setenv("DATABRICKS_STAGING_SCHEMA", " env_staging ")
         monkeypatch.setenv("DATABRICKS_RAW_SCHEMA", "")
         from_env = resolve_epa_filter_locations(catalog="  ", staging_schema=None, raw_schema=None)
         assert from_env["catalog"] == "other"
-        assert from_env["staging_schema"] == "nfl_dev_staging"
+        assert from_env["staging_schema"] == "env_staging"
         assert from_env["raw_schema"] == "nfl_raw"
 
         explicit = resolve_epa_filter_locations(
@@ -100,7 +100,7 @@ class TestLocationsAndSql:
 
     def test_statements_are_single_selects(self) -> None:
         """DESCRIBE and the two aggregates do not chain statements."""
-        staging = "`workspace`.`nfl_dev`.`stg_nflverse__pbp`"
+        staging = "`workspace`.`nfl_dev_staging`.`stg_nflverse__pbp`"
         describe_sql = describe_table_sql(staging)
         play_sql = play_type_counts_sql(staging)
         flag_sql = flag_counts_sql(staging)
@@ -149,7 +149,7 @@ class TestRun:
         locations = _locations()
         client = _QueryClient(
             {
-                "DESCRIBE TABLE `workspace`.`nfl_dev`": _describe(
+                "DESCRIBE TABLE `workspace`.`nfl_dev_staging`": _describe(
                     ["play", "play_type", "qb_kneel", "qb_spike"]
                 ),
                 "SELECT play_type": _play_types(("pass", 80), (None, 20), ("qb_kneel", 0)),
@@ -181,7 +181,7 @@ class TestRun:
         locations = _locations()
         client = _QueryClient(
             {
-                "DESCRIBE TABLE `workspace`.`nfl_dev`": _describe(["play", "play_type"]),
+                "DESCRIBE TABLE `workspace`.`nfl_dev_staging`": _describe(["play", "play_type"]),
                 "DESCRIBE TABLE `workspace`.`nfl_raw`": _describe(["play", "qb_kneel", "qb_spike"]),
                 "SELECT play_type": _play_types(),
                 "FROM `workspace`.`nfl_raw`.`play_by_play`": _flags(9, 8, 1, 0),
@@ -203,7 +203,7 @@ class TestRun:
         locations = _locations()
         client = _QueryClient(
             {
-                "DESCRIBE TABLE `workspace`.`nfl_dev`": _describe(["play"]),
+                "DESCRIBE TABLE `workspace`.`nfl_dev_staging`": _describe(["play"]),
                 "DESCRIBE TABLE `workspace`.`nfl_raw`": _describe(["play"]),
                 "SELECT play_type": _play_types(("pass", 1)),
             }
@@ -216,7 +216,9 @@ class TestRun:
         locations = _locations()
         empty_flags = _QueryClient(
             {
-                "DESCRIBE TABLE `workspace`.`nfl_dev`": _describe(["play", "qb_kneel", "qb_spike"]),
+                "DESCRIBE TABLE `workspace`.`nfl_dev_staging`": _describe(
+                    ["play", "qb_kneel", "qb_spike"]
+                ),
                 "SELECT play_type": _play_types(("pass", 1)),
                 "qb_kneel": pd.DataFrame(
                     columns=["qb_kneel_n", "qb_kneel_play_n", "qb_spike_n", "qb_spike_play_n"]
@@ -228,7 +230,9 @@ class TestRun:
 
         missing_count = _QueryClient(
             {
-                "DESCRIBE TABLE `workspace`.`nfl_dev`": _describe(["play", "qb_kneel", "qb_spike"]),
+                "DESCRIBE TABLE `workspace`.`nfl_dev_staging`": _describe(
+                    ["play", "qb_kneel", "qb_spike"]
+                ),
                 "SELECT play_type": pd.DataFrame({"other": [1]}),
                 "qb_kneel": _flags(1, 1, 1, 1),
             }
@@ -238,7 +242,9 @@ class TestRun:
 
         missing_flag_column = _QueryClient(
             {
-                "DESCRIBE TABLE `workspace`.`nfl_dev`": _describe(["play", "qb_kneel", "qb_spike"]),
+                "DESCRIBE TABLE `workspace`.`nfl_dev_staging`": _describe(
+                    ["play", "qb_kneel", "qb_spike"]
+                ),
                 "SELECT play_type": _play_types(("pass", 2)),
                 "qb_kneel": pd.DataFrame({"qb_kneel_n": [1]}),
             }
@@ -259,7 +265,7 @@ class TestRun:
         )
         client = _QueryClient(
             {
-                "DESCRIBE TABLE `workspace`.`nfl_dev`": _describe(["qb_kneel", "qb_spike"]),
+                "DESCRIBE TABLE `workspace`.`nfl_dev_staging`": _describe(["qb_kneel", "qb_spike"]),
                 "SELECT play_type": _play_types(("run", 3)),
                 "qb_kneel": quoted,
             }
@@ -274,7 +280,7 @@ class TestReportFileAndCli:
     def test_write_creates_the_parent_directory(self, tmp_path: Path) -> None:
         """The report path can sit under a directory that does not exist yet."""
         report: dict[str, Any] = {
-            "staging_table": "`workspace`.`nfl_dev`.`stg_nflverse__pbp`",
+            "staging_table": "`workspace`.`nfl_dev_staging`.`stg_nflverse__pbp`",
             "flag_source": "raw",
             "flag_table": "`workspace`.`nfl_raw`.`play_by_play`",
             "play_types": [{"play_type": "pass", "n_plays": 1, "share": 1.0}],
