@@ -10,16 +10,22 @@ import pytest
 from src.features.pregame import (
     DIFF_FEATURE_COLUMNS,
     PREGAME_FEATURE_COLUMNS,
+    PREGAME_FEATURE_COLUMNS_H2_DEF,
+    PREGAME_FEATURE_COLUMNS_H2_FULL,
+    REGRESSED_EPA_COLUMNS,
+    SEASON_DEFENSIVE_EPA_COLUMNS,
     american_odds_to_implied_probability,
     market_home_probabilities,
     no_vig_home_probability,
 )
 from src.train.train import (
     HYPOTHESIS_H1,
+    HYPOTHESIS_H2,
     MIN_LOG_LOSS_IMPROVEMENT,
     PHASE1_EXPERIMENT_NAME,
     PHASE1_TAG,
     PHASE2_EXPERIMENT_NAME,
+    PHASE2_H2_EXPERIMENT_NAME,
     PHASE2_TAG,
     attach_reference_comparison,
     binary_classification_metrics,
@@ -31,6 +37,7 @@ from src.train.train import (
     main,
     make_rolling_origin_config,
     paired_log_loss_difference,
+    phase_tracking_settings,
     resolve_reference_spec,
     rolling_origin_cv,
     run_phase1_baselines,
@@ -630,10 +637,29 @@ class TestReferenceSelection:
         assert logistic_diff == {"model": "logistic", "feature_set": "diff"}
         assert logistic_feature_sets_for(1) == ("current", "with_games_played")
         assert logistic_feature_sets_for(2) == ("current", "diff", "diff_only")
+        assert logistic_feature_sets_for(2, hypothesis="h2") == ("current", "h2_def", "h2_full")
+        assert logistic_feature_sets_for(2, hypothesis="h2-season-def-regression") == (
+            "current",
+            "h2_def",
+            "h2_full",
+        )
+        h1_settings = phase_tracking_settings(2)
+        assert h1_settings["hypothesis"] == HYPOTHESIS_H1
+        assert h1_settings["output_dir"] == "reports/phase2"
+        assert h1_settings["experiment_name"] == PHASE2_EXPERIMENT_NAME
+        h2_settings = phase_tracking_settings(2, hypothesis="h2")
+        assert h2_settings["hypothesis"] == HYPOTHESIS_H2
+        assert h2_settings["output_dir"] == "reports/phase2_h2"
+        assert h2_settings["experiment_name"] == PHASE2_H2_EXPERIMENT_NAME
+        assert h2_settings["phase_tag"] == PHASE2_TAG
         with pytest.raises(ValueError, match="Unknown phase"):
             resolve_reference_spec(3)
         with pytest.raises(ValueError, match="Unknown reference model"):
             resolve_reference_spec(2, reference_model="gbm")
+        with pytest.raises(ValueError, match="does not take a hypothesis"):
+            logistic_feature_sets_for(1, hypothesis="h2")
+        with pytest.raises(ValueError, match="Unknown hypothesis"):
+            logistic_feature_sets_for(2, hypothesis="h3")
 
     def test_attach_uses_the_named_reference_and_rejects_a_missing_one(self) -> None:
         """Log loss gaps are versus the selected row, which differs from itself by zero."""
@@ -689,6 +715,11 @@ class TestReferenceSelection:
         assert groups["win_rate"] == ["home_recent_win_rate"]
         assert groups["other"] == ["home_rest_days"]
         assert groups["diff"] == ["diff_recent_win_rate", "diff_rest_days"]
+        h2_groups = feature_column_groups(list(PREGAME_FEATURE_COLUMNS_H2_FULL))
+        for column in SEASON_DEFENSIVE_EPA_COLUMNS + REGRESSED_EPA_COLUMNS:
+            assert column in h2_groups["epa"]
+            assert column not in h2_groups["win_rate"]
+            assert column not in h2_groups["diff"]
 
 
 class TestPhase2Hypothesis:
@@ -811,5 +842,136 @@ class TestPhase2Hypothesis:
             assert all(run.data.tags.get("hypothesis") == HYPOTHESIS_H1 for run in runs)
             phase1 = client.get_experiment_by_name(PHASE1_EXPERIMENT_NAME)
             assert phase1 is None
+            h2_experiment = client.get_experiment_by_name(PHASE2_H2_EXPERIMENT_NAME)
+            assert h2_experiment is None
+        finally:
+            _reset_mlflow_tracking()
+
+
+class TestPhase2H2Hypothesis:
+    """H2 scores season defense and regressed EPA against logistic current."""
+
+    def test_phase2_h2_report_keeps_the_same_reference_and_baselines(self) -> None:
+        """h2_def and h2_full replace the diff sets. The home prior, Elo, and market stay."""
+        games, team_games = _schedule(with_moneyline=False)
+        report = run_phase1_baselines(
+            games,
+            team_games,
+            config=_fast_config(n_bootstrap=8),
+            lookback_games=2,
+            logistic_max_iter=200,
+            phase=2,
+            hypothesis="h2",
+        )
+        table = report["comparison_table"]
+        pairs = set(zip(table["model"], table["feature_set"], strict=True))
+        assert pairs == {
+            ("baseline-home", "none"),
+            ("logistic", "current"),
+            ("logistic", "h2_def"),
+            ("logistic", "h2_full"),
+            ("elo", "elo"),
+            ("market", "market"),
+        }
+        assert report["reference_model"] == "logistic"
+        assert report["reference_feature_set"] == "current"
+        assert report["hypothesis"] == HYPOTHESIS_H2
+        assert report["title"] == "Phase 2 H2 season defensive regression"
+        current = next(item for item in report["results"] if item["feature_set"] == "current")
+        h2_def = next(item for item in report["results"] if item["feature_set"] == "h2_def")
+        h2_full = next(item for item in report["results"] if item["feature_set"] == "h2_full")
+        assert current["comparison"]["log_loss_diff"] == pytest.approx(0.0)
+        assert h2_def["comparison"]["reference_log_loss"] == pytest.approx(
+            current["comparison"]["log_loss"]
+        )
+        assert h2_full["comparison"]["n"] == current["comparison"]["n"]
+        assert h2_def["params"]["features"].split(",") == list(PREGAME_FEATURE_COLUMNS_H2_DEF)
+        assert h2_full["params"]["features"].split(",") == list(PREGAME_FEATURE_COLUMNS_H2_FULL)
+        assert h2_full["params"]["shrink_factor"] == pytest.approx(1.0 / 3.0)
+        assert h2_full["params"]["blend_k"] == pytest.approx(4.0)
+        assert "home_games_played" not in h2_full["params"]["features"]
+        assert "diff_rest_days" not in h2_full["params"]["features"]
+        decisions = {row["feature_set"]: row["decision"] for row in report["acceptance"]}
+        assert decisions["current"] == "reference"
+        assert decisions["h2_def"] in {"accepted", "rejected", "inconclusive"}
+        assert decisions["h2_full"] in {"accepted", "rejected", "inconclusive"}
+        assert "Hypothesis: `h2-season-def-regression`" in report["markdown"]
+        assert "0.003" in report["markdown"]
+        assert "n/(n+4)" in report["markdown"]
+        assert "No model is promoted" in report["markdown"]
+        assert "\u2014" not in report["markdown"]
+        for result in report["results"]:
+            if result["oof"] is None:
+                continue
+            assert set(result["oof"]["season"]).isdisjoint({2024, 2025})
+
+    def test_cli_phase2_h2_tags_hypothesis_and_keeps_h1_available(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """``--hypothesis h2`` logs phase=2 and writes reports/phase2_h2."""
+        import mlflow
+
+        games, team_games = _schedule(with_moneyline=True)
+        fixture_dir = tmp_path / "fixtures"
+        fixture_dir.mkdir()
+        games.to_parquet(fixture_dir / "fct_games.parquet")
+        team_games.to_parquet(fixture_dir / "fct_team_game_epa.parquet")
+        tracking_uri: str = "sqlite:///" + (tmp_path / "mlflow.db").as_posix()
+        monkeypatch.setenv("MLFLOW_TRACKING_URI", tracking_uri)
+        monkeypatch.setattr("src.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
+        output_dir = tmp_path / "phase2_h2"
+        try:
+            main(
+                [
+                    "--cv",
+                    "--phase",
+                    "2",
+                    "--hypothesis",
+                    "h2",
+                    "--reference-model",
+                    "logistic",
+                    "--reference-feature-set",
+                    "current",
+                    "--fixture-path",
+                    str(fixture_dir),
+                    "--output-dir",
+                    str(output_dir),
+                    "--cv-start-season",
+                    "2022",
+                    "--cv-end-season",
+                    "2023",
+                    "--n-bootstrap",
+                    "4",
+                    "--lookback",
+                    "2",
+                    "--max-iter",
+                    "200",
+                    "--seed",
+                    "7",
+                ]
+            )
+            table = pd.read_csv(output_dir / "comparison.csv")
+            pairs = set(zip(table["model"], table["feature_set"], strict=True))
+            assert ("logistic", "h2_def") in pairs
+            assert ("logistic", "h2_full") in pairs
+            assert ("logistic", "current") in pairs
+            assert ("logistic", "diff") not in pairs
+            assert ("elo", "elo") in pairs
+            assert ("baseline-home", "none") in pairs
+            markdown = (output_dir / "comparison.md").read_text(encoding="utf-8")
+            assert "Hypothesis: `h2-season-def-regression`" in markdown
+            assert "on feature set `current`" in markdown
+            assert "\u2014" not in markdown
+            client = mlflow.tracking.MlflowClient(tracking_uri=tracking_uri)
+            experiment = client.get_experiment_by_name(PHASE2_H2_EXPERIMENT_NAME)
+            assert experiment is not None
+            runs = client.search_runs(experiment_ids=[experiment.experiment_id])
+            assert runs
+            assert all(run.data.tags.get("phase") == PHASE2_TAG for run in runs)
+            assert all(run.data.tags.get("hypothesis") == HYPOTHESIS_H2 for run in runs)
+            h1_experiment = client.get_experiment_by_name(PHASE2_EXPERIMENT_NAME)
+            assert h1_experiment is None
         finally:
             _reset_mlflow_tracking()

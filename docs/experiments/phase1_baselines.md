@@ -1,6 +1,6 @@
 # Phase 1 baselines
 
-Method note. This file does not report warehouse metrics. Phase 1 is `python -m src.train.train --cv` (`--phase 1`), which writes `reports/phase1/comparison.md` and `reports/phase1/comparison.csv`. `make train-cv` runs Phase 2 hypothesis H1 and writes `reports/phase2/`. See `docs/experiments/phase2_h1_diff_features.md`.
+Method note. This file does not report warehouse metrics. Phase 1 is `python -m src.train.train --cv` (`--phase 1`), which writes `reports/phase1/comparison.md` and `reports/phase1/comparison.csv`. `make train-cv` runs Phase 2 hypothesis H2 and writes `reports/phase2_h2/`. Hypothesis H1 is `--phase 2 --hypothesis h1` and writes `reports/phase2/`. See `docs/experiments/phase2_h1_diff_features.md` and `docs/experiments/phase2_h2_season_def_regression.md`.
 
 No model is promoted from a phase 1 run. 2024 stays the final validation. 2025 is not scored here.
 
@@ -67,7 +67,7 @@ Home no-vig probability: `home_raw / (home_raw + away_raw)`.
 
 ## Decision log
 
-Copy a row here after `python -m src.train.train --cv` (phase 1, reference `baseline-home`). Leave it blank until that run exists. Do not fill this table from `make train-cv`. That command is hypothesis H1, and its differences are versus logistic `current`, not versus the home prior.
+Copy a row here after `python -m src.train.train --cv` (phase 1, reference `baseline-home`). Leave it blank until that run exists. Do not fill this table from `make train-cv` or from the H1 command. Those differences are versus logistic `current`, not versus the home prior.
 
 | id | date | run_id | model | feature_set | log_loss_diff_vs_home_prior | ci_low | ci_high | decision |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |

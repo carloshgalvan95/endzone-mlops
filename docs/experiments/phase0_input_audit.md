@@ -18,19 +18,23 @@ The audit module is `src/analysis/feature_audit.py`. It calls `build_pregame_fea
 
 The audit flags `time_counter` when season medians are strictly monotone across at least three seasons, or when more than 5 percent of the 2024 rows or of the 2025 rows sit outside the closed training min/max. An earlier rule required every later value to sit outside that range, which misses a column that only partly leaves it. Whether `games_played` trips the flag on the marts is pending the audit run.
 
-### 2. Cross-season rolling, no regression to the mean
+### 2. Cross-season rolling on the default matrix
 
 **Verified.**
 
-Rolling offensive EPA, defensive EPA, and win rate use `tail(lookback_games)` on all prior games for that franchise. The slice is not limited to the current season. Nothing in `build_pregame_features` shrinks a feature toward a league mean, and there is no exponential decay.
+Rolling offensive EPA, defensive EPA, and win rate on feature set `current` use `tail(lookback_games)` on all prior games for that franchise. That slice is not limited to the current season, and those level columns are not shrunk toward a league mean.
 
-The only feature limited to the current `season` column is season-to-date offensive EPA. A week-1 game therefore has a missing season EPA and a rolling window that can be entirely prior-season games. The leakage tests lock that behavior on a synthetic frame.
+The level season feature is still season-to-date offensive EPA. A week-1 game therefore has a missing season EPA on `current` and a rolling window that can be entirely prior-season games. The leakage tests lock that behavior on a synthetic frame.
 
-### 3. No defensive season EPA
+`build_pregame_features` also appends regressed season and recent EPA columns. Those shrink the previous season's final value toward that season's league mean and blend in current-season games. They are not in `current`. The audit profiles `current`. See `docs/experiments/phase2_h2_season_def_regression.md`.
+
+### 3. No defensive season EPA on the default matrix
 
 **Verified.**
 
-Season features are `home_season_offensive_epa_per_play` and `away_season_offensive_epa_per_play` only. Defensive EPA is the rolling columns `home_recent_defensive_epa_per_play` and `away_recent_defensive_epa_per_play`, taken from `avg_defensive_epa_allowed`. There is no season-to-date defensive feature in `PREGAME_FEATURE_COLUMNS`.
+`PREGAME_FEATURE_COLUMNS` still has season offense only: `home_season_offensive_epa_per_play` and `away_season_offensive_epa_per_play`. Defensive EPA on that matrix is the rolling columns `home_recent_defensive_epa_per_play` and `away_recent_defensive_epa_per_play`, taken from `avg_defensive_epa_allowed`.
+
+The builder also emits `home_season_defensive_epa_per_play` and `away_season_defensive_epa_per_play` for feature sets `h2_def` and `h2_full`. Those columns are not in the matrix this audit profiles.
 
 ### 4. The default matrix has no home-minus-away differentials
 

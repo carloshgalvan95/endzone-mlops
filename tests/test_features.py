@@ -14,15 +14,26 @@ from src.features.pregame import (
     DIFF_FEATURE_COLUMNS,
     FEATURE_SET_DIFF,
     FEATURE_SET_DIFF_ONLY,
+    FEATURE_SET_H2_DEF,
+    FEATURE_SET_H2_FULL,
     FEATURE_SET_NAMES,
     FEATURE_SET_WITH_GAMES_PLAYED,
     GAMES_PLAYED_COLUMNS,
     PREGAME_FEATURE_COLUMNS,
     PREGAME_FEATURE_COLUMNS_DIFF,
+    PREGAME_FEATURE_COLUMNS_H2_DEF,
+    PREGAME_FEATURE_COLUMNS_H2_FULL,
     PREGAME_FEATURE_COLUMNS_WITH_GAMES_PLAYED,
+    REGRESSED_EPA_COLUMNS,
+    SEASON_BLEND_K,
+    SEASON_DEFENSIVE_EPA_COLUMNS,
+    SEASON_SHRINK_FACTOR,
     build_pregame_features,
+    current_season_blend_weight,
     feature_columns_for,
     prepare_training_data,
+    regress_epa_feature,
+    shrink_toward_mean,
     split_by_season,
 )
 
@@ -250,15 +261,41 @@ class TestPrepareTrainingData:
         synthetic_team_game_epa: pd.DataFrame,
     ) -> None:
         """``diff`` appends gaps. ``diff_only`` is only the gaps. The old sets stay put."""
-        assert FEATURE_SET_NAMES == ("current", "with_games_played", "diff", "diff_only")
+        assert FEATURE_SET_NAMES == (
+            "current",
+            "with_games_played",
+            "diff",
+            "diff_only",
+            "h2_def",
+            "h2_full",
+        )
         assert feature_columns_for("current") == PREGAME_FEATURE_COLUMNS
         assert feature_columns_for("with_games_played") == PREGAME_FEATURE_COLUMNS_WITH_GAMES_PLAYED
         assert feature_columns_for(FEATURE_SET_DIFF) == PREGAME_FEATURE_COLUMNS_DIFF
         assert feature_columns_for(FEATURE_SET_DIFF_ONLY) == DIFF_FEATURE_COLUMNS
+        assert feature_columns_for(FEATURE_SET_H2_DEF) == PREGAME_FEATURE_COLUMNS_H2_DEF
+        assert feature_columns_for(FEATURE_SET_H2_FULL) == PREGAME_FEATURE_COLUMNS_H2_FULL
         assert (
             PREGAME_FEATURE_COLUMNS_DIFF[: len(PREGAME_FEATURE_COLUMNS)] == PREGAME_FEATURE_COLUMNS
         )
+        assert PREGAME_FEATURE_COLUMNS_H2_DEF[: len(PREGAME_FEATURE_COLUMNS)] == (
+            PREGAME_FEATURE_COLUMNS
+        )
+        assert PREGAME_FEATURE_COLUMNS_H2_DEF[len(PREGAME_FEATURE_COLUMNS) :] == (
+            SEASON_DEFENSIVE_EPA_COLUMNS
+        )
+        assert PREGAME_FEATURE_COLUMNS_H2_FULL[: len(PREGAME_FEATURE_COLUMNS_H2_DEF)] == (
+            PREGAME_FEATURE_COLUMNS_H2_DEF
+        )
+        assert PREGAME_FEATURE_COLUMNS_H2_FULL[len(PREGAME_FEATURE_COLUMNS_H2_DEF) :] == (
+            REGRESSED_EPA_COLUMNS
+        )
+        assert set(SEASON_DEFENSIVE_EPA_COLUMNS).isdisjoint(PREGAME_FEATURE_COLUMNS)
+        assert set(REGRESSED_EPA_COLUMNS).isdisjoint(PREGAME_FEATURE_COLUMNS)
+        assert set(REGRESSED_EPA_COLUMNS).isdisjoint(PREGAME_FEATURE_COLUMNS_H2_DEF)
         assert "home_games_played" not in feature_columns_for(FEATURE_SET_DIFF)
+        assert "home_games_played" not in feature_columns_for(FEATURE_SET_H2_FULL)
+        assert "diff_recent_win_rate" not in feature_columns_for(FEATURE_SET_H2_FULL)
         assert "home_recent_offensive_epa_per_play" not in feature_columns_for(
             FEATURE_SET_DIFF_ONLY
         )
@@ -274,6 +311,16 @@ class TestPrepareTrainingData:
         ]
         assert model_columns == list(DIFF_FEATURE_COLUMNS)
 
+        h2_full, _h2_target = prepare_training_data(
+            synthetic_games,
+            features,
+            feature_set=FEATURE_SET_H2_FULL,
+        )
+        h2_columns = [
+            column for column in h2_full.columns if column not in ("game_id", "gameday", "season")
+        ]
+        assert h2_columns == list(PREGAME_FEATURE_COLUMNS_H2_FULL)
+
     def test_unknown_feature_set_is_rejected(
         self,
         synthetic_games: pd.DataFrame,
@@ -283,6 +330,71 @@ class TestPrepareTrainingData:
         features = build_pregame_features(synthetic_games, synthetic_team_game_epa)
         with pytest.raises(ValueError, match="Unknown feature set"):
             prepare_training_data(synthetic_games, features, feature_set="both")
+
+
+class TestSeasonRegressionMath:
+    """Shrinkage and the current-season blend are pure functions."""
+
+    def test_one_third_shrink_matches_the_elo_fraction(self) -> None:
+        """Default shrinkage removes one third of the gap, the same fraction as Elo."""
+        assert SEASON_SHRINK_FACTOR == pytest.approx(1.0 / 3.0)
+        assert shrink_toward_mean(0.30, 0.0, 1.0 / 3.0) == pytest.approx(0.20)
+        assert shrink_toward_mean(0.30, 0.0, 0.0) == pytest.approx(0.30)
+        assert shrink_toward_mean(0.30, 0.12, 1.0) == pytest.approx(0.12)
+        with pytest.raises(ValueError, match="shrink_factor"):
+            shrink_toward_mean(0.30, 0.0, 1.5)
+        with pytest.raises(ValueError, match="shrink_factor"):
+            shrink_toward_mean(0.30, 0.0, -0.1)
+
+    def test_blend_weight_is_n_over_n_plus_k(self) -> None:
+        """Zero games stays on the prior. k games is half weight. k must be positive."""
+        assert SEASON_BLEND_K == pytest.approx(4.0)
+        assert current_season_blend_weight(0, 4.0) == pytest.approx(0.0)
+        assert current_season_blend_weight(4, 4.0) == pytest.approx(0.5)
+        assert current_season_blend_weight(8, 4.0) == pytest.approx(8.0 / 12.0)
+        with pytest.raises(ValueError, match="n_games"):
+            current_season_blend_weight(-1, 4.0)
+        with pytest.raises(ValueError, match="blend_k"):
+            current_season_blend_weight(1, 0.0)
+        with pytest.raises(ValueError, match="blend_k"):
+            regress_epa_feature(0.1, 1, 0.2, 0.0, blend_k=-1.0)
+
+    def test_week_one_uses_the_shrunk_prior_and_later_weeks_blend(self) -> None:
+        """n = 0 returns the shrunk prior. Later weeks move toward the current mean."""
+        league_mean: float = 0.175
+        prior_value: float = 0.45
+        shrunk: float = shrink_toward_mean(prior_value, league_mean, 1.0 / 3.0)
+        week_one = regress_epa_feature(
+            float("nan"),
+            0,
+            prior_value,
+            league_mean,
+            shrink_factor=1.0 / 3.0,
+            blend_k=4.0,
+        )
+        assert week_one["weight"] == pytest.approx(0.0)
+        assert week_one["shrunk_prior"] == pytest.approx(shrunk)
+        assert week_one["value"] == pytest.approx(shrunk)
+
+        blended = regress_epa_feature(
+            0.90,
+            1,
+            prior_value,
+            league_mean,
+            shrink_factor=1.0 / 3.0,
+            blend_k=4.0,
+        )
+        assert blended["weight"] == pytest.approx(1.0 / 5.0)
+        assert blended["value"] == pytest.approx((1.0 / 5.0) * 0.90 + (4.0 / 5.0) * shrunk)
+
+        no_prior = regress_epa_feature(0.90, 2, float("nan"), league_mean, blend_k=4.0)
+        assert no_prior["weight"] == pytest.approx(2.0 / 6.0)
+        assert pd.isna(no_prior["shrunk_prior"])
+        assert no_prior["value"] == pytest.approx(0.90)
+
+        cold_start = regress_epa_feature(float("nan"), 0, float("nan"), float("nan"))
+        assert pd.isna(cold_start["value"])
+        assert cold_start["weight"] == pytest.approx(0.0)
 
 
 class TestSplitBySeason:

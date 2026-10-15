@@ -9,6 +9,8 @@ Features computed:
 - Rest days
 - Prior-game counts (legacy feature set only)
 - Home-minus-away differences of the level features (diff sets only)
+- Season-to-date defensive EPA allowed (h2 sets only)
+- Cross-season regression of season and recent EPA (h2_full only)
 - A simple Elo rating and a no-vig market probability
 """
 
@@ -27,6 +29,8 @@ FEATURE_SET_CURRENT: str = "current"
 FEATURE_SET_WITH_GAMES_PLAYED: str = "with_games_played"
 FEATURE_SET_DIFF: str = "diff"
 FEATURE_SET_DIFF_ONLY: str = "diff_only"
+FEATURE_SET_H2_DEF: str = "h2_def"
+FEATURE_SET_H2_FULL: str = "h2_full"
 
 # Level columns, in the pre-phase-1 order. Differentials are appended after
 # these so ``current`` and ``with_games_played`` stay the same matrices.
@@ -100,11 +104,43 @@ PREGAME_FEATURE_COLUMNS_DIFF: tuple[str, ...] = PREGAME_FEATURE_COLUMNS + DIFF_F
 # Differences only. Parsimony check against ``diff``.
 PREGAME_FEATURE_COLUMNS_DIFF_ONLY: tuple[str, ...] = DIFF_FEATURE_COLUMNS
 
+# Same-season prior games only. Week 1 stays missing. Not part of ``current``.
+SEASON_DEFENSIVE_EPA_COLUMNS: tuple[str, ...] = (
+    "home_season_defensive_epa_per_play",
+    "away_season_defensive_epa_per_play",
+)
+
+# Shrunk prior-season finals, then blended toward the current season.
+# Recent windows for these columns stay inside one season. The level
+# recent columns above still cross seasons.
+REGRESSED_EPA_COLUMNS: tuple[str, ...] = (
+    "home_regressed_recent_offensive_epa_per_play",
+    "home_regressed_recent_defensive_epa_per_play",
+    "away_regressed_recent_offensive_epa_per_play",
+    "away_regressed_recent_defensive_epa_per_play",
+    "home_regressed_season_offensive_epa_per_play",
+    "away_regressed_season_offensive_epa_per_play",
+    "home_regressed_season_defensive_epa_per_play",
+    "away_regressed_season_defensive_epa_per_play",
+)
+
+# ``current`` plus the two season defensive EPA columns.
+PREGAME_FEATURE_COLUMNS_H2_DEF: tuple[str, ...] = (
+    PREGAME_FEATURE_COLUMNS + SEASON_DEFENSIVE_EPA_COLUMNS
+)
+
+# ``h2_def`` plus the regressed season and recent EPA columns.
+PREGAME_FEATURE_COLUMNS_H2_FULL: tuple[str, ...] = (
+    PREGAME_FEATURE_COLUMNS_H2_DEF + REGRESSED_EPA_COLUMNS
+)
+
 FEATURE_SET_NAMES: tuple[str, ...] = (
     FEATURE_SET_CURRENT,
     FEATURE_SET_WITH_GAMES_PLAYED,
     FEATURE_SET_DIFF,
     FEATURE_SET_DIFF_ONLY,
+    FEATURE_SET_H2_DEF,
+    FEATURE_SET_H2_FULL,
 )
 
 FEATURE_SET_COLUMNS: dict[str, tuple[str, ...]] = {
@@ -112,6 +148,8 @@ FEATURE_SET_COLUMNS: dict[str, tuple[str, ...]] = {
     FEATURE_SET_WITH_GAMES_PLAYED: PREGAME_FEATURE_COLUMNS_WITH_GAMES_PLAYED,
     FEATURE_SET_DIFF: PREGAME_FEATURE_COLUMNS_DIFF,
     FEATURE_SET_DIFF_ONLY: PREGAME_FEATURE_COLUMNS_DIFF_ONLY,
+    FEATURE_SET_H2_DEF: PREGAME_FEATURE_COLUMNS_H2_DEF,
+    FEATURE_SET_H2_FULL: PREGAME_FEATURE_COLUMNS_H2_FULL,
 }
 
 # FiveThirtyEight-style Elo. Home advantage is added only when a game is
@@ -123,14 +161,243 @@ ELO_MEAN_RATING: float = 1505.0
 ELO_SEASON_REVERSION: float = 1.0 / 3.0
 ELO_SCALE: float = 400.0
 
+# One third of the gap to the prior-season league mean is removed.
+# The same fraction Elo uses between seasons.
+SEASON_SHRINK_FACTOR: float = ELO_SEASON_REVERSION
+# Current-season weight is n / (n + k). Half weight at k games.
+SEASON_BLEND_K: float = 4.0
+
 MONEYLINE_HOME_COLUMN: str = "home_moneyline"
 MONEYLINE_AWAY_COLUMN: str = "away_moneyline"
+
+
+class TeamEpaSnapshot(NamedTuple):
+    """Prior EPA for one team, split into the current season and the season before.
+
+    Recent windows are the last ``lookback`` rows inside that season only.
+    Counts are games in the season, not the length of the recent window.
+    """
+
+    current_season_n: int
+    current_season_offensive: float
+    current_season_defensive: float
+    current_recent_offensive: float
+    current_recent_defensive: float
+    prior_season_offensive: float
+    prior_season_defensive: float
+    prior_recent_offensive: float
+    prior_recent_defensive: float
+
+
+def _mean_or_nan(values: pd.Series) -> float:
+    """Mean of a series, or NaN when the series is empty."""
+    if len(values) == 0:
+        return float("nan")
+    return float(values.mean())
+
+
+def _validate_regression_settings(shrink_factor: float, blend_k: float) -> None:
+    """Reject a shrink factor or blend constant that the formula cannot use."""
+    if not 0.0 <= float(shrink_factor) <= 1.0:
+        raise ValueError("shrink_factor must be in [0, 1]")
+    if float(blend_k) <= 0.0:
+        raise ValueError("blend_k must be positive")
+
+
+def shrink_toward_mean(value: float, league_mean: float, shrink_factor: float) -> float:
+    """Pull ``value`` part of the way to ``league_mean``.
+
+    ``shrink_factor`` is the fraction of the gap that is removed. ``1/3``
+    matches Elo season reversion: two thirds of the gap stays.
+
+    Args:
+        value: Prior-season final EPA.
+        league_mean: League mean the value is pulled toward.
+        shrink_factor: Fraction of the gap removed. Must be in ``[0, 1]``.
+
+    Returns:
+        The shrunk value.
+
+    Raises:
+        ValueError: ``shrink_factor`` is outside ``[0, 1]``.
+    """
+    _validate_regression_settings(shrink_factor, blend_k=1.0)
+    return float(league_mean) + (1.0 - float(shrink_factor)) * (float(value) - float(league_mean))
+
+
+def current_season_blend_weight(n_games: int, blend_k: float) -> float:
+    """Weight on the current-season mean, ``n / (n + k)``.
+
+    Zero games returns 0, so a caller can use the shrunk prior alone.
+
+    Args:
+        n_games: Completed current-season games before this kickoff.
+        blend_k: Positive prior strength, in games.
+
+    Returns:
+        Weight in ``[0, 1)``.
+
+    Raises:
+        ValueError: ``n_games`` is negative or ``blend_k`` is not positive.
+    """
+    if n_games < 0:
+        raise ValueError("n_games must be >= 0")
+    _validate_regression_settings(shrink_factor=0.0, blend_k=blend_k)
+    return float(n_games) / (float(n_games) + float(blend_k))
+
+
+def regress_epa_feature(
+    current_value: float,
+    n_games: int,
+    prior_value: float,
+    league_mean: float,
+    shrink_factor: float = SEASON_SHRINK_FACTOR,
+    blend_k: float = SEASON_BLEND_K,
+) -> dict[str, float]:
+    """Blend a current-season EPA mean with a shrunk prior-season final value.
+
+    At zero current-season games the result is the prior value moved
+    ``shrink_factor`` of the way to ``league_mean``. As games accumulate,
+    the weight on the current mean is ``n / (n + blend_k)``. A missing
+    prior, or a missing league mean, leaves the current mean in place
+    after the first game and leaves the result missing before that.
+
+    Args:
+        current_value: Mean EPA from current-season games before this kickoff.
+        n_games: How many of those games exist. This is the blend count,
+            including games that fall outside a recent window.
+        prior_value: Final value from the previous season only.
+        league_mean: League mean from that same previous season.
+        shrink_factor: Fraction of the prior gap removed. Default matches Elo.
+        blend_k: Prior strength in games. Default is ``SEASON_BLEND_K``.
+
+    Returns:
+        Dict with ``value``, ``shrunk_prior``, and ``weight``. Missing
+        inputs stay NaN.
+
+    Raises:
+        ValueError: The shrink factor, blend constant, or game count is invalid.
+    """
+    _validate_regression_settings(shrink_factor, blend_k)
+    weight: float = current_season_blend_weight(n_games, blend_k)
+    prior_ready: bool = bool(np.isfinite(prior_value)) and bool(np.isfinite(league_mean))
+    shrunk_prior: float = (
+        shrink_toward_mean(float(prior_value), float(league_mean), shrink_factor)
+        if prior_ready
+        else float("nan")
+    )
+    current_ready: bool = bool(np.isfinite(current_value))
+    if n_games == 0:
+        value: float = shrunk_prior
+    elif not prior_ready:
+        value = float(current_value) if current_ready else float("nan")
+    elif not current_ready:
+        value = float("nan")
+    else:
+        value = weight * float(current_value) + (1.0 - weight) * shrunk_prior
+    return {"value": value, "shrunk_prior": shrunk_prior, "weight": weight}
+
+
+def _team_epa_snapshot(
+    team_prior: pd.DataFrame,
+    season: int,
+    lookback_games: int,
+) -> TeamEpaSnapshot:
+    """Season and within-season recent EPA from rows already limited to prior games.
+
+    ``team_prior`` must contain only games with ``gameday`` strictly before
+    the game being featurized, and it must be in gameday order. The prior
+    season is ``season - 1`` only. An earlier season is not carried forward.
+    """
+    current_rows: pd.DataFrame = team_prior.loc[team_prior["season"] == season]
+    prior_rows: pd.DataFrame = team_prior.loc[team_prior["season"] == season - 1]
+    current_recent: pd.DataFrame = current_rows.tail(lookback_games)
+    prior_recent: pd.DataFrame = prior_rows.tail(lookback_games)
+    return TeamEpaSnapshot(
+        current_season_n=int(len(current_rows)),
+        current_season_offensive=_mean_or_nan(current_rows["avg_offensive_epa"]),
+        current_season_defensive=_mean_or_nan(current_rows["avg_defensive_epa_allowed"]),
+        current_recent_offensive=_mean_or_nan(current_recent["avg_offensive_epa"]),
+        current_recent_defensive=_mean_or_nan(current_recent["avg_defensive_epa_allowed"]),
+        prior_season_offensive=_mean_or_nan(prior_rows["avg_offensive_epa"]),
+        prior_season_defensive=_mean_or_nan(prior_rows["avg_defensive_epa_allowed"]),
+        prior_recent_offensive=_mean_or_nan(prior_recent["avg_offensive_epa"]),
+        prior_recent_defensive=_mean_or_nan(prior_recent["avg_defensive_epa_allowed"]),
+    )
+
+
+def _prior_season_league_means(prior_games: pd.DataFrame, prior_season: int) -> dict[str, float]:
+    """League means for one season, from team-games already limited to earlier dates.
+
+    Args:
+        prior_games: Every franchise, ``gameday`` strictly before the game.
+        prior_season: Season whose completed games form the shrink target.
+
+    Returns:
+        Dict with ``offensive`` and ``defensive`` means. Either is NaN when
+        that season has no earlier team-games.
+    """
+    season_rows: pd.DataFrame = prior_games.loc[prior_games["season"] == prior_season]
+    return {
+        "offensive": _mean_or_nan(season_rows["avg_offensive_epa"]),
+        "defensive": _mean_or_nan(season_rows["avg_defensive_epa_allowed"]),
+    }
+
+
+def _regressed_epa_for_side(
+    side: str,
+    snapshot: TeamEpaSnapshot,
+    league_means: dict[str, float],
+    shrink_factor: float,
+    blend_k: float,
+) -> dict[str, float]:
+    """Regressed recent and season EPA columns for ``home`` or ``away``."""
+    specs: tuple[tuple[str, float, float, float], ...] = (
+        (
+            "regressed_recent_offensive_epa_per_play",
+            snapshot.current_recent_offensive,
+            snapshot.prior_recent_offensive,
+            league_means["offensive"],
+        ),
+        (
+            "regressed_recent_defensive_epa_per_play",
+            snapshot.current_recent_defensive,
+            snapshot.prior_recent_defensive,
+            league_means["defensive"],
+        ),
+        (
+            "regressed_season_offensive_epa_per_play",
+            snapshot.current_season_offensive,
+            snapshot.prior_season_offensive,
+            league_means["offensive"],
+        ),
+        (
+            "regressed_season_defensive_epa_per_play",
+            snapshot.current_season_defensive,
+            snapshot.prior_season_defensive,
+            league_means["defensive"],
+        ),
+    )
+    columns: dict[str, float] = {}
+    for suffix, current_value, prior_value, league_mean in specs:
+        regressed: dict[str, float] = regress_epa_feature(
+            current_value,
+            snapshot.current_season_n,
+            prior_value,
+            league_mean,
+            shrink_factor=shrink_factor,
+            blend_k=blend_k,
+        )
+        columns[f"{side}_{suffix}"] = regressed["value"]
+    return columns
 
 
 def build_pregame_features(
     fct_games: pd.DataFrame,
     fct_team_game_epa: pd.DataFrame,
     lookback_games: int = 10,
+    shrink_factor: float = SEASON_SHRINK_FACTOR,
+    blend_k: float = SEASON_BLEND_K,
 ) -> pd.DataFrame:
     """
     Build pre-game features for each game using only prior game data.
@@ -142,6 +409,8 @@ def build_pregame_features(
         fct_games: Games fact table with game_id, season, gameday, home/away teams, scores
         fct_team_game_epa: Team-game EPA metrics
         lookback_games: Number of recent games to include in rolling features
+        shrink_factor: Fraction of the prior-season gap removed. Default matches Elo.
+        blend_k: Current-season blend strength. Weight is ``n / (n + blend_k)``.
 
     Returns:
         DataFrame with game_id and feature columns
@@ -157,6 +426,16 @@ def build_pregame_features(
         - away_rest_days: Days since away team's last game
         - home_season_offensive_epa_per_play: Home team's season-to-date avg offensive EPA
         - away_season_offensive_epa_per_play: Away team's season-to-date avg offensive EPA
+        - home_season_defensive_epa_per_play: Home season-to-date EPA allowed (h2 sets)
+        - away_season_defensive_epa_per_play: Away season-to-date EPA allowed (h2 sets)
+        - home_regressed_recent_offensive_epa_per_play: Shrunk prior recent offense, blended
+        - home_regressed_recent_defensive_epa_per_play: Shrunk prior recent defense, blended
+        - away_regressed_recent_offensive_epa_per_play: Shrunk prior recent offense, blended
+        - away_regressed_recent_defensive_epa_per_play: Shrunk prior recent defense, blended
+        - home_regressed_season_offensive_epa_per_play: Shrunk prior season offense, blended
+        - away_regressed_season_offensive_epa_per_play: Shrunk prior season offense, blended
+        - home_regressed_season_defensive_epa_per_play: Shrunk prior season defense, blended
+        - away_regressed_season_defensive_epa_per_play: Shrunk prior season defense, blended
         - home_games_played: Count of prior games for home team (legacy set only)
         - away_games_played: Count of prior games for away team (legacy set only)
         - diff_recent_offensive_epa_per_play: Home recent offensive EPA minus away
@@ -171,8 +450,17 @@ def build_pregame_features(
     difference columns, and SimpleImputer(strategy='constant', fill_value=0.5)
     for level win_rate columns in the training pipeline.
     games_played is still computed so the old matrix can be reproduced. The default
-    training set omits it and omits the differences. See ``feature_columns_for``.
+    training set omits it, the differences, the season defensive columns, and the
+    regressed columns. See ``feature_columns_for``.
+
+    Season defensive EPA uses only prior games of the same season. Regressed
+    columns carry the previous season's final value, shrunk toward that
+    season's league mean, and blend in current-season games with weight
+    ``n / (n + blend_k)``. The prior season is ``season - 1`` only, and only
+    rows with ``gameday`` strictly before this game. Week 1 of the first
+    season in the frame stays missing because there is no prior season.
     """
+    _validate_regression_settings(shrink_factor, blend_k)
     # Validate required columns
     required_games_cols = [
         "game_id",
@@ -289,16 +577,19 @@ def build_pregame_features(
 
         # Season-to-date EPA (expanding window)
         # Use season column, not gameday.year (January playoffs belong to prior season)
-        game_season = game["season"]
-        home_season = home_prior[home_prior["season"] == game_season]
-        away_season = away_prior[away_prior["season"] == game_season]
+        game_season = int(game["season"])
+        home_snapshot: TeamEpaSnapshot = _team_epa_snapshot(home_prior, game_season, lookback_games)
+        away_snapshot: TeamEpaSnapshot = _team_epa_snapshot(away_prior, game_season, lookback_games)
+        league_means: dict[str, float] = _prior_season_league_means(prior_games, game_season - 1)
+        home_regressed: dict[str, float] = _regressed_epa_for_side(
+            "home", home_snapshot, league_means, shrink_factor, blend_k
+        )
+        away_regressed: dict[str, float] = _regressed_epa_for_side(
+            "away", away_snapshot, league_means, shrink_factor, blend_k
+        )
 
-        home_season_off_epa = (
-            home_season["avg_offensive_epa"].mean() if len(home_season) > 0 else float("nan")
-        )
-        away_season_off_epa = (
-            away_season["avg_offensive_epa"].mean() if len(away_season) > 0 else float("nan")
-        )
+        home_season_off_epa = home_snapshot.current_season_offensive
+        away_season_off_epa = away_snapshot.current_season_offensive
 
         # Rest days (from fct_games.home_rest/away_rest)
         home_rest_days = game["home_rest"] if pd.notna(game["home_rest"]) else 7
@@ -317,12 +608,24 @@ def build_pregame_features(
                 "away_rest_days": away_rest_days,
                 "home_season_offensive_epa_per_play": home_season_off_epa,
                 "away_season_offensive_epa_per_play": away_season_off_epa,
+                "home_season_defensive_epa_per_play": home_snapshot.current_season_defensive,
+                "away_season_defensive_epa_per_play": away_snapshot.current_season_defensive,
                 "home_games_played": len(home_prior),
                 "away_games_played": len(away_prior),
+                **home_regressed,
+                **away_regressed,
             }
         )
 
-    return add_home_minus_away_features(pd.DataFrame(features_list))
+    frame: pd.DataFrame = add_home_minus_away_features(pd.DataFrame(features_list))
+    ordered_columns: list[str] = [
+        "game_id",
+        *PREGAME_COMPUTED_COLUMNS,
+        *DIFF_FEATURE_COLUMNS,
+        *SEASON_DEFENSIVE_EPA_COLUMNS,
+        *REGRESSED_EPA_COLUMNS,
+    ]
+    return frame.loc[:, ordered_columns]
 
 
 def add_home_minus_away_features(features: pd.DataFrame) -> pd.DataFrame:
@@ -362,10 +665,13 @@ def feature_columns_for(feature_set: str) -> tuple[str, ...]:
     """Return the model columns for a named feature set.
 
     ``current`` is the default and omits ``home_games_played``,
-    ``away_games_played``, and the differential columns.
+    ``away_games_played``, the differential columns, season defensive EPA,
+    and the regressed columns.
     ``with_games_played`` is the previous matrix.
     ``diff`` is ``current`` plus home-minus-away columns.
     ``diff_only`` is the differences and nothing else.
+    ``h2_def`` is ``current`` plus season-to-date defensive EPA allowed.
+    ``h2_full`` is ``h2_def`` plus the regressed season and recent EPA columns.
 
     Args:
         feature_set: One of ``FEATURE_SET_NAMES``.

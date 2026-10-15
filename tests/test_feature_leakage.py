@@ -19,11 +19,21 @@ from src.features.pregame import (
     GAMES_PLAYED_COLUMNS,
     PREGAME_COMPUTED_COLUMNS,
     PREGAME_FEATURE_COLUMNS,
+    REGRESSED_EPA_COLUMNS,
+    SEASON_BLEND_K,
+    SEASON_DEFENSIVE_EPA_COLUMNS,
+    SEASON_SHRINK_FACTOR,
     build_pregame_features,
     elo_home_probabilities,
+    regress_epa_feature,
 )
 
-CHECKED_FEATURE_COLUMNS: tuple[str, ...] = PREGAME_COMPUTED_COLUMNS + DIFF_FEATURE_COLUMNS
+CHECKED_FEATURE_COLUMNS: tuple[str, ...] = (
+    PREGAME_COMPUTED_COLUMNS
+    + DIFF_FEATURE_COLUMNS
+    + SEASON_DEFENSIVE_EPA_COLUMNS
+    + REGRESSED_EPA_COLUMNS
+)
 
 LOOKBACK_GAMES: int = 2
 
@@ -373,6 +383,274 @@ class TestPregameLeakage:
                 "away_games_played": 1,
             },
         )
+
+
+def _regression_frame(include_old_season: bool = False) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Prior season, week 1, the next week, a same-day game, and a future decoy.
+
+    The 2023-09-20 row is labeled season 2023 but dated after week 1, so it is
+    not a completed prior game for that opener. The optional 2022 game is two
+    seasons back and must not enter the 2024 carry-over.
+    """
+    rows: list[dict[str, object]] = []
+    if include_old_season:
+        rows.append(
+            {
+                "game_id": "OLD",
+                "season": 2022,
+                "gameday": "2022-09-11",
+                "home_team_franchise": "A",
+                "away_team_franchise": "B",
+                "home_score": 10,
+                "away_score": 7,
+                "home_won": 1,
+                "home_rest": 7,
+                "away_rest": 7,
+                "home_off": 5.0,
+                "home_def": 5.0,
+                "away_off": 5.0,
+                "away_def": 5.0,
+            }
+        )
+    rows.extend(
+        [
+            {
+                "game_id": "P1",
+                "season": 2023,
+                "gameday": "2023-09-10",
+                "home_team_franchise": "A",
+                "away_team_franchise": "B",
+                "home_score": 20,
+                "away_score": 10,
+                "home_won": 1,
+                "home_rest": 7,
+                "away_rest": 7,
+                "home_off": 0.30,
+                "home_def": 0.10,
+                "away_off": -0.20,
+                "away_def": 0.40,
+            },
+            {
+                "game_id": "P2",
+                "season": 2023,
+                "gameday": "2023-09-17",
+                "home_team_franchise": "A",
+                "away_team_franchise": "B",
+                "home_score": 24,
+                "away_score": 17,
+                "home_won": 1,
+                "home_rest": 7,
+                "away_rest": 7,
+                "home_off": 0.60,
+                "home_def": -0.20,
+                "away_off": 0.00,
+                "away_def": 0.20,
+            },
+            {
+                "game_id": "W1",
+                "season": 2024,
+                "gameday": "2024-09-08",
+                "home_team_franchise": "A",
+                "away_team_franchise": "B",
+                "home_score": 30,
+                "away_score": 14,
+                "home_won": 1,
+                "home_rest": 7,
+                "away_rest": 7,
+                "home_off": 9.00,
+                "home_def": 9.00,
+                "away_off": 9.00,
+                "away_def": 9.00,
+            },
+            {
+                "game_id": "SAME",
+                "season": 2024,
+                "gameday": "2024-09-08",
+                "home_team_franchise": "A",
+                "away_team_franchise": "C",
+                "home_score": 21,
+                "away_score": 3,
+                "home_won": 1,
+                "home_rest": 7,
+                "away_rest": 7,
+                "home_off": 8.00,
+                "home_def": 8.00,
+                "away_off": 8.00,
+                "away_def": 8.00,
+            },
+            {
+                "game_id": "W2",
+                "season": 2024,
+                "gameday": "2024-09-15",
+                "home_team_franchise": "A",
+                "away_team_franchise": "B",
+                "home_score": 17,
+                "away_score": 14,
+                "home_won": 1,
+                "home_rest": 7,
+                "away_rest": 7,
+                "home_off": 1.00,
+                "home_def": 1.00,
+                "away_off": 1.00,
+                "away_def": 1.00,
+            },
+            {
+                "game_id": "LATE",
+                "season": 2023,
+                "gameday": "2024-09-20",
+                "home_team_franchise": "A",
+                "away_team_franchise": "B",
+                "home_score": 3,
+                "away_score": 0,
+                "home_won": 1,
+                "home_rest": 7,
+                "away_rest": 7,
+                "home_off": 99.0,
+                "home_def": 99.0,
+                "away_off": 99.0,
+                "away_def": 99.0,
+            },
+        ]
+    )
+    games = pd.DataFrame(rows)
+    games["gameday"] = pd.to_datetime(games["gameday"])
+    epa_rows: list[dict[str, object]] = []
+    for row in rows:
+        for side in ("home", "away"):
+            epa_rows.append(
+                {
+                    "game_id": row["game_id"],
+                    "season": row["season"],
+                    "gameday": pd.Timestamp(str(row["gameday"])),
+                    "team_franchise": row[f"{side}_team_franchise"],
+                    "avg_offensive_epa": row[f"{side}_off"],
+                    "avg_defensive_epa_allowed": row[f"{side}_def"],
+                }
+            )
+    epa = pd.DataFrame(epa_rows)
+    games = games.drop(columns=["home_off", "home_def", "away_off", "away_def"])
+    return games, epa
+
+
+class TestSeasonRegressionLeakage:
+    """Prior-season carry-over uses only completed games from the previous season."""
+
+    def test_week_one_is_the_shrunk_prior_and_ignores_the_current_game(self) -> None:
+        """Raw season defense is missing. The regressed value does not use week 1 EPA."""
+        games, epa = _regression_frame()
+        features = build_pregame_features(games, epa, lookback_games=10)
+        opener = _feature_row(features, "W1")
+        same_day = _feature_row(features, "SAME")
+        league_offense: float = 0.175
+        prior_offense: float = 0.45
+        shrunk_offense: float = league_offense + (2.0 / 3.0) * (prior_offense - league_offense)
+        shrunk_defense: float = 0.125 + (2.0 / 3.0) * (-0.05 - 0.125)
+        assert SEASON_SHRINK_FACTOR == pytest.approx(1.0 / 3.0)
+        assert SEASON_BLEND_K == pytest.approx(4.0)
+        assert pd.isna(opener["home_season_offensive_epa_per_play"])
+        assert pd.isna(opener["home_season_defensive_epa_per_play"])
+        assert pd.isna(opener["away_season_defensive_epa_per_play"])
+        assert opener["home_regressed_season_offensive_epa_per_play"] == pytest.approx(
+            shrunk_offense
+        )
+        assert opener["home_regressed_season_defensive_epa_per_play"] == pytest.approx(
+            shrunk_defense
+        )
+        assert opener["home_regressed_recent_offensive_epa_per_play"] == pytest.approx(
+            shrunk_offense
+        )
+        formula = regress_epa_feature(
+            float("nan"),
+            0,
+            prior_offense,
+            league_offense,
+            shrink_factor=SEASON_SHRINK_FACTOR,
+            blend_k=SEASON_BLEND_K,
+        )
+        assert opener["home_regressed_season_offensive_epa_per_play"] == pytest.approx(
+            formula["value"]
+        )
+        for column in (
+            "home_season_defensive_epa_per_play",
+            "home_regressed_season_offensive_epa_per_play",
+            "home_regressed_season_defensive_epa_per_play",
+            "home_regressed_recent_offensive_epa_per_play",
+            "home_regressed_recent_defensive_epa_per_play",
+        ):
+            _assert_equal(same_day[column], opener[column], column)
+
+    def test_recent_carry_over_uses_the_prior_season_window_only(self) -> None:
+        """Lookback 1 keeps the last prior-season game and not the one before it."""
+        games, epa = _regression_frame()
+        features = build_pregame_features(games, epa, lookback_games=1)
+        opener = _feature_row(features, "W1")
+        league_offense: float = 0.175
+        last_game_offense: float = 0.60
+        season_offense: float = 0.45
+        shrunk_recent: float = league_offense + (2.0 / 3.0) * (last_game_offense - league_offense)
+        shrunk_season: float = league_offense + (2.0 / 3.0) * (season_offense - league_offense)
+        assert opener["home_regressed_recent_offensive_epa_per_play"] == pytest.approx(
+            shrunk_recent
+        )
+        assert opener["home_regressed_season_offensive_epa_per_play"] == pytest.approx(
+            shrunk_season
+        )
+        assert shrunk_recent != pytest.approx(shrunk_season)
+
+    def test_later_weeks_blend_current_season_games_with_the_shrunk_prior(self) -> None:
+        """Two week-1 games are in the current mean. Week 2's own EPA is not."""
+        games, epa = _regression_frame()
+        features = build_pregame_features(games, epa, lookback_games=10)
+        second = _feature_row(features, "W2")
+        # W1 and SAME are both before W2, so n = 2 for team A, not 1.
+        # SAME is the same franchise on week 1. Both count.
+        current_offense: float = (9.0 + 8.0) / 2.0
+        shrunk: float = 0.175 + (2.0 / 3.0) * (0.45 - 0.175)
+        weight: float = 2.0 / (2.0 + SEASON_BLEND_K)
+        expected: float = weight * current_offense + (1.0 - weight) * shrunk
+        assert second["home_season_offensive_epa_per_play"] == pytest.approx(current_offense)
+        assert second["home_season_defensive_epa_per_play"] == pytest.approx((9.0 + 8.0) / 2.0)
+        assert second["home_regressed_season_offensive_epa_per_play"] == pytest.approx(expected)
+        assert second["home_regressed_season_offensive_epa_per_play"] != pytest.approx(1.0)
+
+    def test_only_the_previous_season_and_only_games_already_played_are_carried(
+        self,
+    ) -> None:
+        """A two-seasons-back game and a not-yet-played prior-season row do not move week 1."""
+        games, epa = _regression_frame(include_old_season=False)
+        with_old_games, with_old_epa = _regression_frame(include_old_season=True)
+        baseline = build_pregame_features(games, epa, lookback_games=10)
+        with_old = build_pregame_features(with_old_games, with_old_epa, lookback_games=10)
+        baseline_row = _feature_row(baseline, "W1")
+        old_row = _feature_row(with_old, "W1")
+        for column in SEASON_DEFENSIVE_EPA_COLUMNS + REGRESSED_EPA_COLUMNS:
+            _assert_equal(old_row[column], baseline_row[column], column)
+
+        poisoned_epa = epa.copy()
+        late = poisoned_epa["game_id"] == "LATE"
+        poisoned_epa.loc[late, "avg_offensive_epa"] = -99.0
+        poisoned_epa.loc[late, "avg_defensive_epa_allowed"] = -99.0
+        poisoned = build_pregame_features(games, poisoned_epa, lookback_games=10)
+        poisoned_row = _feature_row(poisoned, "W1")
+        second = _feature_row(poisoned, "W2")
+        for column in REGRESSED_EPA_COLUMNS:
+            _assert_equal(poisoned_row[column], baseline_row[column], column)
+            _assert_equal(
+                second[column],
+                _feature_row(baseline, "W2")[column],
+                f"W2.{column}",
+            )
+
+        changed_epa = epa.copy()
+        prior = changed_epa["game_id"] == "P2"
+        home_prior = prior & (changed_epa["team_franchise"] == "A")
+        changed_epa.loc[home_prior, "avg_offensive_epa"] = 0.0
+        changed = build_pregame_features(games, changed_epa, lookback_games=10)
+        changed_row = _feature_row(changed, "W1")
+        assert changed_row["home_regressed_season_offensive_epa_per_play"] != pytest.approx(
+            baseline_row["home_regressed_season_offensive_epa_per_play"]
+        )
+        assert pd.isna(changed_row["home_season_offensive_epa_per_play"])
 
 
 def _elo_games() -> pd.DataFrame:

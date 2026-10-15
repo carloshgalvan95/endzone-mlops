@@ -7,6 +7,7 @@ Usage:
     python -m src.train.train --model baseline-home
     python -m src.train.train --cv
     python -m src.train.train --cv --phase 2
+    python -m src.train.train --cv --phase 2 --hypothesis h2
 """
 
 import argparse
@@ -40,8 +41,12 @@ from src.features.pregame import (
     FEATURE_SET_CURRENT,
     FEATURE_SET_DIFF,
     FEATURE_SET_DIFF_ONLY,
+    FEATURE_SET_H2_DEF,
+    FEATURE_SET_H2_FULL,
     FEATURE_SET_NAMES,
     FEATURE_SET_WITH_GAMES_PLAYED,
+    SEASON_BLEND_K,
+    SEASON_SHRINK_FACTOR,
     build_pregame_features,
     elo_home_probabilities,
     feature_columns_for,
@@ -73,8 +78,16 @@ HELD_OUT_TEST_SEASON: int = 2025
 PHASE1_EXPERIMENT_NAME: str = "nfl_pregame/phase1_baselines"
 PHASE1_TAG: str = "1"
 PHASE2_EXPERIMENT_NAME: str = "nfl_pregame/phase2_h1"
+PHASE2_H2_EXPERIMENT_NAME: str = "nfl_pregame/phase2_h2"
 PHASE2_TAG: str = "2"
 HYPOTHESIS_H1: str = "h1-diff"
+HYPOTHESIS_H2: str = "h2-season-def-regression"
+HYPOTHESIS_ALIASES: dict[str, str] = {
+    "h1": HYPOTHESIS_H1,
+    "h1-diff": HYPOTHESIS_H1,
+    "h2": HYPOTHESIS_H2,
+    "h2-season-def-regression": HYPOTHESIS_H2,
+}
 CV_SCHEME: str = "rolling_season_2016_2023"
 PHASE1_MARKDOWN_NAME: str = "comparison.md"
 PHASE1_CSV_NAME: str = "comparison.csv"
@@ -89,6 +102,11 @@ PHASE2_LOGISTIC_FEATURE_SETS: tuple[str, ...] = (
     FEATURE_SET_CURRENT,
     FEATURE_SET_DIFF,
     FEATURE_SET_DIFF_ONLY,
+)
+PHASE2_H2_LOGISTIC_FEATURE_SETS: tuple[str, ...] = (
+    FEATURE_SET_CURRENT,
+    FEATURE_SET_H2_DEF,
+    FEATURE_SET_H2_FULL,
 )
 # Phase 1 stays on the home prior. Phase 2 H1 uses logistic ``current``.
 DEFAULT_REFERENCE_BY_PHASE: dict[int, tuple[str, str]] = {
@@ -108,6 +126,11 @@ PHASE1_NOTE: str = (
 )
 PHASE2_NOTE: str = (
     "Phase 2 hypothesis h1-diff. "
+    f"{FINAL_VALIDATION_SEASON} and {HELD_OUT_TEST_SEASON} are not scored. "
+    "No model is promoted from this run."
+)
+PHASE2_H2_NOTE: str = (
+    "Phase 2 hypothesis h2-season-def-regression. "
     f"{FINAL_VALIDATION_SEASON} and {HELD_OUT_TEST_SEASON} are not scored. "
     "No model is promoted from this run."
 )
@@ -1021,56 +1044,110 @@ def resolve_reference_spec(
     return {"model": model_name, "feature_set": feature_set}
 
 
-def logistic_feature_sets_for(phase: int) -> tuple[str, ...]:
-    """Return the logistic feature sets scored by a phase.
+def resolve_hypothesis(phase: int, hypothesis: str | None = None) -> str | None:
+    """Map a CLI hypothesis name to the tag stored on the run.
 
-    Phase 1 scores ``current`` and ``with_games_played``. Phase 2 scores
-    ``current``, ``diff``, and ``diff_only``.
+    Phase 1 has no hypothesis. Phase 2 defaults to H1 so the differential
+    report stays reproducible. ``h2`` and ``h2-season-def-regression`` both
+    select the season-defense hypothesis.
 
     Args:
         phase: ``1`` or ``2``.
+        hypothesis: Short or full hypothesis name, or None for the default.
+
+    Returns:
+        ``None`` for phase 1, otherwise ``h1-diff`` or
+        ``h2-season-def-regression``.
+
+    Raises:
+        ValueError: Phase 1 was given a hypothesis, or the name is unknown.
+    """
+    if phase == 1:
+        if hypothesis is not None:
+            raise ValueError("Phase 1 does not take a hypothesis. Omit --hypothesis.")
+        return None
+    if phase != 2:
+        raise ValueError(f"Unknown phase {phase}. Known phases: 1, 2.")
+    if hypothesis is None:
+        return HYPOTHESIS_H1
+    resolved: str | None = HYPOTHESIS_ALIASES.get(hypothesis.strip().lower())
+    if resolved is None:
+        known: str = ", ".join(sorted(HYPOTHESIS_ALIASES))
+        raise ValueError(f"Unknown hypothesis {hypothesis!r}. Known hypotheses: {known}.")
+    return resolved
+
+
+def logistic_feature_sets_for(phase: int, hypothesis: str | None = None) -> tuple[str, ...]:
+    """Return the logistic feature sets scored by a phase.
+
+    Phase 1 scores ``current`` and ``with_games_played``. Phase 2 H1 scores
+    ``current``, ``diff``, and ``diff_only``. Phase 2 H2 scores ``current``,
+    ``h2_def``, and ``h2_full``.
+
+    Args:
+        phase: ``1`` or ``2``.
+        hypothesis: Phase 2 hypothesis name. None keeps H1.
 
     Returns:
         Feature set names in report order.
 
     Raises:
-        ValueError: The phase is unknown.
+        ValueError: The phase or hypothesis is unknown.
     """
     if phase == 1:
+        resolve_hypothesis(phase, hypothesis)
         return PHASE1_LOGISTIC_FEATURE_SETS
     if phase == 2:
+        resolved: str | None = resolve_hypothesis(phase, hypothesis)
+        if resolved == HYPOTHESIS_H2:
+            return PHASE2_H2_LOGISTIC_FEATURE_SETS
         return PHASE2_LOGISTIC_FEATURE_SETS
     raise ValueError(f"Unknown phase {phase}. Known phases: 1, 2.")
 
 
-def phase_tracking_settings(phase: int) -> dict[str, Any]:
+def phase_tracking_settings(phase: int, hypothesis: str | None = None) -> dict[str, Any]:
     """MLflow experiment, tags, note, and default output directory for a phase.
 
     Args:
         phase: ``1`` or ``2``.
+        hypothesis: Phase 2 hypothesis name. None keeps H1.
 
     Returns:
         Dict with ``experiment_name``, ``phase_tag``, ``hypothesis``,
-        ``note``, and ``output_dir``. ``hypothesis`` is None for phase 1.
+        ``note``, ``output_dir``, and ``title``. ``hypothesis`` is None
+        for phase 1.
 
     Raises:
-        ValueError: The phase is unknown.
+        ValueError: The phase or hypothesis is unknown.
     """
     if phase == 1:
+        resolve_hypothesis(phase, hypothesis)
         return {
             "experiment_name": PHASE1_EXPERIMENT_NAME,
             "phase_tag": PHASE1_TAG,
             "hypothesis": None,
             "note": PHASE1_NOTE,
             "output_dir": "reports/phase1",
+            "title": "Phase 1 baselines",
         }
     if phase == 2:
+        resolved: str | None = resolve_hypothesis(phase, hypothesis)
+        if resolved == HYPOTHESIS_H2:
+            return {
+                "experiment_name": PHASE2_H2_EXPERIMENT_NAME,
+                "phase_tag": PHASE2_TAG,
+                "hypothesis": HYPOTHESIS_H2,
+                "note": PHASE2_H2_NOTE,
+                "output_dir": "reports/phase2_h2",
+                "title": "Phase 2 H2 season defensive regression",
+            }
         return {
             "experiment_name": PHASE2_EXPERIMENT_NAME,
             "phase_tag": PHASE2_TAG,
             "hypothesis": HYPOTHESIS_H1,
             "note": PHASE2_NOTE,
             "output_dir": "reports/phase2",
+            "title": "Phase 2 H1 differential features",
         }
     raise ValueError(f"Unknown phase {phase}. Known phases: 1, 2.")
 
@@ -1272,16 +1349,18 @@ def run_phase1_baselines(
     reference_model: str | None = None,
     reference_feature_set: str | None = None,
     phase: int = 1,
+    hypothesis: str | None = None,
 ) -> dict[str, Any]:
     """Score logistic feature sets, the home prior, Elo, and the market.
 
     The market is skipped when the moneyline columns are absent or every
     line is missing. 2024 and 2025 are not scored. Phase 1 logs logistic
     ``current`` and ``with_games_played`` and pairs every model to the home
-    prior. Phase 2 logs logistic ``current``, ``diff``, and ``diff_only``
-    and pairs every model to logistic ``current``. Pass ``reference_model``
-    and ``reference_feature_set`` to choose a different reference. The phase
-    1 call with no extra arguments is unchanged.
+    prior. Phase 2 H1 logs logistic ``current``, ``diff``, and ``diff_only``.
+    Phase 2 H2 logs logistic ``current``, ``h2_def``, and ``h2_full``.
+    Both phase 2 hypotheses pair every model to logistic ``current`` unless
+    ``reference_model`` and ``reference_feature_set`` say otherwise. The
+    phase 1 call with no extra arguments is unchanged.
 
     Args:
         games: Completed games, one row per game.
@@ -1294,7 +1373,8 @@ def run_phase1_baselines(
         logistic_feature_sets: Logistic sets to score. None uses the phase default.
         reference_model: Reference model name. None uses the phase default.
         reference_feature_set: Reference feature set. None uses the phase default.
-        phase: ``1`` keeps the phase 1 report. ``2`` is hypothesis H1.
+        phase: ``1`` keeps the phase 1 report. ``2`` is a phase 2 hypothesis.
+        hypothesis: ``h1`` or ``h2``. None on phase 2 keeps H1.
 
     Returns:
         Dict with ``results``, ``comparison_table``, ``markdown``, ``config``,
@@ -1312,11 +1392,13 @@ def run_phase1_baselines(
         reference_feature_set=reference_feature_set,
     )
     selected_sets: tuple[str, ...] = (
-        logistic_feature_sets_for(phase) if logistic_feature_sets is None else logistic_feature_sets
+        logistic_feature_sets_for(phase, hypothesis=hypothesis)
+        if logistic_feature_sets is None
+        else logistic_feature_sets
     )
     for feature_set_name in selected_sets:
         feature_columns_for(feature_set_name)
-    tracking: dict[str, Any] = phase_tracking_settings(phase)
+    tracking: dict[str, Any] = phase_tracking_settings(phase, hypothesis=hypothesis)
     features: pd.DataFrame = build_pregame_features(
         games,
         team_games,
@@ -1332,6 +1414,9 @@ def run_phase1_baselines(
         "reference_model": reference_spec["model"],
         "reference_feature_set": reference_spec["feature_set"],
     }
+    if tracking["hypothesis"] == HYPOTHESIS_H2:
+        shared_params["shrink_factor"] = SEASON_SHRINK_FACTOR
+        shared_params["blend_k"] = SEASON_BLEND_K
     results: list[dict[str, Any]] = []
 
     current_matrix, current_target = prepare_training_data(
@@ -1488,7 +1573,7 @@ def run_phase1_baselines(
         "reference_feature_set": reference_spec["feature_set"],
         "phase": phase,
         "hypothesis": tracking["hypothesis"],
-        "title": "Phase 2 H1 differential features" if phase == 2 else "Phase 1 baselines",
+        "title": tracking["title"],
         "apply_acceptance": apply_acceptance,
         "min_log_loss_improvement": MIN_LOG_LOSS_IMPROVEMENT,
         "markdown": "",
@@ -1646,6 +1731,16 @@ def render_phase1_report(report: dict[str, Any]) -> str:
         "## Folds",
         "",
     ]
+    if report.get("hypothesis") == HYPOTHESIS_H2:
+        regression_note: list[str] = [
+            "Season defensive EPA is the same-season prior mean of EPA allowed.",
+            "Regressed EPA starts from the previous season's final value,",
+            f"shrunk by {SEASON_SHRINK_FACTOR:.3f} toward that season's league mean,",
+            "then blends in current-season games with weight",
+            f"n/(n+{SEASON_BLEND_K:g}). Week 1 of a season with no prior stays missing.",
+        ]
+        lookback_index: int = lines.index(f"Lookback games: {report['lookback_games']}.")
+        lines[lookback_index + 1 : lookback_index + 1] = regression_note
     if report.get("hypothesis"):
         lines.insert(2, f"Hypothesis: `{report['hypothesis']}`.")
         lines.insert(3, "")
@@ -1735,8 +1830,9 @@ def log_phase1_to_mlflow(
 ) -> dict[str, Any]:
     """Log one run per scored model.
 
-    Phase 1 callers can omit the tag arguments. Phase 2 passes ``phase_tag``
-    ``2`` and ``hypothesis`` ``h1-diff``.
+    Phase 1 callers can omit the tag arguments. Phase 2 H1 passes
+    ``hypothesis`` ``h1-diff``. Phase 2 H2 passes
+    ``h2-season-def-regression``. Both use ``phase_tag`` ``2``.
 
     Args:
         report: Result of ``run_phase1_baselines``.
@@ -1824,7 +1920,7 @@ def _run_phase1_cli(args: argparse.Namespace) -> None:
         n_bootstrap=args.n_bootstrap,
         bootstrap_seed=args.bootstrap_seed,
     )
-    settings: dict[str, Any] = phase_tracking_settings(args.phase)
+    settings: dict[str, Any] = phase_tracking_settings(args.phase, hypothesis=args.hypothesis)
     output_dir: str = args.output_dir
     if args.phase != 1 and args.output_dir == "reports/phase1":
         output_dir = str(settings["output_dir"])
@@ -1847,6 +1943,7 @@ def _run_phase1_cli(args: argparse.Namespace) -> None:
         reference_model=args.reference_model,
         reference_feature_set=args.reference_feature_set,
         phase=args.phase,
+        hypothesis=args.hypothesis,
     )
     paths: dict[str, Any] = write_phase1_outputs(report, Path(output_dir))
     tracking_uri: str = resolve_tracking_uri(
@@ -1927,7 +2024,8 @@ def main(argv: list[str] | None = None) -> None:
         help=(
             "Run rolling-origin CV on 2016-2023. "
             "--phase 1 is the baseline report. "
-            "--phase 2 scores diff feature sets against logistic current. "
+            "--phase 2 --hypothesis h1 scores diff feature sets. "
+            "--phase 2 --hypothesis h2 scores season defense and regressed EPA. "
             "Does not score 2024 or 2025."
         ),
     )
@@ -1939,7 +2037,19 @@ def main(argv: list[str] | None = None) -> None:
         default=1,
         help=(
             "1 keeps the phase 1 report (home prior, current, with_games_played). "
-            "2 scores logistic current, diff, and diff_only against logistic current."
+            "2 scores the hypothesis from --hypothesis against logistic current."
+        ),
+    )
+
+    parser.add_argument(
+        "--hypothesis",
+        type=str,
+        choices=sorted(HYPOTHESIS_ALIASES),
+        default=None,
+        help=(
+            "Phase 2 hypothesis. Default h1 scores diff and diff_only "
+            "and writes reports/phase2. h2 scores h2_def and h2_full "
+            "and writes reports/phase2_h2. Phase 1 rejects this flag."
         ),
     )
 
@@ -1969,7 +2079,8 @@ def main(argv: list[str] | None = None) -> None:
         default="reports/phase1",
         help=(
             "Directory for the comparison report. "
-            "Phase 2 with this default writes reports/phase2 instead."
+            "Phase 2 h1 with this default writes reports/phase2. "
+            "Phase 2 h2 with this default writes reports/phase2_h2."
         ),
     )
 
