@@ -11,6 +11,7 @@ import pandas as pd
 import pytest
 
 from src.features.pregame import (
+    CLEAN_SUCCESS_RATE_COLUMNS,
     DIFF_FEATURE_COLUMNS,
     FEATURE_SET_DIFF,
     FEATURE_SET_DIFF_ONLY,
@@ -18,9 +19,12 @@ from src.features.pregame import (
     FEATURE_SET_H2_FULL,
     FEATURE_SET_H3_REPLACE,
     FEATURE_SET_H3_SPLIT,
+    FEATURE_SET_H4_CLEAN,
+    FEATURE_SET_H4_CLEAN_SR,
     FEATURE_SET_NAMES,
     FEATURE_SET_WITH_GAMES_PLAYED,
     GAMES_PLAYED_COLUMNS,
+    H2_CONTEXT_COLUMNS,
     H3_REPLACED_COMBINED_COLUMNS,
     PASS_RUSH_EPA_COLUMNS,
     PREGAME_FEATURE_COLUMNS,
@@ -29,6 +33,8 @@ from src.features.pregame import (
     PREGAME_FEATURE_COLUMNS_H2_FULL,
     PREGAME_FEATURE_COLUMNS_H3_REPLACE,
     PREGAME_FEATURE_COLUMNS_H3_SPLIT,
+    PREGAME_FEATURE_COLUMNS_H4_CLEAN,
+    PREGAME_FEATURE_COLUMNS_H4_CLEAN_SR,
     PREGAME_FEATURE_COLUMNS_WITH_GAMES_PLAYED,
     REGRESSED_EPA_COLUMNS,
     SEASON_BLEND_K,
@@ -42,6 +48,13 @@ from src.features.pregame import (
     shrink_toward_mean,
     split_by_season,
 )
+
+
+def _same_value(left: object, right: object) -> bool:
+    """True when both values are missing or they match within float tolerance."""
+    if pd.isna(left) and pd.isna(right):
+        return True
+    return bool(left == pytest.approx(right))
 
 
 @pytest.fixture
@@ -276,6 +289,8 @@ class TestPrepareTrainingData:
             "h2_full",
             "h3_split",
             "h3_replace",
+            "h4_clean",
+            "h4_clean_sr",
         )
         assert feature_columns_for("current") == PREGAME_FEATURE_COLUMNS
         assert feature_columns_for("with_games_played") == PREGAME_FEATURE_COLUMNS_WITH_GAMES_PLAYED
@@ -369,6 +384,34 @@ class TestPrepareTrainingData:
             column for column in h3_split.columns if column not in ("game_id", "gameday", "season")
         ]
         assert h3_columns == list(PREGAME_FEATURE_COLUMNS_H3_SPLIT)
+        assert feature_columns_for(FEATURE_SET_H4_CLEAN) == PREGAME_FEATURE_COLUMNS_H4_CLEAN
+        assert feature_columns_for(FEATURE_SET_H4_CLEAN_SR) == PREGAME_FEATURE_COLUMNS_H4_CLEAN_SR
+        assert len(PREGAME_FEATURE_COLUMNS_H4_CLEAN) == len(PREGAME_FEATURE_COLUMNS_H2_FULL)
+        assert PREGAME_FEATURE_COLUMNS_H4_CLEAN_SR[: len(PREGAME_FEATURE_COLUMNS_H4_CLEAN)] == (
+            PREGAME_FEATURE_COLUMNS_H4_CLEAN
+        )
+        assert PREGAME_FEATURE_COLUMNS_H4_CLEAN_SR[len(PREGAME_FEATURE_COLUMNS_H4_CLEAN) :] == (
+            CLEAN_SUCCESS_RATE_COLUMNS
+        )
+        for dirty, clean in zip(
+            PREGAME_FEATURE_COLUMNS_H2_FULL,
+            PREGAME_FEATURE_COLUMNS_H4_CLEAN,
+            strict=True,
+        ):
+            if dirty in H2_CONTEXT_COLUMNS:
+                assert clean == dirty
+            else:
+                expected = dirty.replace("_offensive_", "_clean_offensive_").replace(
+                    "_defensive_", "_clean_defensive_"
+                )
+                assert clean == expected
+        assert set(H2_CONTEXT_COLUMNS) <= set(PREGAME_FEATURE_COLUMNS_H4_CLEAN)
+        assert "home_recent_offensive_epa_per_play" not in PREGAME_FEATURE_COLUMNS_H4_CLEAN
+        assert "home_recent_clean_offensive_epa_per_play" in PREGAME_FEATURE_COLUMNS_H4_CLEAN
+        assert "home_regressed_season_clean_defensive_epa_per_play" in (
+            PREGAME_FEATURE_COLUMNS_H4_CLEAN
+        )
+        assert "home_games_played" not in PREGAME_FEATURE_COLUMNS_H4_CLEAN_SR
 
     def test_unknown_feature_set_is_rejected(
         self,
@@ -486,3 +529,42 @@ class TestSplitBySeason:
 
         with pytest.raises(ValueError, match="must have 'season' column"):
             split_by_season(X_no_season, y)
+
+
+class TestCleanEpaFeatureSets:
+    """h4 reads the clean columns and leaves the h2 matrix unchanged."""
+
+    def test_identical_clean_inputs_match_h2_and_a_partial_pair_is_refused(
+        self,
+        synthetic_games: pd.DataFrame,
+        synthetic_team_game_epa: pd.DataFrame,
+    ) -> None:
+        """Same clean and original rates produce the same EPA features."""
+        baseline = build_pregame_features(synthetic_games, synthetic_team_game_epa)
+        assert pd.isna(
+            baseline.loc[baseline["game_id"] == "G5", "home_recent_clean_offensive_epa_per_play"]
+        ).all()
+        copied = synthetic_team_game_epa.copy()
+        copied["avg_clean_offensive_epa"] = copied["avg_offensive_epa"]
+        copied["avg_clean_defensive_epa_allowed"] = copied["avg_defensive_epa_allowed"]
+        copied["clean_success_rate"] = 0.55
+        copied["clean_defensive_success_rate"] = 0.45
+        matched = build_pregame_features(synthetic_games, copied)
+        row = matched.loc[matched["game_id"] == "G5"].iloc[0]
+        baseline_row = baseline.loc[baseline["game_id"] == "G5"].iloc[0]
+        for dirty, clean in zip(
+            PREGAME_FEATURE_COLUMNS_H2_FULL,
+            PREGAME_FEATURE_COLUMNS_H4_CLEAN,
+            strict=True,
+        ):
+            assert _same_value(row[clean], row[dirty])
+            assert _same_value(row[dirty], baseline_row[dirty])
+        assert row["home_recent_clean_offensive_success_rate"] == pytest.approx(0.55)
+        assert row["away_recent_clean_defensive_success_rate"] == pytest.approx(0.45)
+
+        offensive_only = copied.drop(columns=["avg_clean_defensive_epa_allowed"])
+        with pytest.raises(ValueError, match="clean EPA"):
+            build_pregame_features(synthetic_games, offensive_only)
+        success_only = copied.drop(columns=["clean_defensive_success_rate"])
+        with pytest.raises(ValueError, match="clean success"):
+            build_pregame_features(synthetic_games, success_only)

@@ -4,10 +4,10 @@
 
 `docs/experiments/reports/` is different. Each file here is a frozen copy of one local report, kept as evidence for a decision. Copy a report here only when that hypothesis is decided. Do not edit the numbers afterward. Replace the snapshot only when the hypothesis is rerun and the decision is recorded again.
 
-Phase 0 (`reports/phase0/`) and Phase 1 (`reports/phase1/`) snapshots are not here yet. They will be added later.
-
 | Snapshot | Experiment note | What it freezes |
 | --- | --- | --- |
+| [phase0_feature_audit.md](phase0_feature_audit.md) | [phase0_input_audit.md](../phase0_input_audit.md) | Phase 0 input audit |
+| [phase1_comparison.md](phase1_comparison.md) | [phase1_baselines.md](../phase1_baselines.md) | Phase 1 baselines |
 | [phase2_h1_comparison.md](phase2_h1_comparison.md) | [phase2_h1_diff_features.md](../phase2_h1_diff_features.md) | H1 differentials, rejected |
 | [phase2_h2_comparison.md](phase2_h2_comparison.md) | [phase2_h2_season_def_regression.md](../phase2_h2_season_def_regression.md) | H2 season defense and regression, `h2_full` accepted |
 | [phase2_h3_comparison.md](phase2_h3_comparison.md) | [phase2_h3_pass_rush_epa.md](../phase2_h3_pass_rush_epa.md) | H3 pass and rush EPA, rejected |

@@ -6,17 +6,17 @@ No counts, rates, or model metrics are stated here. Those belong in the report t
 
 The audit module is `src/analysis/feature_audit.py`. It calls `build_pregame_features`, `prepare_training_data`, `split_by_season`, and `train_logistic_regression`. Leakage tests live in `tests/test_feature_leakage.py` and use synthetic frames only.
 
-`make audit-features` (or `.\scripts\dev.ps1 audit-features`) writes `reports/phase0/feature_audit.md` and `reports/phase0/feature_audit.csv`. It also logs both files to MLflow experiment `nfl_pregame/phase0_audit` on a run tagged `phase=0-audit`. 2025 is in the missingness and distribution tables only. It is not scored and it is not used to choose a model. Univariate CV defaults to seasons 2016 through 2023. Permutation importance fits the current logistic pipeline on seasons through 2023 and scores it on 2024.
+`make audit-features` (or `.\scripts\dev.ps1 audit-features`) writes `reports/phase0/feature_audit.md` and `reports/phase0/feature_audit.csv`. It also logs both files to MLflow experiment `nfl_pregame/phase0_audit` on a run tagged `phase=0-audit`. 2025 is in the missingness and distribution tables only. It is not scored and it is not used to choose a model. Univariate CV defaults to seasons 2016 through 2023. Permutation importance fits the current logistic pipeline on seasons through 2023 and scores it on 2024. The frozen copy of that report is `docs/experiments/reports/phase0_feature_audit.md`. This note does not restate it.
 
 ## Checklist
 
 ### 1. games_played is a clock
 
-**Verified (definition). Range shift on 2024 and 2025: pending.**
+**Verified (definition). The mart measurement is in the frozen audit.**
 
 `home_games_played` is `len(home_prior)`. `home_prior` is every prior team-game with `gameday` strictly before the game. It is not filtered to the current season. `away_games_played` is the same count for the away team. The value grows with the length of the history in the frame. It is not "games played this season."
 
-The audit flags `time_counter` when season medians are strictly monotone across at least three seasons, or when more than 5 percent of the 2024 rows or of the 2025 rows sit outside the closed training min/max. An earlier rule required every later value to sit outside that range, which misses a column that only partly leaves it. Whether `games_played` trips the flag on the marts is pending the audit run.
+The audit flags `time_counter` when season medians are strictly monotone across at least three seasons, or when more than 5 percent of the 2024 rows or of the 2025 rows sit outside the closed training min/max. An earlier rule required every later value to sit outside that range, which misses a column that only partly leaves it. Whether `games_played` trips the flag on the marts is in `docs/experiments/reports/phase0_feature_audit.md`. This note does not restate that report.
 
 ### 2. Cross-season rolling on the default matrix
 
@@ -68,7 +68,7 @@ Feature sets `h3_split` and `h3_replace` turn those sums into pass and rush EPA 
 
 **Verified for the filter this repo applies. The warehouse counts are frozen elsewhere. This note does not restate them.**
 
-`fct_team_game_epa` keeps play-by-play rows with `where play = 1`. It does not filter `play_type`, `aborted_play`, quarter, or score differential. Garbage time stays in the average. Staging describes `play` as "Play validity flag (1 = valid play, 0 = no play)." That sentence is coarser than the upstream definition.
+`fct_team_game_epa` keeps play-by-play rows with `where play = 1` for the original EPA columns. Those columns do not filter `play_type`, `aborted_play`, quarter, or score differential. Garbage time stays in that average. Staging describes `play` as "Play validity flag (1 = valid play, 0 = no play)." That sentence is coarser than the upstream definition. Clean EPA columns use a separate filter and are not in the matrix this audit profiles. See `docs/experiments/phase2_h4_clean_epa.md`.
 
 Upstream, nflfastR sets `play` to 1 when EPA and posteam are present, the description is not a review and does not start with "Timeout ", and `play_type` is one of `no_play`, `pass`, or `run` (`clean_pbp` in `nflverse/nflfastR` `R/helper_additional_functions.R`). That includes penalty rows (`no_play`). Special-teams types (`kickoff`, `punt`, `field_goal`, `extra_point`) are outside that list. This repo does not recompute the flag. The warehouse check is frozen in `docs/experiments/reports/epa_filter_check.md`. No row counts are stated in this note.
 
@@ -80,7 +80,7 @@ Upstream, nflfastR sets `play` to 1 when EPA and posteam are present, the descri
 
 ## What is still pending
 
-- Run `make audit-features` on the marts and read the out-of-range and time-counter flags, univariate log loss and AUC, Spearman pairs, and 2024 permutation importance.
+- The audit report is frozen in `docs/experiments/reports/phase0_feature_audit.md`. This note does not restate those measurements.
 - Count ties in `fct_games` before deciding whether to drop them or score them as 0.5.
 - The `play = 1` warehouse check is frozen in `docs/experiments/reports/epa_filter_check.md`. The reading (no_play contamination, H4 next) is in `docs/experiments/phase2_ridge_reference.md`.
 - Inspect week-1 `home_rest` and `away_rest` on the games mart before changing the fill value of 7.

@@ -97,6 +97,28 @@ models:
       - name: success_rate
         description: "Percentage of successful plays (success = 1)"
 
+      - name: clean_offensive_plays
+        description: "Offensive plays with play = 1, play_type pass or run, qb_kneel and qb_spike not 1, and pre-snap wp inside [0.05, 0.95]. A null wp is kept. no_play is excluded."
+        tests:
+          - not_null
+
+      - name: avg_clean_offensive_epa
+        description: "Offensive EPA per clean play. Null when clean_offensive_plays is 0. Does not replace avg_offensive_epa."
+
+      - name: clean_success_rate
+        description: "Share of clean offensive plays with success = 1. Null when there are no clean offensive plays."
+
+      - name: clean_defensive_plays
+        description: "Defensive plays facing a clean offensive play (same pass/run, kneel, spike, and wp filter)."
+        tests:
+          - not_null
+
+      - name: avg_clean_defensive_epa_allowed
+        description: "EPA allowed per clean defensive play. Null when clean_defensive_plays is 0. Does not replace avg_defensive_epa_allowed."
+
+      - name: clean_defensive_success_rate
+        description: "Share of clean plays allowed with success = 1. Null when there are no clean defensive plays."
+
     tests:
       # Grain test: game_id + team should be unique
       - dbt_utils.unique_combination_of_columns:
@@ -122,6 +144,23 @@ models:
                 SELECT game_id || '|' || team 
                 FROM {{ ref('known_pbp_gaps') }}
               )
+
+      # Clean offensive plays are a subset of play = 1 offensive plays.
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "clean_offensive_plays <= offensive_plays"
+
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "clean_success_rate >= 0 and clean_success_rate <= 1"
+          config:
+            where: "clean_success_rate is not null"
+
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "clean_defensive_success_rate >= 0 and clean_defensive_success_rate <= 1"
+          config:
+            where: "clean_defensive_success_rate is not null"
 
   - name: fct_games
     description: |

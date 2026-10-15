@@ -68,6 +68,7 @@ with source as (
         wpa,
         success,
         ep as expected_points,
+        -- nflverse wp: possession-team win probability at the snap.
         wp as win_probability,
         
         -- Pass-specific
@@ -118,6 +119,8 @@ with source as (
         -- Play flags
         play,
         aborted_play,
+        qb_kneel,
+        qb_spike,
         
         -- Order
         order_sequence

@@ -15,7 +15,7 @@ alwaysApply: false
 
 ## Status
 
-Phase 0 and Phase 1 are done. Phase 2 is in progress. Phases 3 and 4 are planned and not started. Do not invent their scope. H4 is the next experiment, and it is still inside Phase 2.
+Phase 0 and Phase 1 are done. Phase 2 is in progress. Phases 3 and 4 are planned and not started. Do not invent their scope. H4 is running. It is still inside Phase 2. The warehouse comparison is not scored yet.
 
 | Step | State | Reference |
 | --- | --- | --- |
@@ -25,7 +25,7 @@ Phase 0 and Phase 1 are done. Phase 2 is in progress. Phases 3 and 4 are planned
 | H2 season defense and regression | accepted | logistic `h2_full` is the reference from here on |
 | H3 pass and rush EPA | rejected | logistic `h2_full` |
 | Ridge, fold-tuned L2 | did not help | plain logistic `h2_full` stays the reference |
-| H4 clean EPA | next, not implemented | logistic `h2_full` |
+| H4 clean EPA | running, not scored | logistic `h2_full` |
 
 H3, CV 2016-2023, n=2191: logistic `h2_full` 0.6377. `h3_split` 0.6393 (difference +0.0016, interval -0.0009 to 0.0039). `h3_replace` 0.6395 (difference +0.0018, interval -0.0008 to 0.0043).
 
@@ -43,11 +43,12 @@ Every `--cv` command uses rolling-origin seasons 2016-2023. Train on `season < S
 - H1: `python -m src.train.train --cv --phase 2 --hypothesis h1`. Scores logistic `current`, `diff`, and `diff_only` against logistic `current`. Local report `reports/phase2/`. Tags `phase=2`, `hypothesis=h1-diff`.
 - H2: `python -m src.train.train --cv --phase 2 --hypothesis h2 --reference-model logistic --reference-feature-set current`. Scores `current`, `h2_def`, and `h2_full` against logistic `current`. Local report `reports/phase2_h2/`. Tag `hypothesis=h2-season-def-regression`.
 - H3: `python -m src.train.train --cv --phase 2 --hypothesis h3`. Scores `h2_full`, `h3_split`, and `h3_replace` against logistic `h2_full`. Local report `reports/phase2_h3/`. Tag `hypothesis=h3-pass-rush-epa`.
-- Ridge: `make train-cv` (Windows: `.\scripts\dev.ps1 train-cv`). Scores logistic `h2_full` and `logistic_l2` on `h2_full`, `h3_split`, and `h3_replace` against logistic `h2_full`. `logistic_l2` chooses C inside each training fold. The scored season is not used to pick C. Local report `reports/phase2_ridge/`. Tag `hypothesis=ridge-reference`. Run the warehouse sequence in `repo-map.mdc` before this target.
+- Ridge: `python -m src.train.train --cv --phase 2 --hypothesis ridge --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_ridge`. Scores logistic `h2_full` and `logistic_l2` on `h2_full`, `h3_split`, and `h3_replace` against logistic `h2_full`. `logistic_l2` chooses C inside each training fold. The scored season is not used to pick C. Local report `reports/phase2_ridge/`. Tag `hypothesis=ridge-reference`.
+- H4: `make train-cv` (Windows: `.\scripts\dev.ps1 train-cv`). Scores logistic `h2_full`, `h4_clean`, and `h4_clean_sr` against logistic `h2_full`, plus the home prior, Elo, and the market. Shrinkage, blend, and the garbage-time cutoffs are fixed. Local report `reports/phase2_h4/`. Tag `hypothesis=h4-clean-epa`. Experiment `nfl_pregame/phase2_h4`. Rebuild the Databricks marts first. Do not re-ingest. See `docs/experiments/phase2_h4_clean_epa.md`.
 - EPA filter: `make check-epa-filter` (Windows: `.\scripts\dev.ps1 check-epa-filter`). Writes `reports/epa_filter_check.md`. It does not change dbt models.
 
 ## Snapshots
 
 `reports/` at the repo root is gitignored scratch. Do not commit it.
 
-`docs/experiments/reports/` holds frozen snapshots. Add or replace one only when that hypothesis is decided. Do not hand-edit the numbers. Phase 0 and Phase 1 snapshots are not there yet. Link each experiment note to its snapshot. The index is `docs/experiments/reports/README.md`.
+`docs/experiments/reports/` holds frozen snapshots. Add or replace one only when that hypothesis is decided. Do not hand-edit the numbers. Link each experiment note to its snapshot. The index is `docs/experiments/reports/README.md`.

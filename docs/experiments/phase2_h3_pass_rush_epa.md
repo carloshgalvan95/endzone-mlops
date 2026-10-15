@@ -1,6 +1,6 @@
 # Phase 2 H3: pass and rush EPA
 
-Method note. This file does not report warehouse metrics. Reproduce this comparison with `python -m src.train.train --cv --phase 2 --hypothesis h3 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h3`. It writes `reports/phase2_h3/comparison.md` and `reports/phase2_h3/comparison.csv`. Those files are local outputs. The result section records the local H3 run. The frozen copy is `docs/experiments/reports/phase2_h3_comparison.md`. Do not copy numbers from a test fixture. `make train-cv` runs the ridge reference comparison and writes `reports/phase2_ridge/`. See `docs/experiments/phase2_ridge_reference.md`.
+Method note. This file does not report warehouse metrics. Reproduce this comparison with `python -m src.train.train --cv --phase 2 --hypothesis h3 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h3`. It writes `reports/phase2_h3/comparison.md` and `reports/phase2_h3/comparison.csv`. Those files are local outputs. The result section records the local H3 run. The frozen copy is `docs/experiments/reports/phase2_h3_comparison.md`. Do not copy numbers from a test fixture. `make train-cv` runs H4 and writes `reports/phase2_h4/`. See `docs/experiments/phase2_h4_clean_epa.md`. The ridge comparison is `--phase 2 --hypothesis ridge` and writes `reports/phase2_ridge/`. See `docs/experiments/phase2_ridge_reference.md`.
 
 No model is promoted from a phase 2 run. 2024 stays the final validation. 2025 is not scored here.
 

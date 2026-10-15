@@ -22,7 +22,7 @@ function Show-Help {
     Write-Host "  dbt-build-databricks - Build dbt models on Databricks target"
     Write-Host "  train               - Train NFL pregame prediction models with MLflow"
     Write-Host "  train-sweep         - Run training sweep (5+ configs for MLflow comparison)"
-    Write-Host "  train-cv            - Phase 2 ridge reference CV (L2 C tuned inside each training fold)"
+    Write-Host "  train-cv            - Phase 2 H4 clean EPA CV against logistic h2_full"
     Write-Host "  mlflow-ui           - Open MLflow UI against the local SQLite store"
     Write-Host "  audit-features      - Profile current pregame inputs (no feature changes)"
     Write-Host "  check-epa-filter    - Count play types in the EPA filter, plus kneel and spike rows"
@@ -127,8 +127,8 @@ function Invoke-TrainSweep {
 
 function Invoke-TrainCv {
     Load-Env
-    Write-Host "Running phase 2 ridge reference CV..."
-    python -m src.train.train --cv --phase 2 --hypothesis ridge --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_ridge
+    Write-Host "Running phase 2 H4 clean EPA CV..."
+    python -m src.train.train --cv --phase 2 --hypothesis h4 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h4
 }
 
 function Invoke-MlflowUi {
