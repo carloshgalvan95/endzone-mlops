@@ -1,24 +1,53 @@
 ---
-description: What a training run logs and how models are compared
-globs: src/train/**,src/features/**
+description: What a training run logs, how models are compared, and which phase is current
+globs: src/train/**,src/features/**,src/analysis/**,docs/experiments/**
 alwaysApply: false
 ---
 
 # ML experiments
 
+## Logging
+
 - Inside `mlflow.start_run()`, log params, validation metrics (log loss, Brier, accuracy, AUC), and the git SHA (`git_commit` tag).
 - Model selection uses validation only. Do not read test (2025) metrics to pick a model.
-- Compare every candidate to the configured reference. Phase 1's default reference is the home-prior baseline (`baseline-home`: constant probability equal to the training home win rate). Phase 2 H1 and H2 compare to logistic feature set `current`. Phase 2 H3 compares to logistic feature set `h2_full`.
-- Phase 1 (`python -m src.train.train --cv`) is rolling-origin CV on seasons 2016-2023. 2024 stays the final validation. 2025 is not scored. The paired comparison is log loss against the home prior.
-- Phase 2 H1 (`python -m src.train.train --cv --phase 2 --hypothesis h1`) uses the same window and scores logistic `current`, `diff`, and `diff_only`, plus the home prior, Elo, and the market. Tags are `phase=2` and `hypothesis=h1-diff`. The report is `reports/phase2/`.
-- Phase 2 H2 uses the same window and scores logistic `current`, `h2_def`, and `h2_full`, plus the same baselines, against logistic `current`. Tags are `phase=2` and `hypothesis=h2-season-def-regression`. The report is `reports/phase2_h2/`.
-- Phase 2 H3 uses the same window and scores logistic `h2_full`, `h3_split`, and `h3_replace`, plus the same baselines, against logistic `h2_full`. Tags are `phase=2` and `hypothesis=h3-pass-rush-epa`. The report is `reports/phase2_h3/`. Reproduce it with `python -m src.train.train --cv --phase 2 --hypothesis h3`.
-- Phase 2 H3 is rejected. CV 2016-2023, n=2191, logistic `h2_full` log loss 0.6377. `h3_split` 0.6393 (difference +0.0016, 95% interval -0.0009 to 0.0039) and `h3_replace` 0.6395 (difference +0.0018, 95% interval -0.0008 to 0.0043). Both have lower AUC (0.6801 and 0.6796) and lower accuracy. The splits add noise at about 270 games per season. Combined EPA already carries the signal. Recorded in `docs/experiments/phase2_h3_pass_rush_epa.md`.
-- Phase 2 ridge reference (`make train-cv`) is setup work on the same window. It scores logistic `h2_full` (the reference), `logistic_l2` on `h2_full`, `h3_split`, and `h3_replace`, plus the same baselines. `logistic_l2` is L2 logistic regression whose C is chosen inside each training fold (expanding season split, no peeking at the scored season). Chosen C is logged on each child run and in the fold table. Tags are `phase=2` and `hypothesis=ridge-reference`. The local report is `reports/phase2_ridge/`. The frozen snapshot is `docs/experiments/reports/phase2_ridge_comparison.md`. See `docs/experiments/phase2_ridge_reference.md`.
-- Ridge did not help. CV 2016-2023, n=2191. Plain logistic `h2_full` log loss is 0.6377. `logistic_l2` on `h2_full` is 0.6386 (difference +0.0009, 95% interval -0.0008 to 0.0025). `logistic_l2` `h3_split` is +0.0010 and `logistic_l2` `h3_replace` is +0.0015. Fold-tuned L2 is worse, so plain logistic `h2_full` stays the reference. Those L2 fits still reject the H3 splits, so the H3 rejection is not collinearity noise.
-- EPA filter check (`make check-epa-filter`): `play = 1` rows are pass 528,368 (53.6%), run 388,724 (39.5%), and no_play 68,233 (6.9%). No special-teams play types. Only 36 kneels and 70 spikes have `play = 1`. The contamination is the `no_play` (penalty) rows, not special teams. Snapshot: `docs/experiments/reports/epa_filter_check.md`. H4 clean EPA is next and is driven by that finding. H4 is not implemented yet.
-- Accept a phase 2 set only when pooled log loss improves by at least 0.003 and the 95% interval lies entirely below 0.
-- A `--cv` invocation logs one parent run and one nested child per scored model. The parent holds `comparison.md`, `comparison.csv`, `best_feature_set`, and `data_digest`. Each child logs `decision` (`accepted`, `rejected`, `reference`, `baseline`, or `inconclusive`) and `log_loss_diff`, `log_loss_diff_ci_low`, `log_loss_diff_ci_high`. The same `data_digest` on the parent and the children means they used the same matrix. In the MLflow UI, filter with `tags.decision` and compare the child runs.
 - Log sklearn models with the reviewed skops trusted-types allowlist only (`REVIEWED_SKOPS_TRUSTED_TYPES`). An unknown type fails closed.
-- `reports/` at the repo root is gitignored local scratch (`reports/phase0/`, `reports/phase1/`, `reports/phase2/`, `reports/phase2_h2/`, `reports/phase2_h3/`, `reports/phase2_ridge/`, `reports/epa_filter_check.md`). Do not commit it.
-- `docs/experiments/reports/` holds frozen snapshots. Add or replace one only when that hypothesis is decided. Do not hand-edit the numbers. Phase 0 and Phase 1 snapshots are not there yet. Link each experiment note to its snapshot. The index is `docs/experiments/reports/README.md`.
+- A `--cv` invocation logs one parent run and one nested child per scored model. The parent holds `comparison.md`, `comparison.csv`, `best_feature_set`, and `data_digest`. Each child logs `decision` (`accepted`, `rejected`, `reference`, `baseline`, or `inconclusive`) and `log_loss_diff`, `log_loss_diff_ci_low`, `log_loss_diff_ci_high`. The same `data_digest` on the parent and the children means they used the same matrix. In the MLflow UI, filter with `tags.decision` and compare the child runs.
+
+## Status
+
+Phase 0 and Phase 1 are done. Phase 2 is in progress. Phases 3 and 4 are planned and not started. Do not invent their scope. H4 is the next experiment, and it is still inside Phase 2.
+
+| Step | State | Reference |
+| --- | --- | --- |
+| Phase 0 input audit | done | n/a. Note: `docs/experiments/phase0_input_audit.md` |
+| Phase 1 baselines | done | `baseline-home`. Note: `docs/experiments/phase1_baselines.md` |
+| H1 differentials | rejected | logistic `current` |
+| H2 season defense and regression | accepted | logistic `h2_full` is the reference from here on |
+| H3 pass and rush EPA | rejected | logistic `h2_full` |
+| Ridge, fold-tuned L2 | did not help | plain logistic `h2_full` stays the reference |
+| H4 clean EPA | next, not implemented | logistic `h2_full` |
+
+H3, CV 2016-2023, n=2191: logistic `h2_full` 0.6377. `h3_split` 0.6393 (difference +0.0016, interval -0.0009 to 0.0039). `h3_replace` 0.6395 (difference +0.0018, interval -0.0008 to 0.0043).
+
+Ridge, same window: `logistic_l2` on `h2_full` is 0.6386 (difference +0.0009, interval -0.0008 to 0.0025) versus plain logistic `h2_full` 0.6377. `logistic_l2` `h3_split` is +0.0010. `logistic_l2` `h3_replace` is +0.0015. Fold-tuned L2 does not help. Those fits still reject the H3 splits, so the H3 rejection is not collinearity noise.
+
+EPA filter (`docs/experiments/reports/epa_filter_check.md`): `play = 1` rows are pass 528,368 (53.6%), run 388,724 (39.5%), and no_play 68,233 (6.9%). No special-teams play types. Only 36 kneels and 70 spikes have `play = 1`. The contamination is the `no_play` (penalty) rows, not special teams. That finding drives H4.
+
+Accept a Phase 2 feature set only when pooled log loss improves by at least 0.003 and the 95% interval lies entirely below 0. The ridge setup rule is separate: switch the reference to `logistic_l2` on `h2_full` only when its `log_loss_diff` is <= 0. This run did not.
+
+## Commands
+
+Every `--cv` command uses rolling-origin seasons 2016-2023. Train on `season < S` and score `season == S`. 2024 is the final validation and is not a fold. 2025 is not scored. Each command also scores the home prior, Elo, and the market.
+
+- Phase 1: `python -m src.train.train --cv`. Reference `baseline-home`. Local report `reports/phase1/`. Experiment `nfl_pregame/phase1_baselines`, tag `phase=1`.
+- H1: `python -m src.train.train --cv --phase 2 --hypothesis h1`. Scores logistic `current`, `diff`, and `diff_only` against logistic `current`. Local report `reports/phase2/`. Tags `phase=2`, `hypothesis=h1-diff`.
+- H2: `python -m src.train.train --cv --phase 2 --hypothesis h2 --reference-model logistic --reference-feature-set current`. Scores `current`, `h2_def`, and `h2_full` against logistic `current`. Local report `reports/phase2_h2/`. Tag `hypothesis=h2-season-def-regression`.
+- H3: `python -m src.train.train --cv --phase 2 --hypothesis h3`. Scores `h2_full`, `h3_split`, and `h3_replace` against logistic `h2_full`. Local report `reports/phase2_h3/`. Tag `hypothesis=h3-pass-rush-epa`.
+- Ridge: `make train-cv` (Windows: `.\scripts\dev.ps1 train-cv`). Scores logistic `h2_full` and `logistic_l2` on `h2_full`, `h3_split`, and `h3_replace` against logistic `h2_full`. `logistic_l2` chooses C inside each training fold. The scored season is not used to pick C. Local report `reports/phase2_ridge/`. Tag `hypothesis=ridge-reference`. Run the warehouse sequence in `repo-map.mdc` before this target.
+- EPA filter: `make check-epa-filter` (Windows: `.\scripts\dev.ps1 check-epa-filter`). Writes `reports/epa_filter_check.md`. It does not change dbt models.
+
+## Snapshots
+
+`reports/` at the repo root is gitignored scratch. Do not commit it.
+
+`docs/experiments/reports/` holds frozen snapshots. Add or replace one only when that hypothesis is decided. Do not hand-edit the numbers. Phase 0 and Phase 1 snapshots are not there yet. Link each experiment note to its snapshot. The index is `docs/experiments/reports/README.md`.

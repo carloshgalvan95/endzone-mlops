@@ -27,9 +27,9 @@ This is Carlos Galvan's public MLOps portfolio demonstrating Databricks + dbt + 
 
 ### Stack
 - Primary: Databricks Free Edition + dbt-databricks + MLflow + GitHub Actions
-- Plan B: Snowflake (only if Databricks Free Edition spike fails)
+- Plan B: Snowflake. The Databricks Free Edition spike passed, so Plan B stays unused.
 - NEVER run two lakes in parallel
-- Batch-first: score.py batch by default, no real-time API in v0.1
+- Batch-first: `score.py` is the planned batch scorer. It is not in the repo. No real-time API in v0.1.
 
 ### Domain
 - NFL data from nflverse (CC BY 4.0)
@@ -47,13 +47,14 @@ This is Carlos Galvan's public MLOps portfolio demonstrating Databricks + dbt + 
 - [ ] Update README/docs if behavior or architecture changes
 - [ ] Never commit secrets (.env, profiles.yml, API keys)
 - [ ] Have commits authored as Carlos Galvan (no AI in metadata)
+- [ ] Agents push the branch only. Carlos opens the PR. The co-author hook is disabled. See `git-and-commits.mdc`.
 
 ## Code Quality Standards
 
 ### Wilson Modularity (src/)
 - Notebooks for exploration ONLY, not production
 - Product code in src/, dbt/, tests/
-- Entrypoints: train.py, score.py (argparse, config injected)
+- Entrypoint: `src/train/train.py` (argparse, config injected). `score.py` is planned and is not in the repo. `src/models` is a placeholder.
 - Small, testable functions
 - No logic in notebooks that should be in modules
 
@@ -106,16 +107,16 @@ A PR is Done when:
 - [x] dbt skeleton (local DuckDB path)
 - [x] Python utils + smoke tests
 - [x] GitHub Actions CI (lint, pytest, dbt compile)
-- [x] Runbook with CE spike checklist (PENDING_OWNER)
+- [x] Runbook with CE spike checklist (spike passed)
 - [x] HistoricalFeed/LiveFeed stubs documented
 - [x] Cursor rules setup
 
 ### Day 7 (Target)
-- [ ] Staging + 2+ marts + schema tests + business test
-- [ ] train.py (argparse, 3+ HP, seed) + MLflow (5+ runs)
-- [ ] CI: pytest + dbt compile/build
-- [ ] C4 L1 diagram + data flow sequence
-- [ ] make reproduce leaves marts + MLflow model
+- [x] Staging + 2+ marts + schema tests + business test
+- [x] `src/train/train.py` (argparse, 3+ hyperparameters, seed) + MLflow (5+ runs)
+- [x] CI: pytest + dbt compile (DuckDB). dbt build stays on the Databricks target, not in CI.
+- [x] C4 L1 diagram + data flow sequence (`docs/architecture.md`)
+- [ ] `make reproduce` leaves marts + an MLflow model. Today it is only `install` and local `dbt-compile`.
 
 ### Day 14 (Target)
 - [ ] score.py batch to predictions table
@@ -139,7 +140,8 @@ A PR is Done when:
 - docs/architecture.md: C4 diagrams, data flow, components
 - docs/runbook.md: Operations, CE spike checklist, troubleshooting
 - docs/ATTRIBUTION.md: Data source credits (nflverse CC BY 4.0)
-- QUALITY_GUIDELINES.md: Full SWEBOK + Wilson + TC5062 quality bar
+- `.cursor/rules/QUALITY_GUIDELINES.md`: Full SWEBOK + Wilson + TC5062 quality bar
+- `.cursor/rules/ml-experiments.mdc`: phase status. Phase 0 and Phase 1 are done. H1 rejected. H2 accepted, logistic `h2_full` is the reference. H3 rejected. Ridge did not help. H4 clean EPA is next. Phases 3 and 4 are planned.
 
 ## For AI Assistants
 
