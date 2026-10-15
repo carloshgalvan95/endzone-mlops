@@ -11,6 +11,7 @@ Features computed:
 - Home-minus-away differences of the level features (diff sets only)
 - Season-to-date defensive EPA allowed (h2 sets only)
 - Cross-season regression of season and recent EPA (h2_full only)
+- Recent and regressed-season pass and rush EPA per play (h3 sets only)
 - A simple Elo rating and a no-vig market probability
 """
 
@@ -31,6 +32,8 @@ FEATURE_SET_DIFF: str = "diff"
 FEATURE_SET_DIFF_ONLY: str = "diff_only"
 FEATURE_SET_H2_DEF: str = "h2_def"
 FEATURE_SET_H2_FULL: str = "h2_full"
+FEATURE_SET_H3_SPLIT: str = "h3_split"
+FEATURE_SET_H3_REPLACE: str = "h3_replace"
 
 # Level columns, in the pre-phase-1 order. Differentials are appended after
 # these so ``current`` and ``with_games_played`` stay the same matrices.
@@ -134,6 +137,62 @@ PREGAME_FEATURE_COLUMNS_H2_FULL: tuple[str, ...] = (
     PREGAME_FEATURE_COLUMNS_H2_DEF + REGRESSED_EPA_COLUMNS
 )
 
+# Pass and rush EPA per play. Recent uses the cross-season lookback.
+# Regressed-season uses the same shrink and blend as the H2 season columns.
+# Defensive rates are the opponent's offensive pass or rush rate.
+PASS_RUSH_RECENT_COLUMNS: tuple[str, ...] = (
+    "home_recent_offensive_pass_epa_per_play",
+    "home_recent_offensive_rush_epa_per_play",
+    "home_recent_defensive_pass_epa_per_play",
+    "home_recent_defensive_rush_epa_per_play",
+    "away_recent_offensive_pass_epa_per_play",
+    "away_recent_offensive_rush_epa_per_play",
+    "away_recent_defensive_pass_epa_per_play",
+    "away_recent_defensive_rush_epa_per_play",
+)
+PASS_RUSH_REGRESSED_SEASON_COLUMNS: tuple[str, ...] = (
+    "home_regressed_season_offensive_pass_epa_per_play",
+    "home_regressed_season_offensive_rush_epa_per_play",
+    "home_regressed_season_defensive_pass_epa_per_play",
+    "home_regressed_season_defensive_rush_epa_per_play",
+    "away_regressed_season_offensive_pass_epa_per_play",
+    "away_regressed_season_offensive_rush_epa_per_play",
+    "away_regressed_season_defensive_pass_epa_per_play",
+    "away_regressed_season_defensive_rush_epa_per_play",
+)
+PASS_RUSH_EPA_COLUMNS: tuple[str, ...] = (
+    PASS_RUSH_RECENT_COLUMNS + PASS_RUSH_REGRESSED_SEASON_COLUMNS
+)
+
+# Combined columns the pass/rush splits stand in for. ``h3_replace`` drops
+# these and keeps the rest of ``h2_full`` (win rate, rest, season EPA, and
+# the regressed recent block).
+H3_REPLACED_COMBINED_COLUMNS: tuple[str, ...] = (
+    "home_recent_offensive_epa_per_play",
+    "home_recent_defensive_epa_per_play",
+    "away_recent_offensive_epa_per_play",
+    "away_recent_defensive_epa_per_play",
+    "home_regressed_season_offensive_epa_per_play",
+    "away_regressed_season_offensive_epa_per_play",
+    "home_regressed_season_defensive_epa_per_play",
+    "away_regressed_season_defensive_epa_per_play",
+)
+
+# ``h2_full`` plus the sixteen pass/rush columns.
+PREGAME_FEATURE_COLUMNS_H3_SPLIT: tuple[str, ...] = (
+    PREGAME_FEATURE_COLUMNS_H2_FULL + PASS_RUSH_EPA_COLUMNS
+)
+
+# ``h2_full`` with the combined recent and regressed-season EPA replaced.
+PREGAME_FEATURE_COLUMNS_H3_REPLACE: tuple[str, ...] = (
+    tuple(
+        column
+        for column in PREGAME_FEATURE_COLUMNS_H2_FULL
+        if column not in H3_REPLACED_COMBINED_COLUMNS
+    )
+    + PASS_RUSH_EPA_COLUMNS
+)
+
 FEATURE_SET_NAMES: tuple[str, ...] = (
     FEATURE_SET_CURRENT,
     FEATURE_SET_WITH_GAMES_PLAYED,
@@ -141,6 +200,8 @@ FEATURE_SET_NAMES: tuple[str, ...] = (
     FEATURE_SET_DIFF_ONLY,
     FEATURE_SET_H2_DEF,
     FEATURE_SET_H2_FULL,
+    FEATURE_SET_H3_SPLIT,
+    FEATURE_SET_H3_REPLACE,
 )
 
 FEATURE_SET_COLUMNS: dict[str, tuple[str, ...]] = {
@@ -150,6 +211,8 @@ FEATURE_SET_COLUMNS: dict[str, tuple[str, ...]] = {
     FEATURE_SET_DIFF_ONLY: PREGAME_FEATURE_COLUMNS_DIFF_ONLY,
     FEATURE_SET_H2_DEF: PREGAME_FEATURE_COLUMNS_H2_DEF,
     FEATURE_SET_H2_FULL: PREGAME_FEATURE_COLUMNS_H2_FULL,
+    FEATURE_SET_H3_SPLIT: PREGAME_FEATURE_COLUMNS_H3_SPLIT,
+    FEATURE_SET_H3_REPLACE: PREGAME_FEATURE_COLUMNS_H3_REPLACE,
 }
 
 # FiveThirtyEight-style Elo. Home advantage is added only when a game is
@@ -392,6 +455,145 @@ def _regressed_epa_for_side(
     return columns
 
 
+# Mart columns. pass_epa and rush_epa are offensive sums. Play counts are
+# the denominators. Defense is the opponent row in the same game. The mart
+# does not store a defensive pass or rush column.
+PASS_RUSH_SOURCE_COLUMNS: tuple[str, ...] = (
+    "pass_epa",
+    "rush_epa",
+    "pass_plays",
+    "rush_plays",
+    "opponent_franchise",
+)
+
+# Rate column on the team-game frame, in the same order as the feature kinds.
+_PASS_RUSH_RATE_COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("offensive", "pass", "avg_offensive_pass_epa"),
+    ("offensive", "rush", "avg_offensive_rush_epa"),
+    ("defensive", "pass", "avg_defensive_pass_epa_allowed"),
+    ("defensive", "rush", "avg_defensive_rush_epa_allowed"),
+)
+
+
+def _per_play_epa(total: pd.Series, plays: pd.Series) -> pd.Series:
+    """EPA per play. Zero or missing play counts stay missing, not zero."""
+    totals: pd.Series = pd.to_numeric(total, errors="coerce")
+    counts: pd.Series = pd.to_numeric(plays, errors="coerce")
+    rates: pd.Series = totals / counts
+    return rates.where(counts > 0)
+
+
+def _attach_pass_rush_rates(team_games: pd.DataFrame) -> pd.DataFrame:
+    """Add offensive and defensive pass and rush EPA per play.
+
+    A frame with none of the source columns gets missing rates, so older
+    fixtures still build. A frame with some of the columns and not others
+    is refused. Defensive rates are the opponent's offensive rates on the
+    same ``game_id``.
+
+    Args:
+        team_games: Team-game EPA, one row per team per game.
+
+    Returns:
+        A copy with the four rate columns.
+
+    Raises:
+        ValueError: Only part of the pass/rush source is present, or the
+            opponent join changes the row count.
+    """
+    frame: pd.DataFrame = team_games.copy()
+    present: list[str] = [column for column in PASS_RUSH_SOURCE_COLUMNS if column in frame.columns]
+    if len(present) == 0:
+        for _role, _kind, column in _PASS_RUSH_RATE_COLUMNS:
+            frame[column] = np.nan
+        return frame
+    if len(present) != len(PASS_RUSH_SOURCE_COLUMNS):
+        missing: list[str] = [
+            column for column in PASS_RUSH_SOURCE_COLUMNS if column not in frame.columns
+        ]
+        missing_list: str = ", ".join(missing)
+        raise ValueError(f"fct_team_game_epa missing pass/rush columns: {missing_list}")
+
+    frame["avg_offensive_pass_epa"] = _per_play_epa(frame["pass_epa"], frame["pass_plays"])
+    frame["avg_offensive_rush_epa"] = _per_play_epa(frame["rush_epa"], frame["rush_plays"])
+    opponent_rates: pd.DataFrame = frame.loc[
+        :,
+        ["game_id", "team_franchise", "avg_offensive_pass_epa", "avg_offensive_rush_epa"],
+    ].rename(
+        columns={
+            "team_franchise": "opponent_franchise",
+            "avg_offensive_pass_epa": "avg_defensive_pass_epa_allowed",
+            "avg_offensive_rush_epa": "avg_defensive_rush_epa_allowed",
+        }
+    )
+    merged: pd.DataFrame = frame.merge(
+        opponent_rates,
+        on=["game_id", "opponent_franchise"],
+        how="left",
+    )
+    if len(merged) != len(frame):
+        raise ValueError("pass/rush opponent join changed the team-game row count")
+    return merged
+
+
+def _pass_rush_means(rows: pd.DataFrame) -> dict[str, float]:
+    """Mean of each pass/rush rate. An empty frame or a missing rate is NaN."""
+    means: dict[str, float] = {}
+    for role, kind, column in _PASS_RUSH_RATE_COLUMNS:
+        values: pd.Series = rows[column] if column in rows.columns else pd.Series(dtype=float)
+        means[f"{role}_{kind}"] = _mean_or_nan(values)
+    return means
+
+
+def _recent_pass_rush(prior: pd.DataFrame, side: str, lookback_games: int) -> dict[str, float]:
+    """Cross-season lookback means of pass and rush EPA per play."""
+    window: pd.DataFrame = prior.tail(lookback_games)
+    means: dict[str, float] = _pass_rush_means(window)
+    return {
+        f"{side}_recent_{role}_{kind}_epa_per_play": means[f"{role}_{kind}"]
+        for role, kind, _column in _PASS_RUSH_RATE_COLUMNS
+    }
+
+
+def _prior_season_pass_rush_means(prior_games: pd.DataFrame, prior_season: int) -> dict[str, float]:
+    """League pass/rush means for one season, from team-games already before this date."""
+    season_rows: pd.DataFrame = prior_games.loc[prior_games["season"] == prior_season]
+    return _pass_rush_means(season_rows)
+
+
+def _regressed_season_pass_rush(
+    prior: pd.DataFrame,
+    side: str,
+    season: int,
+    league_means: dict[str, float],
+    shrink_factor: float,
+    blend_k: float,
+) -> dict[str, float]:
+    """Regressed-season pass and rush EPA for ``home`` or ``away``.
+
+    The current value is the mean of prior games in ``season``. The prior
+    value is the mean of season ``season - 1`` only. Shrinkage and the
+    blend weight match the combined regressed-season columns.
+    """
+    current_rows: pd.DataFrame = prior.loc[prior["season"] == season]
+    prior_rows: pd.DataFrame = prior.loc[prior["season"] == season - 1]
+    current_means: dict[str, float] = _pass_rush_means(current_rows)
+    prior_means: dict[str, float] = _pass_rush_means(prior_rows)
+    columns: dict[str, float] = {}
+    for role, kind, _rate_column in _PASS_RUSH_RATE_COLUMNS:
+        key: str = f"{role}_{kind}"
+        regressed: dict[str, float] = regress_epa_feature(
+            current_means[key],
+            int(len(current_rows)),
+            prior_means[key],
+            league_means[key],
+            shrink_factor=shrink_factor,
+            blend_k=blend_k,
+        )
+        columns[f"{side}_regressed_season_{role}_{kind}_epa_per_play"] = regressed["value"]
+    return columns
+
+
 def build_pregame_features(
     fct_games: pd.DataFrame,
     fct_team_game_epa: pd.DataFrame,
@@ -436,6 +638,8 @@ def build_pregame_features(
         - away_regressed_season_offensive_epa_per_play: Shrunk prior season offense, blended
         - home_regressed_season_defensive_epa_per_play: Shrunk prior season defense, blended
         - away_regressed_season_defensive_epa_per_play: Shrunk prior season defense, blended
+        - home and away recent pass and rush EPA per play, offense and defense
+        - home and away regressed-season pass and rush EPA per play, offense and defense
         - home_games_played: Count of prior games for home team (legacy set only)
         - away_games_played: Count of prior games for away team (legacy set only)
         - diff_recent_offensive_epa_per_play: Home recent offensive EPA minus away
@@ -450,8 +654,8 @@ def build_pregame_features(
     difference columns, and SimpleImputer(strategy='constant', fill_value=0.5)
     for level win_rate columns in the training pipeline.
     games_played is still computed so the old matrix can be reproduced. The default
-    training set omits it, the differences, the season defensive columns, and the
-    regressed columns. See ``feature_columns_for``.
+    training set omits it, the differences, the season defensive columns, the
+    regressed columns, and the pass/rush columns. See ``feature_columns_for``.
 
     Season defensive EPA uses only prior games of the same season. Regressed
     columns carry the previous season's final value, shrunk toward that
@@ -459,6 +663,16 @@ def build_pregame_features(
     ``n / (n + blend_k)``. The prior season is ``season - 1`` only, and only
     rows with ``gameday`` strictly before this game. Week 1 of the first
     season in the frame stays missing because there is no prior season.
+
+    Pass and rush columns use ``pass_epa / pass_plays`` and
+    ``rush_epa / rush_plays`` from the mart. A zero play count stays missing.
+    Recent pass and rush use the same cross-season ``lookback_games`` window
+    as the level recent EPA columns. Regressed-season pass and rush use the
+    same shrinkage and blend as the combined regressed-season columns.
+    Defensive pass and rush EPA allowed is the opponent's offensive rate in
+    that game, because the mart stores pass and rush EPA on the offense row.
+    A team-game frame with none of those source columns leaves the splits
+    missing. A frame with only some of them raises ``ValueError``.
     """
     _validate_regression_settings(shrink_factor, blend_k)
     # Validate required columns
@@ -497,6 +711,7 @@ def build_pregame_features(
     # Sort by gameday (critical for leakage prevention)
     fct_games = fct_games.sort_values("gameday").reset_index(drop=True)
     fct_team_game_epa = fct_team_game_epa.sort_values("gameday").reset_index(drop=True)
+    fct_team_game_epa = _attach_pass_rush_rates(fct_team_game_epa)
 
     features_list = []
 
@@ -587,6 +802,31 @@ def build_pregame_features(
         away_regressed: dict[str, float] = _regressed_epa_for_side(
             "away", away_snapshot, league_means, shrink_factor, blend_k
         )
+        pass_rush_league: dict[str, float] = _prior_season_pass_rush_means(
+            prior_games, game_season - 1
+        )
+        home_pass_rush_recent: dict[str, float] = _recent_pass_rush(
+            home_prior, "home", lookback_games
+        )
+        away_pass_rush_recent: dict[str, float] = _recent_pass_rush(
+            away_prior, "away", lookback_games
+        )
+        home_pass_rush_season: dict[str, float] = _regressed_season_pass_rush(
+            home_prior,
+            "home",
+            game_season,
+            pass_rush_league,
+            shrink_factor,
+            blend_k,
+        )
+        away_pass_rush_season: dict[str, float] = _regressed_season_pass_rush(
+            away_prior,
+            "away",
+            game_season,
+            pass_rush_league,
+            shrink_factor,
+            blend_k,
+        )
 
         home_season_off_epa = home_snapshot.current_season_offensive
         away_season_off_epa = away_snapshot.current_season_offensive
@@ -614,6 +854,10 @@ def build_pregame_features(
                 "away_games_played": len(away_prior),
                 **home_regressed,
                 **away_regressed,
+                **home_pass_rush_recent,
+                **away_pass_rush_recent,
+                **home_pass_rush_season,
+                **away_pass_rush_season,
             }
         )
 
@@ -624,6 +868,7 @@ def build_pregame_features(
         *DIFF_FEATURE_COLUMNS,
         *SEASON_DEFENSIVE_EPA_COLUMNS,
         *REGRESSED_EPA_COLUMNS,
+        *PASS_RUSH_EPA_COLUMNS,
     ]
     return frame.loc[:, ordered_columns]
 
@@ -672,6 +917,9 @@ def feature_columns_for(feature_set: str) -> tuple[str, ...]:
     ``diff_only`` is the differences and nothing else.
     ``h2_def`` is ``current`` plus season-to-date defensive EPA allowed.
     ``h2_full`` is ``h2_def`` plus the regressed season and recent EPA columns.
+    ``h3_split`` is ``h2_full`` plus recent and regressed-season pass/rush EPA.
+    ``h3_replace`` drops the combined recent and regressed-season EPA that
+    those splits replace and keeps the rest of ``h2_full``.
 
     Args:
         feature_set: One of ``FEATURE_SET_NAMES``.
