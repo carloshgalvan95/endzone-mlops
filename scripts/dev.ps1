@@ -25,6 +25,7 @@ function Show-Help {
     Write-Host "  train-cv            - Phase 2 ridge reference CV (L2 C tuned inside each training fold)"
     Write-Host "  mlflow-ui           - Open MLflow UI against the local SQLite store"
     Write-Host "  audit-features      - Profile current pregame inputs (no feature changes)"
+    Write-Host "  check-epa-filter    - Count play types in the EPA filter, plus kneel and spike rows"
     Write-Host "  clean               - Remove build artifacts"
     Write-Host "  reproduce           - Full reproduction pipeline"
     Write-Host ""
@@ -141,6 +142,12 @@ function Invoke-AuditFeatures {
     python -m src.analysis.feature_audit --output-dir reports/phase0
 }
 
+function Invoke-CheckEpaFilter {
+    Load-Env
+    Write-Host "Checking play types inside the EPA play filter..."
+    python -m src.analysis.epa_play_filter_check --output reports/epa_filter_check.md
+}
+
 function Invoke-Reproduce {
     Invoke-Install
     Invoke-DbtCompile
@@ -189,6 +196,7 @@ switch ($Target.ToLower()) {
     "train-cv" { Invoke-TrainCv }
     "mlflow-ui" { Invoke-MlflowUi }
     "audit-features" { Invoke-AuditFeatures }
+    "check-epa-filter" { Invoke-CheckEpaFilter }
     "clean" { Invoke-Clean }
     "reproduce" { Invoke-Reproduce }
     default {

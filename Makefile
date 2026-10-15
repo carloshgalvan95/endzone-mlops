@@ -1,4 +1,4 @@
-.PHONY: help setup install lint test dbt-compile dbt-run dbt-test clean reproduce ingest ingest-current dbt-build-databricks train train-sweep train-cv mlflow-ui audit-features
+.PHONY: help setup install lint test dbt-compile dbt-run dbt-test clean reproduce ingest ingest-current dbt-build-databricks train train-sweep train-cv mlflow-ui audit-features check-epa-filter
 
 # Git Bash on Windows rewrites arguments that look like Unix paths.
 # DATABRICKS_HTTP_PATH starts with /sql/1.0/... and would be mangled.
@@ -22,6 +22,7 @@ help:
 	@echo "  train-cv            - Phase 2 ridge reference CV (L2 C tuned inside each training fold)"
 	@echo "  mlflow-ui           - Open MLflow UI against the local SQLite store"
 	@echo "  audit-features      - Profile current pregame inputs (no feature changes)"
+	@echo "  check-epa-filter    - Count play types in the EPA filter, plus kneel and spike rows"
 	@echo "  reproduce           - Full reproduction pipeline (install -> dbt compile)"
 	@echo "  clean               - Remove build artifacts"
 	@echo ""
@@ -94,6 +95,10 @@ mlflow-ui:
 audit-features:
 	@if [ -f .env ]; then set -a && . ./.env && set +a; fi; \
 	python -m src.analysis.feature_audit --output-dir reports/phase0 $(AUDIT_ARGS)
+
+check-epa-filter:
+	@if [ -f .env ]; then set -a && . ./.env && set +a; fi; \
+	python -m src.analysis.epa_play_filter_check --output reports/epa_filter_check.md
 
 reproduce: install dbt-compile
 	@echo "Reproduction pipeline complete (dependencies installed, dbt compiled on DuckDB)."

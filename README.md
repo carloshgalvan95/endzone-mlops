@@ -299,6 +299,10 @@ make mlflow-ui
 
 `make audit-features` (Windows: `.\scripts\dev.ps1 audit-features`) profiles the current pregame inputs and does not change them. It writes `reports/phase0/feature_audit.md` and `reports/phase0/feature_audit.csv`, and logs both on an MLflow run tagged `phase=0-audit` under experiment `nfl_pregame/phase0_audit`. Those files are local outputs. Code-reading findings are in `docs/experiments/phase0_input_audit.md`. The command uses the same Databricks credentials as training, or `--fixture-path` for a local frame. Pass extra CLI flags with `make audit-features AUDIT_ARGS="--fixture-path path/to/fixtures"`. 2025 is included in the distribution tables and is not scored.
 
+### EPA play filter check
+
+`make check-epa-filter` (Windows: `.\scripts\dev.ps1 check-epa-filter`) counts `stg_nflverse__pbp` rows with `play = 1` by `play_type`, which is the filter `fct_team_game_epa` uses. It also counts `qb_kneel = 1` and `qb_spike = 1`. Those columns are not on the staging view, so the counts come from `workspace.nfl_raw.play_by_play` unless a future staging view adds them. The command uses the same Databricks client as training and writes `reports/epa_filter_check.md` (gitignored). It does not change dbt models.
+
 ### Phase 1 baselines
 
 `python -m src.train.train --cv` (default `--phase 1`) runs rolling-origin cross-validation: for each season S from 2016 through 2023, models train on seasons strictly before S and score S. 2024 is not scored. 2025 is not scored. The command logs the home prior, logistic regression on feature set `current` (no `games_played`) and on `with_games_played`, a simple Elo rating, and a no-vig closing moneyline when `home_moneyline` and `away_moneyline` are on the games table. The paired comparison is log loss against the home prior. Runs go to MLflow experiment `nfl_pregame/phase1_baselines` with tag `phase=1`. The comparison is written to `reports/phase1/` (gitignored). The method and an empty decision log are in `docs/experiments/phase1_baselines.md`. This README does not add measured CV numbers.
