@@ -22,9 +22,10 @@ function Show-Help {
     Write-Host "  dbt-build-databricks - Build dbt models on Databricks target"
     Write-Host "  train               - Train NFL pregame prediction models with MLflow"
     Write-Host "  train-sweep         - Run training sweep (5+ configs for MLflow comparison)"
-    Write-Host "  train-cv            - Phase 2 H3 rolling-origin CV (pass/rush vs logistic h2_full)"
+    Write-Host "  train-cv            - Phase 2 ridge reference CV (L2 C tuned inside each training fold)"
     Write-Host "  mlflow-ui           - Open MLflow UI against the local SQLite store"
     Write-Host "  audit-features      - Profile current pregame inputs (no feature changes)"
+    Write-Host "  check-epa-filter    - Count play types in the EPA filter, plus kneel and spike rows"
     Write-Host "  clean               - Remove build artifacts"
     Write-Host "  reproduce           - Full reproduction pipeline"
     Write-Host ""
@@ -126,8 +127,8 @@ function Invoke-TrainSweep {
 
 function Invoke-TrainCv {
     Load-Env
-    Write-Host "Running phase 2 H3 rolling-origin CV..."
-    python -m src.train.train --cv --phase 2 --hypothesis h3 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h3
+    Write-Host "Running phase 2 ridge reference CV..."
+    python -m src.train.train --cv --phase 2 --hypothesis ridge --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_ridge
 }
 
 function Invoke-MlflowUi {
@@ -139,6 +140,12 @@ function Invoke-AuditFeatures {
     Load-Env
     Write-Host "Auditing pregame inputs (features are not changed)..."
     python -m src.analysis.feature_audit --output-dir reports/phase0
+}
+
+function Invoke-CheckEpaFilter {
+    Load-Env
+    Write-Host "Checking play types inside the EPA play filter..."
+    python -m src.analysis.epa_play_filter_check --output reports/epa_filter_check.md
 }
 
 function Invoke-Reproduce {
@@ -189,6 +196,7 @@ switch ($Target.ToLower()) {
     "train-cv" { Invoke-TrainCv }
     "mlflow-ui" { Invoke-MlflowUi }
     "audit-features" { Invoke-AuditFeatures }
+    "check-epa-filter" { Invoke-CheckEpaFilter }
     "clean" { Invoke-Clean }
     "reproduce" { Invoke-Reproduce }
     default {

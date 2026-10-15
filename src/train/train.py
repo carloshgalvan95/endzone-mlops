@@ -8,6 +8,7 @@ Usage:
     python -m src.train.train --cv
     python -m src.train.train --cv --phase 2
     python -m src.train.train --cv --phase 2 --hypothesis h3
+    python -m src.train.train --cv --phase 2 --hypothesis ridge
 """
 
 import argparse
@@ -83,10 +84,12 @@ PHASE1_TAG: str = "1"
 PHASE2_EXPERIMENT_NAME: str = "nfl_pregame/phase2_h1"
 PHASE2_H2_EXPERIMENT_NAME: str = "nfl_pregame/phase2_h2"
 PHASE2_H3_EXPERIMENT_NAME: str = "nfl_pregame/phase2_h3"
+PHASE2_RIDGE_EXPERIMENT_NAME: str = "nfl_pregame/phase2_ridge"
 PHASE2_TAG: str = "2"
 HYPOTHESIS_H1: str = "h1-diff"
 HYPOTHESIS_H2: str = "h2-season-def-regression"
 HYPOTHESIS_H3: str = "h3-pass-rush-epa"
+HYPOTHESIS_RIDGE: str = "ridge-reference"
 HYPOTHESIS_ALIASES: dict[str, str] = {
     "h1": HYPOTHESIS_H1,
     "h1-diff": HYPOTHESIS_H1,
@@ -94,7 +97,14 @@ HYPOTHESIS_ALIASES: dict[str, str] = {
     "h2-season-def-regression": HYPOTHESIS_H2,
     "h3": HYPOTHESIS_H3,
     "h3-pass-rush-epa": HYPOTHESIS_H3,
+    "ridge": HYPOTHESIS_RIDGE,
+    "ridge-reference": HYPOTHESIS_RIDGE,
 }
+MODEL_LOGISTIC: str = "logistic"
+MODEL_LOGISTIC_L2: str = "logistic_l2"
+# Fixed-C logistic is already L2. logistic_l2 chooses C inside each training fold.
+# The grid matches the sweep endpoints (0.1 and 10) plus one step on each side.
+DEFAULT_L2_C_GRID: tuple[float, ...] = (0.01, 0.1, 1.0, 10.0, 100.0)
 CV_SCHEME: str = "rolling_season_2016_2023"
 PHASE1_MARKDOWN_NAME: str = "comparison.md"
 PHASE1_CSV_NAME: str = "comparison.csv"
@@ -132,13 +142,17 @@ DEFAULT_REFERENCE_BY_HYPOTHESIS: dict[str, tuple[str, str]] = {
     HYPOTHESIS_H1: ("logistic", FEATURE_SET_CURRENT),
     HYPOTHESIS_H2: ("logistic", FEATURE_SET_CURRENT),
     HYPOTHESIS_H3: ("logistic", FEATURE_SET_H2_FULL),
+    HYPOTHESIS_RIDGE: ("logistic", FEATURE_SET_H2_FULL),
 }
 MODEL_DEFAULT_FEATURE_SET: dict[str, str] = {
     REFERENCE_MODEL_NAME: "none",
-    "logistic": FEATURE_SET_CURRENT,
+    MODEL_LOGISTIC: FEATURE_SET_CURRENT,
+    MODEL_LOGISTIC_L2: FEATURE_SET_H2_FULL,
     "elo": "elo",
     "market": "market",
 }
+# Models whose feature set can be accepted. Baselines are not in this set.
+SCORED_FEATURE_MODELS: frozenset[str] = frozenset({MODEL_LOGISTIC, MODEL_LOGISTIC_L2})
 PHASE1_NOTE: str = (
     "Phase 1 rolling-origin baselines. "
     f"{FINAL_VALIDATION_SEASON} and {HELD_OUT_TEST_SEASON} are not scored. "
@@ -159,9 +173,55 @@ PHASE2_H3_NOTE: str = (
     f"{FINAL_VALIDATION_SEASON} and {HELD_OUT_TEST_SEASON} are not scored. "
     "No model is promoted from this run."
 )
+PHASE2_RIDGE_NOTE: str = (
+    "Phase 2 ridge reference. L2 logistic chooses C inside each training fold. "
+    f"{FINAL_VALIDATION_SEASON} and {HELD_OUT_TEST_SEASON} are not scored. "
+    "No model is promoted from this run."
+)
 
-# predict(train_x, train_y, eval_x, eval_y) -> P(home win) for eval rows.
-FoldPredictor = Callable[[pd.DataFrame, pd.Series, pd.DataFrame, pd.Series], np.ndarray]
+
+class CvModelSpec(NamedTuple):
+    """One model and feature set scored in a rolling-origin comparison."""
+
+    model: str
+    feature_set: str
+
+
+PHASE2_RIDGE_MODEL_SPECS: tuple[CvModelSpec, ...] = (
+    CvModelSpec(MODEL_LOGISTIC, FEATURE_SET_H2_FULL),
+    CvModelSpec(MODEL_LOGISTIC_L2, FEATURE_SET_H2_FULL),
+    CvModelSpec(MODEL_LOGISTIC_L2, FEATURE_SET_H3_SPLIT),
+    CvModelSpec(MODEL_LOGISTIC_L2, FEATURE_SET_H3_REPLACE),
+)
+
+
+class FoldPrediction(NamedTuple):
+    """Probabilities for one scored season, plus fields stored on that fold."""
+
+    probabilities: np.ndarray
+    extras: dict[str, Any]
+
+
+# predict(...) -> probabilities, or probabilities plus fold fields such as chosen_c.
+FoldPredictor = Callable[
+    [pd.DataFrame, pd.Series, pd.DataFrame, pd.Series],
+    np.ndarray | FoldPrediction,
+]
+_FOLD_RESERVED_KEYS: frozenset[str] = frozenset(
+    {
+        "season",
+        "status",
+        "reason",
+        "n_train",
+        "n_eval",
+        "train_seasons",
+        "eval_season",
+        "log_loss",
+        "brier",
+        "auc",
+        "accuracy",
+    }
+)
 
 COMPARISON_COLUMNS: tuple[str, ...] = (
     "model",
@@ -399,6 +459,242 @@ def train_logistic_regression(
     }
 
     return pipeline, metrics
+
+
+class LogisticL2Fit(NamedTuple):
+    """A fitted L2 logistic pipeline and the C chosen on the training seasons."""
+
+    pipeline: Pipeline
+    metrics: dict[str, float]
+    chosen_c: float
+    c_selection: str
+    inner_log_loss: float | None
+    inner_seasons: tuple[int, ...]
+
+
+def _validate_c_grid(c_grid: tuple[float, ...]) -> tuple[float, ...]:
+    """Return a grid of finite positive C values.
+
+    Args:
+        c_grid: Candidate inverse regularization strengths.
+
+    Returns:
+        The same values as floats.
+
+    Raises:
+        ValueError: The grid is empty or a value is not finite and positive.
+    """
+    if len(c_grid) == 0:
+        raise ValueError("c_grid must contain at least one positive C")
+    values: list[float] = []
+    for value in c_grid:
+        c_value: float = float(value)
+        if not np.isfinite(c_value) or c_value <= 0.0:
+            raise ValueError(f"every C in c_grid must be finite and positive, got {value!r}")
+        values.append(c_value)
+    return tuple(values)
+
+
+def _format_regularization_c(value: float) -> str:
+    """Render one C without trailing zeros, stable enough for an MLflow param."""
+    return f"{float(value):.6g}"
+
+
+def _usable_inner_seasons(seasons: pd.Series, labels: pd.Series) -> list[int]:
+    """Seasons that can score an expanding inner split.
+
+    The earliest season has no prior rows, so it is never an inner validation
+    season. A season is usable when both the prior rows and that season have
+    two classes.
+
+    Args:
+        seasons: Season of each training row, aligned with ``labels``.
+        labels: Binary labels for those rows.
+
+    Returns:
+        Inner validation seasons, ascending.
+    """
+    ordered: list[int] = sorted(int(season) for season in pd.unique(seasons))
+    usable: list[int] = []
+    for season in ordered[1:]:
+        prior_labels: pd.Series = labels.loc[seasons < season]
+        season_labels: pd.Series = labels.loc[seasons == season]
+        if prior_labels.nunique() < 2 or season_labels.nunique() < 2:
+            continue
+        usable.append(season)
+    return usable
+
+
+def select_logistic_l2_c(
+    train_frame: pd.DataFrame,
+    train_target: pd.Series,
+    c_grid: tuple[float, ...] = DEFAULT_L2_C_GRID,
+    fallback_c: float = 1.0,
+    max_iter: int = 1000,
+    random_state: int = 42,
+) -> dict[str, Any]:
+    """Choose C from training seasons only.
+
+    For each season after the first training season, fit on the seasons
+    strictly before it and score log loss on that season. The C with the
+    lowest mean inner log loss wins. Ties keep the smaller C. The caller
+    must not pass the season that the outer fold will score.
+
+    Args:
+        train_frame: Training games, including ``season``.
+        train_target: Binary labels aligned with ``train_frame``.
+        c_grid: Positive C values to try.
+        fallback_c: C used when no inner season can be scored.
+        max_iter: Logistic solver iteration cap.
+        random_state: Seed for each inner fit.
+
+    Returns:
+        Dict with ``chosen_c``, ``c_selection`` (``inner_season`` or
+        ``fallback``), ``fallback_reason``, ``inner_log_loss``, and
+        ``inner_seasons``.
+
+    Raises:
+        ValueError: The frame has no season, the labels do not align, or
+            the grid or fallback C is invalid.
+    """
+    grid: tuple[float, ...] = _validate_c_grid(c_grid)
+    fallback: float = float(fallback_c)
+    if not np.isfinite(fallback) or fallback <= 0.0:
+        raise ValueError(f"fallback_c must be finite and positive, got {fallback_c!r}")
+    if "season" not in train_frame.columns:
+        raise ValueError("training frame must include season")
+    frame: pd.DataFrame = train_frame.reset_index(drop=True)
+    labels: pd.Series = pd.to_numeric(
+        pd.Series(train_target).reset_index(drop=True), errors="coerce"
+    )
+    if len(frame) != len(labels):
+        raise ValueError("train_frame and train_target must have the same number of rows")
+    if labels.isna().any():
+        raise ValueError("train_target must be numeric 0/1 with no nulls")
+    seasons: pd.Series = frame["season"]
+    inner_seasons: list[int] = _usable_inner_seasons(seasons, labels)
+    if not inner_seasons:
+        return {
+            "chosen_c": fallback,
+            "c_selection": "fallback",
+            "fallback_reason": "no_inner_season",
+            "inner_log_loss": None,
+            "inner_seasons": (),
+        }
+    scored: list[dict[str, float]] = []
+    for c_value in grid:
+        losses: list[float] = []
+        for season in inner_seasons:
+            prior_mask = seasons < season
+            season_mask = seasons == season
+            _model, metrics = train_logistic_regression(
+                frame.loc[prior_mask],
+                labels.loc[prior_mask],
+                frame.loc[season_mask],
+                labels.loc[season_mask],
+                C=c_value,
+                max_iter=max_iter,
+                random_state=random_state,
+            )
+            losses.append(float(metrics["log_loss"]))
+        mean_loss: float = float(np.mean(losses))
+        if np.isfinite(mean_loss):
+            scored.append({"c": c_value, "mean_log_loss": mean_loss})
+    if not scored:
+        return {
+            "chosen_c": fallback,
+            "c_selection": "fallback",
+            "fallback_reason": "non_finite_inner_log_loss",
+            "inner_log_loss": None,
+            "inner_seasons": tuple(inner_seasons),
+        }
+    best: dict[str, float] = min(scored, key=lambda item: (item["mean_log_loss"], item["c"]))
+    return {
+        "chosen_c": float(best["c"]),
+        "c_selection": "inner_season",
+        "fallback_reason": None,
+        "inner_log_loss": float(best["mean_log_loss"]),
+        "inner_seasons": tuple(inner_seasons),
+    }
+
+
+def fit_logistic_l2(
+    X_train: pd.DataFrame,
+    y_train: pd.Series,
+    X_val: pd.DataFrame,
+    y_val: pd.Series,
+    c_grid: tuple[float, ...] = DEFAULT_L2_C_GRID,
+    fallback_c: float = 1.0,
+    max_iter: int = 1000,
+    random_state: int = 42,
+) -> LogisticL2Fit:
+    """Tune L2 C on the training seasons, then refit and score ``X_val``.
+
+    ``X_val`` is not used to choose C. The returned metrics are the
+    validation metrics of the refit.
+
+    Args:
+        X_train: Training matrix, including ``season``.
+        y_train: Training labels.
+        X_val: Rows scored after C is chosen.
+        y_val: Labels for ``X_val``.
+        c_grid: Candidate C values.
+        fallback_c: C used when the training seasons cannot form an inner split.
+        max_iter: Logistic solver iteration cap.
+        random_state: Seed for the inner fits and the refit.
+
+    Returns:
+        Fitted pipeline, validation metrics, and the chosen C.
+    """
+    selection: dict[str, Any] = select_logistic_l2_c(
+        X_train,
+        y_train,
+        c_grid=c_grid,
+        fallback_c=fallback_c,
+        max_iter=max_iter,
+        random_state=random_state,
+    )
+    pipeline, metrics = train_logistic_regression(
+        X_train,
+        y_train,
+        X_val,
+        y_val,
+        C=float(selection["chosen_c"]),
+        max_iter=max_iter,
+        random_state=random_state,
+    )
+    return LogisticL2Fit(
+        pipeline=pipeline,
+        metrics=metrics,
+        chosen_c=float(selection["chosen_c"]),
+        c_selection=str(selection["c_selection"]),
+        inner_log_loss=selection["inner_log_loss"],
+        inner_seasons=tuple(selection["inner_seasons"]),
+    )
+
+
+def _chosen_c_param_fields(folds: list[dict[str, Any]]) -> dict[str, str]:
+    """MLflow params for the C chosen on each scored fold.
+
+    Args:
+        folds: Fold dicts from rolling-origin CV.
+
+    Returns:
+        ``chosen_c_by_fold`` and one ``chosen_c_<season>`` key per scored fold
+        that recorded a C. Empty when no fold recorded one.
+    """
+    pieces: list[str] = []
+    fields: dict[str, str] = {}
+    for fold in folds:
+        if fold.get("status") != "scored" or fold.get("chosen_c") is None:
+            continue
+        season: int = int(fold["season"])
+        text: str = _format_regularization_c(float(fold["chosen_c"]))
+        pieces.append(f"{season}:{text}")
+        fields[f"chosen_c_{season}"] = text
+    if pieces:
+        fields["chosen_c_by_fold"] = ",".join(pieces)
+    return fields
 
 
 def train_gradient_boosting(
@@ -790,10 +1086,19 @@ def rolling_origin_cv(
         if reason is not None:
             folds.append(fold)
             continue
-        probabilities = np.asarray(
-            predict_fold(train_frame, train_target, eval_frame, eval_target),
-            dtype=float,
-        )
+        predicted = predict_fold(train_frame, train_target, eval_frame, eval_target)
+        extras: dict[str, Any] = {}
+        if isinstance(predicted, FoldPrediction):
+            extras = dict(predicted.extras)
+            probability_values = predicted.probabilities
+        else:
+            probability_values = predicted
+        overlap: set[str] = set(extras).intersection(_FOLD_RESERVED_KEYS)
+        if overlap:
+            overlap_list: str = ", ".join(sorted(overlap))
+            raise ValueError(f"fold extras overwrite reserved fields: {overlap_list}")
+        fold.update(extras)
+        probabilities = np.asarray(probability_values, dtype=float)
         if len(probabilities) != len(eval_frame):
             raise ValueError(
                 f"predict_fold returned {len(probabilities)} probabilities for {len(eval_frame)} rows"
@@ -895,6 +1200,52 @@ def _logistic_fold_predictor(c_value: float, max_iter: int, random_state: int) -
             random_state=random_state,
         )
         return _model_probability(model, eval_frame)
+
+    return predict
+
+
+def _logistic_l2_fold_predictor(
+    c_grid: tuple[float, ...],
+    fallback_c: float,
+    max_iter: int,
+    random_state: int,
+) -> FoldPredictor:
+    """L2 logistic whose C is chosen on the training seasons of this fold.
+
+    The scored season is used only after C is fixed. ``chosen_c`` and
+    ``c_selection`` are stored on the fold.
+    """
+
+    def predict(
+        train_frame: pd.DataFrame,
+        train_target: pd.Series,
+        eval_frame: pd.DataFrame,
+        eval_target: pd.Series,
+    ) -> FoldPrediction:
+        selection: dict[str, Any] = select_logistic_l2_c(
+            train_frame,
+            train_target,
+            c_grid=c_grid,
+            fallback_c=fallback_c,
+            max_iter=max_iter,
+            random_state=random_state,
+        )
+        model, _metrics = train_logistic_regression(
+            train_frame,
+            train_target,
+            eval_frame,
+            eval_target,
+            C=float(selection["chosen_c"]),
+            max_iter=max_iter,
+            random_state=random_state,
+        )
+        return FoldPrediction(
+            probabilities=_model_probability(model, eval_frame),
+            extras={
+                "chosen_c": float(selection["chosen_c"]),
+                "c_selection": str(selection["c_selection"]),
+            },
+        )
 
     return predict
 
@@ -1035,10 +1386,11 @@ def resolve_reference_spec(
     """Choose the paired-comparison reference for a CV phase.
 
     Phase 1 defaults to the home prior. Phase 2 H1 and H2 default to
-    logistic ``current``. Phase 2 H3 defaults to logistic ``h2_full``.
-    Passing a model or a feature set replaces that default. When only the
-    model is set, its usual feature set is used, except logistic on H3,
-    which stays on ``h2_full`` unless a feature set is passed.
+    logistic ``current``. Phase 2 H3 and the ridge comparison default to
+    logistic ``h2_full``. Passing a model or a feature set replaces that
+    default. When only the model is set, its usual feature set is used,
+    except logistic on H3 or ridge, which stays on ``h2_full`` unless a
+    feature set is passed.
 
     Args:
         phase: ``1`` or ``2``.
@@ -1084,7 +1436,8 @@ def resolve_hypothesis(phase: int, hypothesis: str | None = None) -> str | None:
 
     Phase 1 has no hypothesis. Phase 2 defaults to H1 so the differential
     report stays reproducible. ``h2`` selects the season-defense hypothesis.
-    ``h3`` selects the pass/rush split.
+    ``h3`` selects the pass/rush split. ``ridge`` selects the L2 reference
+    comparison.
 
     Args:
         phase: ``1`` or ``2``.
@@ -1092,7 +1445,8 @@ def resolve_hypothesis(phase: int, hypothesis: str | None = None) -> str | None:
 
     Returns:
         ``None`` for phase 1, otherwise ``h1-diff``,
-        ``h2-season-def-regression``, or ``h3-pass-rush-epa``.
+        ``h2-season-def-regression``, ``h3-pass-rush-epa``, or
+        ``ridge-reference``.
 
     Raises:
         ValueError: Phase 1 was given a hypothesis, or the name is unknown.
@@ -1118,7 +1472,8 @@ def logistic_feature_sets_for(phase: int, hypothesis: str | None = None) -> tupl
     Phase 1 scores ``current`` and ``with_games_played``. Phase 2 H1 scores
     ``current``, ``diff``, and ``diff_only``. Phase 2 H2 scores ``current``,
     ``h2_def``, and ``h2_full``. Phase 2 H3 scores ``h2_full``, ``h3_split``,
-    and ``h3_replace``.
+    and ``h3_replace``. The ridge comparison's logistic row is ``h2_full``
+    only. Its L2 rows are returned by ``cv_model_specs_for``.
 
     Args:
         phase: ``1`` or ``2``.
@@ -1139,8 +1494,37 @@ def logistic_feature_sets_for(phase: int, hypothesis: str | None = None) -> tupl
             return PHASE2_H2_LOGISTIC_FEATURE_SETS
         if resolved == HYPOTHESIS_H3:
             return PHASE2_H3_LOGISTIC_FEATURE_SETS
+        if resolved == HYPOTHESIS_RIDGE:
+            return (FEATURE_SET_H2_FULL,)
         return PHASE2_LOGISTIC_FEATURE_SETS
     raise ValueError(f"Unknown phase {phase}. Known phases: 1, 2.")
+
+
+def cv_model_specs_for(phase: int, hypothesis: str | None = None) -> tuple[CvModelSpec, ...]:
+    """Return the model and feature-set pairs a phase scores, before baselines.
+
+    Phase 1 and hypotheses H1, H2, and H3 score fixed-C logistic regression
+    on ``logistic_feature_sets_for``. The ridge comparison scores fixed-C
+    logistic on ``h2_full``, then L2 logistic on ``h2_full``, ``h3_split``,
+    and ``h3_replace``.
+
+    Args:
+        phase: ``1`` or ``2``.
+        hypothesis: Phase 2 hypothesis name. None keeps H1.
+
+    Returns:
+        Specs in report order.
+
+    Raises:
+        ValueError: The phase or hypothesis is unknown.
+    """
+    resolved: str | None = resolve_hypothesis(phase, hypothesis)
+    if resolved == HYPOTHESIS_RIDGE:
+        return PHASE2_RIDGE_MODEL_SPECS
+    return tuple(
+        CvModelSpec(MODEL_LOGISTIC, feature_set)
+        for feature_set in logistic_feature_sets_for(phase, hypothesis=hypothesis)
+    )
 
 
 def phase_tracking_settings(phase: int, hypothesis: str | None = None) -> dict[str, Any]:
@@ -1187,6 +1571,15 @@ def phase_tracking_settings(phase: int, hypothesis: str | None = None) -> dict[s
                 "note": PHASE2_H3_NOTE,
                 "output_dir": "reports/phase2_h3",
                 "title": "Phase 2 H3 pass and rush EPA",
+            }
+        if resolved == HYPOTHESIS_RIDGE:
+            return {
+                "experiment_name": PHASE2_RIDGE_EXPERIMENT_NAME,
+                "phase_tag": PHASE2_TAG,
+                "hypothesis": HYPOTHESIS_RIDGE,
+                "note": PHASE2_RIDGE_NOTE,
+                "output_dir": "reports/phase2_ridge",
+                "title": "Phase 2 ridge reference",
             }
         return {
             "experiment_name": PHASE2_EXPERIMENT_NAME,
@@ -1406,10 +1799,12 @@ def run_phase1_baselines(
     prior. Phase 2 H1 logs logistic ``current``, ``diff``, and ``diff_only``.
     Phase 2 H2 logs logistic ``current``, ``h2_def``, and ``h2_full``.
     Phase 2 H3 logs logistic ``h2_full``, ``h3_split``, and ``h3_replace``.
-    H1 and H2 pair every model to logistic ``current``. H3 pairs every
-    model to logistic ``h2_full``. ``reference_model`` and
-    ``reference_feature_set`` override that default. The phase 1 call with
-    no extra arguments is unchanged.
+    The ridge comparison logs logistic ``h2_full`` and ``logistic_l2`` on
+    ``h2_full``, ``h3_split``, and ``h3_replace``. ``logistic_l2`` chooses
+    C inside each training fold. H1 and H2 pair every model to logistic
+    ``current``. H3 and ridge pair every model to logistic ``h2_full``.
+    ``reference_model`` and ``reference_feature_set`` override that default.
+    The phase 1 call with no extra arguments is unchanged.
 
     Args:
         games: Completed games, one row per game.
@@ -1423,7 +1818,7 @@ def run_phase1_baselines(
         reference_model: Reference model name. None uses the phase default.
         reference_feature_set: Reference feature set. None uses the phase default.
         phase: ``1`` keeps the phase 1 report. ``2`` is a phase 2 hypothesis.
-        hypothesis: ``h1``, ``h2``, or ``h3``. None on phase 2 keeps H1.
+        hypothesis: ``h1``, ``h2``, ``h3``, or ``ridge``. None on phase 2 keeps H1.
 
     Returns:
         Dict with ``results``, ``comparison_table``, ``markdown``, ``config``,
@@ -1441,13 +1836,15 @@ def run_phase1_baselines(
         reference_feature_set=reference_feature_set,
         hypothesis=hypothesis,
     )
-    selected_sets: tuple[str, ...] = (
-        logistic_feature_sets_for(phase, hypothesis=hypothesis)
-        if logistic_feature_sets is None
-        else logistic_feature_sets
-    )
-    for feature_set_name in selected_sets:
-        feature_columns_for(feature_set_name)
+    if logistic_feature_sets is None:
+        model_specs: tuple[CvModelSpec, ...] = cv_model_specs_for(phase, hypothesis=hypothesis)
+    else:
+        model_specs = tuple(
+            CvModelSpec(MODEL_LOGISTIC, feature_set_name)
+            for feature_set_name in logistic_feature_sets
+        )
+    for spec in model_specs:
+        feature_columns_for(spec.feature_set)
     tracking: dict[str, Any] = phase_tracking_settings(phase, hypothesis=hypothesis)
     features: pd.DataFrame = build_pregame_features(
         games,
@@ -1464,7 +1861,7 @@ def run_phase1_baselines(
         "reference_model": reference_spec["model"],
         "reference_feature_set": reference_spec["feature_set"],
     }
-    if tracking["hypothesis"] in {HYPOTHESIS_H2, HYPOTHESIS_H3}:
+    if tracking["hypothesis"] in {HYPOTHESIS_H2, HYPOTHESIS_H3, HYPOTHESIS_RIDGE}:
         shared_params["shrink_factor"] = SEASON_SHRINK_FACTOR
         shared_params["blend_k"] = SEASON_BLEND_K
     results: list[dict[str, Any]] = []
@@ -1492,30 +1889,50 @@ def run_phase1_baselines(
         )
     )
 
-    for feature_set in selected_sets:
-        matrix, target = prepare_training_data(games, features, feature_set=feature_set)
+    for spec in model_specs:
+        matrix, target = prepare_training_data(games, features, feature_set=spec.feature_set)
+        if spec.model == MODEL_LOGISTIC_L2:
+            fold_predictor: FoldPredictor = _logistic_l2_fold_predictor(
+                DEFAULT_L2_C_GRID,
+                logistic_c,
+                logistic_max_iter,
+                random_state,
+            )
+        elif spec.model == MODEL_LOGISTIC:
+            fold_predictor = _logistic_fold_predictor(logistic_c, logistic_max_iter, random_state)
+        else:
+            raise ValueError(f"Unknown CV model {spec.model!r}.")
         logistic_cv: dict[str, Any] = rolling_origin_cv(
             matrix,
             target,
-            _logistic_fold_predictor(logistic_c, logistic_max_iter, random_state),
+            fold_predictor,
             resolved,
         )
         logistic_reason: str | None = None if not logistic_cv["oof"].empty else "no_scored_folds"
-        columns: str = ",".join(feature_columns_for(feature_set))
+        columns: str = ",".join(feature_columns_for(spec.feature_set))
+        model_params: dict[str, Any] = {
+            **shared_params,
+            "model_type": spec.model,
+            "feature_set": spec.feature_set,
+            "features": columns,
+            "max_iter": logistic_max_iter,
+            "regularization": "l2",
+        }
+        if spec.model == MODEL_LOGISTIC_L2:
+            model_params["c_grid"] = ",".join(
+                _format_regularization_c(value) for value in DEFAULT_L2_C_GRID
+            )
+            model_params["c_fallback"] = logistic_c
+            model_params.update(_chosen_c_param_fields(logistic_cv["folds"]))
+        else:
+            model_params["C"] = logistic_c
         results.append(
             _cv_result_record(
-                "logistic",
-                feature_set,
+                spec.model,
+                spec.feature_set,
                 "ok" if logistic_reason is None else "skipped",
                 logistic_reason,
-                {
-                    **shared_params,
-                    "model_type": "logistic",
-                    "feature_set": feature_set,
-                    "features": columns,
-                    "C": logistic_c,
-                    "max_iter": logistic_max_iter,
-                },
+                model_params,
                 logistic_cv,
             )
         )
@@ -1786,7 +2203,7 @@ def render_phase1_report(report: dict[str, Any]) -> str:
         "## Folds",
         "",
     ]
-    if report.get("hypothesis") in {HYPOTHESIS_H2, HYPOTHESIS_H3}:
+    if report.get("hypothesis") in {HYPOTHESIS_H2, HYPOTHESIS_H3, HYPOTHESIS_RIDGE}:
         regression_note: list[str] = [
             "Season defensive EPA is the same-season prior mean of EPA allowed.",
             "Regressed EPA starts from the previous season's final value,",
@@ -1794,7 +2211,7 @@ def render_phase1_report(report: dict[str, Any]) -> str:
             "then blends in current-season games with weight",
             f"n/(n+{SEASON_BLEND_K:g}). Week 1 of a season with no prior stays missing.",
         ]
-        if report.get("hypothesis") == HYPOTHESIS_H3:
+        if report.get("hypothesis") in {HYPOTHESIS_H3, HYPOTHESIS_RIDGE}:
             regression_note.extend(
                 [
                     "Pass and rush EPA per play split offense and defense.",
@@ -1802,6 +2219,20 @@ def render_phase1_report(report: dict[str, Any]) -> str:
                     "including prior seasons. Regressed-season splits use the",
                     "same shrinkage and blend. Defensive splits are the",
                     "opponent's offensive pass or rush rate from that game.",
+                ]
+            )
+        if report.get("hypothesis") == HYPOTHESIS_RIDGE:
+            grid_text: str = ", ".join(
+                _format_regularization_c(value) for value in DEFAULT_L2_C_GRID
+            )
+            regression_note.extend(
+                [
+                    "logistic_l2 is L2 logistic regression. C is chosen inside",
+                    "each training fold by an expanding season split on those",
+                    "training seasons only. The scored season is not used to",
+                    f"pick C. The grid is {grid_text}.",
+                    "A fold with no usable inner season keeps the fallback C.",
+                    "The fold table records chosen_c.",
                 ]
             )
         lookback_index: int = lines.index(f"Lookback games: {report['lookback_games']}.")
@@ -1817,33 +2248,33 @@ def render_phase1_report(report: dict[str, Any]) -> str:
             lines.append("")
             if not result["folds"]:
                 continue
+        records_chosen_c: bool = any("chosen_c" in fold for fold in result["folds"])
+        fold_headers: list[str] = [
+            "season",
+            "status",
+            "reason",
+            "n_train",
+            "n_eval",
+            "train_seasons",
+            "log_loss",
+        ]
+        if records_chosen_c:
+            fold_headers.extend(["chosen_c", "c_selection"])
         fold_rows: list[list[object]] = []
         for fold in result["folds"]:
-            fold_rows.append(
-                [
-                    fold["season"],
-                    fold["status"],
-                    fold["reason"],
-                    fold["n_train"],
-                    fold["n_eval"],
-                    ",".join(str(season) for season in fold["train_seasons"]),
-                    fold["log_loss"],
-                ]
-            )
-        lines.append(
-            _markdown_table(
-                [
-                    "season",
-                    "status",
-                    "reason",
-                    "n_train",
-                    "n_eval",
-                    "train_seasons",
-                    "log_loss",
-                ],
-                fold_rows,
-            )
-        )
+            fold_row: list[object] = [
+                fold["season"],
+                fold["status"],
+                fold["reason"],
+                fold["n_train"],
+                fold["n_eval"],
+                ",".join(str(season) for season in fold["train_seasons"]),
+                fold["log_loss"],
+            ]
+            if records_chosen_c:
+                fold_row.extend([fold.get("chosen_c"), fold.get("c_selection")])
+            fold_rows.append(fold_row)
+        lines.append(_markdown_table(fold_headers, fold_rows))
         lines.append("")
     if report.get("apply_acceptance"):
         lines.extend(_render_acceptance_section(report))
@@ -1936,6 +2367,7 @@ def parent_run_name(
         HYPOTHESIS_H1: "h1",
         HYPOTHESIS_H2: "h2",
         HYPOTHESIS_H3: "h3",
+        HYPOTHESIS_RIDGE: "ridge",
     }
     short: str | None = short_names.get(hypothesis)
     if short is None:
@@ -2002,23 +2434,26 @@ def select_best_feature_set(
         reference_model,
         reference_feature_set,
     )
-    loss_by_set: dict[str, float] = {}
+    scored_losses: list[tuple[str, str, float]] = []
     for result in results:
-        if result["model"] != "logistic" or result["status"] != "ok":
+        if result["model"] not in SCORED_FEATURE_MODELS or result["status"] != "ok":
             continue
         pooled: dict[str, Any] = result.get("pooled") or {}
         value: object = pooled.get("log_loss")
         if value is None or pd.isna(value):
             continue
-        loss_by_set[str(result["feature_set"])] = float(value)
-    accepted: list[str] = [
-        str(row["feature_set"])
+        scored_losses.append((str(result["model"]), str(result["feature_set"]), float(value)))
+    accepted_keys: set[tuple[str, str]] = {
+        (str(row["model"]), str(row["feature_set"]))
         for row in decisions
-        if row["decision"] == "accepted" and row["feature_set"] in loss_by_set
+        if row["decision"] == "accepted"
+    }
+    accepted: list[tuple[str, str, float]] = [
+        item for item in scored_losses if (item[0], item[1]) in accepted_keys
     ]
     if not accepted:
         return reference_feature_set
-    return min(accepted, key=lambda name: loss_by_set[name])
+    return min(accepted, key=lambda item: item[2])[1]
 
 
 def _description_dataset_source(description: str) -> Any:
@@ -2120,7 +2555,8 @@ def log_phase1_to_mlflow(
     ``nested=True``. Phase 1 callers can omit the tag arguments. Phase 2
     H1 passes ``hypothesis`` ``h1-diff``. Phase 2 H2 passes
     ``h2-season-def-regression``. Phase 2 H3 passes ``h3-pass-rush-epa``.
-    All three use ``phase_tag`` ``2``.
+    The ridge comparison passes ``ridge-reference``. All of them use
+    ``phase_tag`` ``2``.
 
     Args:
         report: Result of ``run_phase1_baselines``.
@@ -2302,9 +2738,12 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--model",
         type=str,
-        choices=["baseline-home", "logistic", "gbm"],
+        choices=["baseline-home", "logistic", "logistic_l2", "gbm"],
         default="logistic",
-        help="Model type to train",
+        help=(
+            "Model type to train. logistic_l2 is L2 logistic regression "
+            "with C tuned on the training seasons only."
+        ),
     )
 
     parser.add_argument(
@@ -2359,6 +2798,7 @@ def main(argv: list[str] | None = None) -> None:
             "--phase 2 --hypothesis h1 scores diff feature sets. "
             "--phase 2 --hypothesis h2 scores season defense and regressed EPA. "
             "--phase 2 --hypothesis h3 scores pass and rush splits against h2_full. "
+            "--phase 2 --hypothesis ridge scores logistic_l2 against logistic h2_full. "
             "Does not score 2024 or 2025."
         ),
     )
@@ -2371,7 +2811,7 @@ def main(argv: list[str] | None = None) -> None:
         help=(
             "1 keeps the phase 1 report (home prior, current, with_games_played). "
             "2 scores the hypothesis from --hypothesis. H1 and H2 use logistic "
-            "current. H3 uses logistic h2_full."
+            "current. H3 and ridge use logistic h2_full."
         ),
     )
 
@@ -2384,7 +2824,9 @@ def main(argv: list[str] | None = None) -> None:
             "Phase 2 hypothesis. Default h1 scores diff and diff_only "
             "and writes reports/phase2. h2 scores h2_def and h2_full "
             "and writes reports/phase2_h2. h3 scores h3_split and h3_replace "
-            "against h2_full and writes reports/phase2_h3. Phase 1 rejects this flag."
+            "against h2_full and writes reports/phase2_h3. ridge scores "
+            "logistic_l2 against logistic h2_full and writes reports/phase2_ridge. "
+            "Phase 1 rejects this flag."
         ),
     )
 
@@ -2405,7 +2847,7 @@ def main(argv: list[str] | None = None) -> None:
         help=(
             "Feature set of the reference model. "
             "Default is none for the home prior, current for logistic on H1 and H2, "
-            "and h2_full for logistic on H3."
+            "and h2_full for logistic on H3 and ridge."
         ),
     )
 
@@ -2417,7 +2859,8 @@ def main(argv: list[str] | None = None) -> None:
             "Directory for the comparison report. "
             "Phase 2 h1 with this default writes reports/phase2. "
             "Phase 2 h2 with this default writes reports/phase2_h2. "
-            "Phase 2 h3 with this default writes reports/phase2_h3."
+            "Phase 2 h3 with this default writes reports/phase2_h3. "
+            "Phase 2 ridge with this default writes reports/phase2_ridge."
         ),
     )
 
@@ -2551,6 +2994,7 @@ def main(argv: list[str] | None = None) -> None:
             logger.info(f"Training logistic regression (C={args.C}, max_iter={args.max_iter})")
             mlflow.log_param("C", args.C)
             mlflow.log_param("max_iter", args.max_iter)
+            mlflow.log_param("regularization", "l2")
 
             model, metrics = train_logistic_regression(
                 X_train,
@@ -2561,6 +3005,37 @@ def main(argv: list[str] | None = None) -> None:
                 max_iter=args.max_iter,
                 random_state=args.seed,
             )
+
+        elif args.model == "logistic_l2":
+            logger.info(
+                "Training L2 logistic regression with C tuned on the training seasons "
+                f"(fallback C={args.C}, max_iter={args.max_iter})"
+            )
+            mlflow.log_param("max_iter", args.max_iter)
+            mlflow.log_param("regularization", "l2")
+            mlflow.log_param(
+                "c_grid",
+                ",".join(_format_regularization_c(value) for value in DEFAULT_L2_C_GRID),
+            )
+            mlflow.log_param("c_fallback", args.C)
+            fitted: LogisticL2Fit = fit_logistic_l2(
+                X_train,
+                y_train,
+                X_val,
+                y_val,
+                fallback_c=args.C,
+                max_iter=args.max_iter,
+                random_state=args.seed,
+            )
+            model = fitted.pipeline
+            metrics = fitted.metrics
+            mlflow.log_param("chosen_c", _format_regularization_c(fitted.chosen_c))
+            mlflow.log_param("c_selection", fitted.c_selection)
+            if fitted.inner_seasons:
+                mlflow.log_param(
+                    "inner_seasons",
+                    ",".join(str(season) for season in fitted.inner_seasons),
+                )
 
         elif args.model == "gbm":
             logger.info(

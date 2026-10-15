@@ -42,7 +42,7 @@ jobs:
 
     - name: Coverage of the feature audit
       run: |
-        pytest tests/test_feature_leakage.py tests/test_feature_audit.py --cov=src/analysis --cov-report=term-missing --cov-fail-under=100
+        pytest tests/test_feature_leakage.py tests/test_feature_audit.py tests/test_epa_play_filter_check.py --cov=src/analysis --cov-report=term-missing --cov-fail-under=100
 
     - name: Install dbt packages
       run: |

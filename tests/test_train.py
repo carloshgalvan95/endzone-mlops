@@ -22,11 +22,15 @@ from sklearn.metrics import brier_score_loss, log_loss
 from sklearn.preprocessing import StandardScaler
 
 from src.train.train import (
+    DEFAULT_L2_C_GRID,
     REVIEWED_SKOPS_TRUSTED_TYPES,
+    _logistic_l2_fold_predictor,
+    fit_logistic_l2,
     get_git_sha,
     load_data,
     log_sklearn_model,
     resolve_skops_trusted_types,
+    select_logistic_l2_c,
     train_baseline_home,
     train_gradient_boosting,
     train_logistic_regression,
@@ -494,3 +498,104 @@ class TestLogisticScaling:
         assert not any(issubclass(item.category, ConvergenceWarning) for item in scaled_caught)
         assert list(model.named_steps) == ["preprocessor", "scaler", "classifier"]
         assert isinstance(model.named_steps["scaler"], StandardScaler)
+
+
+def _labeled_seasons(
+    seasons: tuple[int, ...], rows_per_season: int = 6
+) -> tuple[pd.DataFrame, pd.Series]:
+    """Tiny two-class frame. The label follows the EPA sign, plus a season column."""
+    rows: list[dict[str, object]] = []
+    labels: list[int] = []
+    for season in seasons:
+        for index in range(rows_per_season):
+            label: int = index % 2
+            rows.append(
+                {
+                    "game_id": f"{season}-{index}",
+                    "gameday": pd.Timestamp(year=season, month=9, day=index + 1),
+                    "season": season,
+                    "home_recent_offensive_epa_per_play": 0.4 if label == 1 else -0.4,
+                    "away_recent_offensive_epa_per_play": 0.0,
+                }
+            )
+            labels.append(label)
+    return pd.DataFrame(rows), pd.Series(labels)
+
+
+class TestLogisticL2Selection:
+    """C is chosen on training seasons and the scored season is not an input."""
+
+    def test_one_training_season_keeps_the_fallback_c(self) -> None:
+        """An inner split needs two seasons. The fallback is the caller C."""
+        frame, target = _labeled_seasons((2021,))
+        selection = select_logistic_l2_c(
+            frame,
+            target,
+            c_grid=(0.1, 10.0),
+            fallback_c=1.0,
+            max_iter=200,
+            random_state=0,
+        )
+        assert selection["chosen_c"] == pytest.approx(1.0)
+        assert selection["c_selection"] == "fallback"
+        assert selection["fallback_reason"] == "no_inner_season"
+        assert selection["inner_seasons"] == ()
+
+    def test_inner_split_stays_inside_the_training_seasons(self) -> None:
+        """The chosen C is on the grid. A later season that was not passed is not inner."""
+        frame, target = _labeled_seasons((2020, 2021))
+        selection = select_logistic_l2_c(
+            frame,
+            target,
+            c_grid=DEFAULT_L2_C_GRID,
+            fallback_c=1.0,
+            max_iter=200,
+            random_state=0,
+        )
+        assert selection["c_selection"] == "inner_season"
+        assert selection["chosen_c"] in DEFAULT_L2_C_GRID
+        assert selection["inner_seasons"] == (2021,)
+        assert selection["inner_log_loss"] is not None
+
+    def test_scored_season_labels_do_not_change_the_probabilities(self) -> None:
+        """Flipping the scored season's labels leaves C and the probabilities alone."""
+        train_frame, train_target = _labeled_seasons((2020, 2021))
+        eval_frame, eval_target = _labeled_seasons((2022,))
+        predictor = _logistic_l2_fold_predictor(
+            c_grid=(0.1, 1.0, 10.0),
+            fallback_c=1.0,
+            max_iter=200,
+            random_state=0,
+        )
+        first = predictor(train_frame, train_target, eval_frame, eval_target)
+        flipped = predictor(train_frame, train_target, eval_frame, 1 - eval_target)
+        assert first.extras["chosen_c"] == pytest.approx(flipped.extras["chosen_c"])
+        assert first.extras["c_selection"] == "inner_season"
+        np.testing.assert_allclose(first.probabilities, flipped.probabilities)
+
+    def test_single_split_fit_does_not_use_the_validation_season(self) -> None:
+        """2024 is scored after C is fixed. It is not an inner season."""
+        train_frame, train_target = _labeled_seasons((2021, 2022, 2023))
+        val_frame, val_target = _labeled_seasons((2024,), rows_per_season=4)
+        fitted = fit_logistic_l2(
+            train_frame,
+            train_target,
+            val_frame,
+            val_target,
+            c_grid=(0.1, 1.0),
+            fallback_c=1.0,
+            max_iter=200,
+            random_state=1,
+        )
+        assert 2024 not in fitted.inner_seasons
+        assert fitted.inner_seasons == (2022, 2023)
+        assert fitted.chosen_c in {0.1, 1.0}
+        assert set(fitted.metrics) == {"accuracy", "brier_score", "log_loss", "roc_auc"}
+
+    def test_c_grid_must_be_positive(self) -> None:
+        """An empty grid or a non-positive C is rejected before any fit."""
+        frame, target = _labeled_seasons((2021, 2022))
+        with pytest.raises(ValueError, match="at least one positive C"):
+            select_logistic_l2_c(frame, target, c_grid=(), max_iter=50)
+        with pytest.raises(ValueError, match="finite and positive"):
+            select_logistic_l2_c(frame, target, c_grid=(0.1, -1.0), max_iter=50)

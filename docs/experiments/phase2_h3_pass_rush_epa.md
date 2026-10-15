@@ -1,6 +1,6 @@
 # Phase 2 H3: pass and rush EPA
 
-Method note. This file does not report warehouse metrics. `make train-cv` (Windows: `.\scripts\dev.ps1 train-cv`) runs `python -m src.train.train --cv --phase 2 --hypothesis h3 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h3` and writes the measured comparison to `reports/phase2_h3/comparison.md` and `reports/phase2_h3/comparison.csv`. Those files are local outputs. Leave the result section empty until that run exists. Do not copy numbers from a test fixture.
+Method note. This file does not report warehouse metrics. Reproduce this comparison with `python -m src.train.train --cv --phase 2 --hypothesis h3 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h3`. It writes `reports/phase2_h3/comparison.md` and `reports/phase2_h3/comparison.csv`. Those files are local outputs. The result section records the local H3 run. Do not copy numbers from a test fixture. `make train-cv` runs the ridge reference comparison and writes `reports/phase2_ridge/`. See `docs/experiments/phase2_ridge_reference.md`.
 
 No model is promoted from a phase 2 run. 2024 stays the final validation. 2025 is not scored here.
 
@@ -101,14 +101,18 @@ If either condition fails, the set is rejected. If the interval is missing, the 
 
 ## Result
 
-Leave this table empty until `make train-cv` has been run locally. Do not fill it from a test fixture.
+Local rolling-origin run, CV 2016-2023, n=2191, reference logistic `h2_full` 0.6377. These rows are that run. They are not warehouse metrics and they are not taken from a test fixture.
 
 | feature_set | n | log_loss | log_loss_diff | ci_low | ci_high | decision |
 | --- | --- | --- | --- | --- | --- | --- |
-| | | | | | | |
+| h2_full | 2191 | 0.6377 | 0.0000 | | | reference |
+| h3_split | 2191 | 0.6393 | 0.0016 | -0.0009 | 0.0039 | rejected |
+| h3_replace | 2191 | 0.6395 | 0.0018 | -0.0008 | 0.0043 | rejected |
 
-## Decision
+`h2_full` is the reference row. Its difference is zero. `h3_split` scored AUC 0.6801 and `h3_replace` scored AUC 0.6796. Both are lower than the reference AUC, and both have lower accuracy. The home prior, Elo, and the market were scored by the same command. They are baselines, not this hypothesis, and this record does not restate them.
 
-Pending. Carlos fills this after the local run.
+## Decision log
 
-`decision` is `accepted`, `rejected`, or `inconclusive` for each of `h3_split` and `h3_replace`.
+Rejected.
+
+`h3_split` and `h3_replace` are both rejected. Neither improved pooled log loss. The differences are +0.0016 and +0.0018. Both 95% intervals cross 0, so neither lies entirely below 0, and neither gain reaches 0.003. A season in this window is about 270 games. Splitting combined EPA into pass and rush adds columns, and those extra columns add noise. The combined EPA already carries the signal. The feature sets stay in code so this comparison can be rerun. 2024 stays the final validation. 2025 stays unscored. No model is promoted from this run.
