@@ -1,6 +1,6 @@
 # Phase 2 H2: season defensive EPA and cross-season regression
 
-Method note. This file does not report warehouse metrics. `make train-cv` (Windows: `.\scripts\dev.ps1 train-cv`) runs `python -m src.train.train --cv --phase 2 --hypothesis h2` and writes the measured comparison to `reports/phase2_h2/comparison.md` and `reports/phase2_h2/comparison.csv`. Those files are local outputs. Leave the result section empty until that run exists. Do not copy numbers from a test fixture.
+Method note. This file does not report warehouse metrics. Reproduce this comparison with `python -m src.train.train --cv --phase 2 --hypothesis h2 --reference-model logistic --reference-feature-set current --output-dir reports/phase2_h2`. It writes `reports/phase2_h2/comparison.md` and `reports/phase2_h2/comparison.csv`. Those files are local outputs. The result section records the local H2 run. Do not copy numbers from a test fixture.
 
 No model is promoted from a phase 2 run. 2024 stays the final validation. 2025 is not scored here.
 
@@ -88,14 +88,24 @@ If either condition fails, the set is rejected. If the interval is missing, the 
 
 ## Result
 
-Leave this table empty until `make train-cv` has been run locally. Do not fill it from a test fixture.
+Local rolling-origin run, CV 2016-2023, n=2191, reference logistic `current` 0.6414. These rows are that run. They are not warehouse metrics and they are not taken from a test fixture.
 
 | feature_set | n | log_loss | log_loss_diff | ci_low | ci_high | decision |
 | --- | --- | --- | --- | --- | --- | --- |
-| | | | | | | |
+| current | 2191 | 0.6414 | 0.0000 | | | reference |
+| h2_def | 2191 | 0.6418 | 0.0004 | -0.0009 | 0.0016 | rejected |
+| h2_full | 2191 | 0.6377 | -0.0037 | -0.0071 | -0.0003 | accepted |
+| elo | 2191 | 0.6529 | 0.0115 | 0.0028 | 0.0200 | rejected |
+| market | 2191 | 0.6120 | -0.0296 | -0.0386 | -0.0204 | accepted |
 
-## Decision
+`current` is the reference row. Its difference is zero. `h2_full` also scored AUC 0.6843, accuracy 0.6426, and Brier 0.2235 on the same pooled games. Elo is worse than the reference and its interval lies entirely above 0, so the rule rejects it. The market interval lies entirely below 0 and the gain is larger than 0.003, so the numeric rule labels it accepted. That label is the baseline comparison. It is not an acceptance of this hypothesis.
 
-Pending. Carlos fills this after the local run.
+## Decision log
 
-`decision` is `accepted`, `rejected`, or `inconclusive` for each of `h2_def` and `h2_full`.
+`h2_def` is rejected. `h2_full` is accepted.
+
+`h2_def` did not improve pooled log loss (0.6418 versus 0.6414, difference +0.0004). Its 95% interval crosses 0. Season defensive EPA alone is not new information the logistic model can use.
+
+`h2_full` improved pooled log loss by 0.0037, and the 95% interval lies entirely below 0 (-0.0071 to -0.0003). The gain comes from the regressed priors, not from season defensive EPA alone. The upper bound is close to 0. That acceptance has to be confirmed on the 2024 final validation before any later claim that the set is stable. 2025 stays unscored. No model is promoted from this run.
+
+Later Phase 2 hypotheses use logistic `h2_full` as the reference. This H2 report stays paired to logistic `current`, so the comparison above can be rerun.
