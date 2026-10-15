@@ -512,6 +512,44 @@ Catalog `workspace`. The dbt Databricks target schema is `nfl_dev` (`dbt/profile
 
 Bronze is not a dbt schema. Ingest writes `workspace.nfl_raw.games`, `workspace.nfl_raw.play_by_play`, and `workspace.nfl_raw.depth_charts`. Depth charts start in 2001. 1999 and 2000 were not published.
 
+### Depth charts from 2025
+
+`depth_charts_2001.parquet` through `depth_charts_2024.parquet` are weekly. They already have `season`, `club_code`, `week`, `game_type`, `depth_team`, `formation`, `position`, and `gsis_id`.
+
+`depth_charts_2025.parquet` is a different file. The real columns are `dt`, `team`, `player_name`, `espn_id`, `gsis_id`, `pos_grp_id`, `pos_grp`, `pos_id`, `pos_name`, `pos_abb`, `pos_slot`, and `pos_rank`. There is no `week`. `dt` is a UTC scrape time (`2025-09-04T07:21:47Z`). Each scrape covers all 32 teams. The same shape is expected for later seasons.
+
+Ingest maps that file onto the weekly columns before upload:
+
+- `season` is the file year, not the calendar year of `dt` (the 2025 file runs into the 2026 offseason).
+- `club_code` is `team`.
+- `position` is `pos_abb`. `QB` stays `QB`.
+- `depth_team` is `pos_rank` as text. `1` is the listed starter.
+- `formation` is `3WR 1TE` to Offense, `Base 4-3 D` and `Base 3-4 D` to Defense, and `Special Teams` unchanged. Any other `pos_grp` is dropped with a warning.
+- `full_name` is `player_name`. Given name, jersey number, and `elias_id` are not on the file, so those columns stay null.
+- `week` and `game_type` come from the games schedule. For each team-game, keep the latest snapshot with `dt` strictly before kickoff. Kickoff is `gameday` plus `gametime` interpreted as Eastern time (`America/New_York`), then compared with `dt` in UTC. A Thursday night game cannot see Friday's scrape. A Sunday game can. Scrapes after the last kickoff are not attached to that season.
+
+The bronze table is still one schema. `fct_expected_starter` does not change its join. CV folds are 2016-2023, so they do not read the mapped rows. 2025 is the held-out test. If the mapping cannot be done, that season is skipped with a warning and the starter falls back to the previous-game primary passer.
+
+A catalog that already has the 2001-2024 depth-chart files does not need those seasons again. This uploads 2025 only, then rebuilds `workspace.nfl_raw.depth_charts` from every season file already in the volume folder:
+
+```bash
+python -m src.ingest.load_raw_nflverse --seasons 2025 --dataset depth_charts
+```
+
+Then rebuild the marts before training. Chain with `&&` so training does not start after a failed step:
+
+```bash
+python -m src.ingest.load_raw_nflverse --seasons 2025 --dataset depth_charts && make dbt-build-databricks && make train-cv
+```
+
+PowerShell 5.1 has no `&&`:
+
+```powershell
+python -m src.ingest.load_raw_nflverse --seasons 2025 --dataset depth_charts
+if ($LASTEXITCODE -eq 0) { .\scripts\dev.ps1 dbt-build-databricks }
+if ($LASTEXITCODE -eq 0) { .\scripts\dev.ps1 train-cv }
+```
+
 Do not select staging or marts from `workspace.nfl_dev`. That name is only the dbt target and the seed schema.
 
 Python overrides, all optional: `DATABRICKS_CATALOG`, `DATABRICKS_STAGING_SCHEMA`, `DATABRICKS_RAW_SCHEMA`, `DATABRICKS_MARTS_SCHEMA`.
@@ -711,6 +749,9 @@ with mlflow.start_run():
 
 **Problem**: profiles.yml errors
 - **Check**: Valid YAML? Correct indentation? No tabs? `dbt/profiles.yml` is gitignored, so a pull does not update it. Compare it to `dbt/profiles.yml.example`. The warehouse build target must be `databricks`, and that output's catalog must be `workspace`.
+
+**Problem**: `Season 2025 depth chart missing columns: season, club_code, week, ...`
+- **Solution**: That message is the pre-2025 weekly check against the timestamped file. Pull the mapping fix, then load 2025 only. The 2001-2024 files already on the volume stay. `python -m src.ingest.load_raw_nflverse --seasons 2025 --dataset depth_charts`, then `make dbt-build-databricks`. If the log says the season was skipped, `fct_expected_starter` uses the previous-game primary passer for 2025. CV (2016-2023) does not use that season.
 
 **Problem**: `dbt build` fails on a fresh clone with a missing package
 - **Solution**: Run `dbt deps --profiles-dir .` first. `make dbt-build-databricks` and `.\scripts\dev.ps1 dbt-build-databricks` do that, then build. `make train-cv` is H5. On a catalog that already has games and play-by-play: `python -m src.ingest.load_raw_nflverse --dataset depth_charts && make dbt-build-databricks && make train-cv`. A fresh clone uses `make ingest && make dbt-build-databricks && make train-cv`.

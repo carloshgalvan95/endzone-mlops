@@ -103,7 +103,7 @@ endzone-mlops demonstrates a modern lakehouse architecture for NFL analytics, co
 **Layers**:
 - `stg_nflverse__games`: Game-level data (schedule, scores, lines)
 - `stg_nflverse__pbp`: Play-by-play, including passer id, dropback, and CPOE
-- `stg_nflverse__depth_charts`: Weekly depth charts from 2001
+- `stg_nflverse__depth_charts`: Depth charts from 2001. From 2025 the release is a timestamped snapshot, and ingest assigns each team-game the latest snapshot strictly before kickoff.
 - `fct_games`, `fct_team_game_epa`, `fct_upcoming_games`: Schedule and team EPA marts
 - `fct_expected_starter`: Offense QB1 for each completed game. It does not read play-by-play.
 - `fct_qb_dropbacks`: Passer dropbacks and EPA by game. This is history, not the starter.
