@@ -9,6 +9,7 @@ Usage:
     python -m src.train.train --cv --phase 2
     python -m src.train.train --cv --phase 2 --hypothesis h3
     python -m src.train.train --cv --phase 2 --hypothesis h4
+    python -m src.train.train --cv --phase 2 --hypothesis h5
     python -m src.train.train --cv --phase 2 --hypothesis ridge
 """
 
@@ -51,8 +52,11 @@ from src.features.pregame import (
     FEATURE_SET_H3_SPLIT,
     FEATURE_SET_H4_CLEAN,
     FEATURE_SET_H4_CLEAN_SR,
+    FEATURE_SET_H5_QB,
     FEATURE_SET_NAMES,
     FEATURE_SET_WITH_GAMES_PLAYED,
+    QB_PRIOR_DROPBACKS,
+    REPLACEMENT_EPA_PER_DROPBACK,
     SEASON_BLEND_K,
     SEASON_SHRINK_FACTOR,
     build_pregame_features,
@@ -89,12 +93,14 @@ PHASE2_EXPERIMENT_NAME: str = "nfl_pregame/phase2_h1"
 PHASE2_H2_EXPERIMENT_NAME: str = "nfl_pregame/phase2_h2"
 PHASE2_H3_EXPERIMENT_NAME: str = "nfl_pregame/phase2_h3"
 PHASE2_H4_EXPERIMENT_NAME: str = "nfl_pregame/phase2_h4"
+PHASE2_H5_EXPERIMENT_NAME: str = "nfl_pregame/phase2_h5"
 PHASE2_RIDGE_EXPERIMENT_NAME: str = "nfl_pregame/phase2_ridge"
 PHASE2_TAG: str = "2"
 HYPOTHESIS_H1: str = "h1-diff"
 HYPOTHESIS_H2: str = "h2-season-def-regression"
 HYPOTHESIS_H3: str = "h3-pass-rush-epa"
 HYPOTHESIS_H4: str = "h4-clean-epa"
+HYPOTHESIS_H5: str = "h5-starting-qb"
 HYPOTHESIS_RIDGE: str = "ridge-reference"
 HYPOTHESIS_ALIASES: dict[str, str] = {
     "h1": HYPOTHESIS_H1,
@@ -105,6 +111,8 @@ HYPOTHESIS_ALIASES: dict[str, str] = {
     "h3-pass-rush-epa": HYPOTHESIS_H3,
     "h4": HYPOTHESIS_H4,
     "h4-clean-epa": HYPOTHESIS_H4,
+    "h5": HYPOTHESIS_H5,
+    "h5-starting-qb": HYPOTHESIS_H5,
     "ridge": HYPOTHESIS_RIDGE,
     "ridge-reference": HYPOTHESIS_RIDGE,
 }
@@ -149,6 +157,10 @@ PHASE2_H4_LOGISTIC_FEATURE_SETS: tuple[str, ...] = (
     FEATURE_SET_H4_CLEAN,
     FEATURE_SET_H4_CLEAN_SR,
 )
+PHASE2_H5_LOGISTIC_FEATURE_SETS: tuple[str, ...] = (
+    FEATURE_SET_H2_FULL,
+    FEATURE_SET_H5_QB,
+)
 # Phase 1 stays on the home prior. Phase 2 H1 and H2 use logistic ``current``.
 # H3, H4, and ridge use logistic ``h2_full``. The hypothesis map is the phase 2 default.
 DEFAULT_REFERENCE_BY_PHASE: dict[int, tuple[str, str]] = {
@@ -160,6 +172,7 @@ DEFAULT_REFERENCE_BY_HYPOTHESIS: dict[str, tuple[str, str]] = {
     HYPOTHESIS_H2: ("logistic", FEATURE_SET_CURRENT),
     HYPOTHESIS_H3: ("logistic", FEATURE_SET_H2_FULL),
     HYPOTHESIS_H4: ("logistic", FEATURE_SET_H2_FULL),
+    HYPOTHESIS_H5: ("logistic", FEATURE_SET_H2_FULL),
     HYPOTHESIS_RIDGE: ("logistic", FEATURE_SET_H2_FULL),
 }
 MODEL_DEFAULT_FEATURE_SET: dict[str, str] = {
@@ -194,6 +207,12 @@ PHASE2_H3_NOTE: str = (
 PHASE2_H4_NOTE: str = (
     "Phase 2 hypothesis h4-clean-epa. "
     "Shrinkage and the blend weight are fixed. "
+    f"{FINAL_VALIDATION_SEASON} and {HELD_OUT_TEST_SEASON} are not scored. "
+    "No model is promoted from this run."
+)
+PHASE2_H5_NOTE: str = (
+    "Phase 2 hypothesis h5-starting-qb. "
+    "QB shrinkage and the replacement level are fixed. "
     f"{FINAL_VALIDATION_SEASON} and {HELD_OUT_TEST_SEASON} are not scored. "
     "No model is promoted from this run."
 )
@@ -323,6 +342,37 @@ def load_data(
     return fct_games, fct_team_game_epa
 
 
+def load_qb_inputs(
+    fixture_path: str | None = None,
+) -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
+    """Load the expected-starter and dropback marts for H5.
+
+    A fixture directory without both parquet files returns None so the
+    column check can name the missing ratings. A warehouse read uses
+    ``fct_expected_starter`` and ``fct_qb_dropbacks``. A missing warehouse
+    table surfaces the SQL error.
+
+    Args:
+        fixture_path: Directory used by tests. None reads the warehouse.
+
+    Returns:
+        ``(expected_starters, qb_dropbacks)``. Both are None when the
+        fixture files are absent.
+    """
+    if fixture_path:
+        fixture_dir = Path(fixture_path)
+        starter_file = fixture_dir / "fct_expected_starter.parquet"
+        dropback_file = fixture_dir / "fct_qb_dropbacks.parquet"
+        if not starter_file.exists() or not dropback_file.exists():
+            logger.info("H5 fixture tables are absent in %s", fixture_dir)
+            return None, None
+        logger.info("Loading H5 tables from fixtures: %s", fixture_dir)
+        return pd.read_parquet(starter_file), pd.read_parquet(dropback_file)
+    logger.info("Loading H5 tables from Databricks")
+    with DatabricksClient() as client:
+        return client.read_table("fct_expected_starter"), client.read_table("fct_qb_dropbacks")
+
+
 def train_baseline_home(
     X_train: pd.DataFrame,
     y_train: pd.Series,
@@ -361,7 +411,8 @@ def train_baseline_home(
 def feature_column_groups(feature_columns: list[str]) -> dict[str, list[str]]:
     """Split model columns into imputation groups.
 
-    Level EPA is filled with 0 and level win rate with 0.5. A clean success
+    Level EPA is filled with 0 and level win rate with 0.5. A starting-QB
+    rating is filled with 0, the replacement level. A clean success
     rate is filled with 0.5, the same uninformative rate. Difference
     columns are filled with 0. A missing home-minus-away win rate is not a
     0.5 home edge. Other columns, including rest days, are left as they are.
@@ -377,7 +428,9 @@ def feature_column_groups(feature_columns: list[str]) -> dict[str, list[str]]:
     level_features: list[str] = [
         column for column in feature_columns if column not in diff_features
     ]
-    epa_features: list[str] = [column for column in level_features if "epa" in column]
+    epa_features: list[str] = [
+        column for column in level_features if "epa" in column or "qb_rating" in column
+    ]
     win_rate_features: list[str] = [column for column in level_features if "win_rate" in column]
     success_rate_features: list[str] = [
         column for column in level_features if "success_rate" in column
@@ -1480,7 +1533,7 @@ def resolve_hypothesis(phase: int, hypothesis: str | None = None) -> str | None:
     Returns:
         ``None`` for phase 1, otherwise ``h1-diff``,
         ``h2-season-def-regression``, ``h3-pass-rush-epa``,
-        ``h4-clean-epa``, or ``ridge-reference``.
+        ``h4-clean-epa``, ``h5-starting-qb``, or ``ridge-reference``.
 
     Raises:
         ValueError: Phase 1 was given a hypothesis, or the name is unknown.
@@ -1507,7 +1560,8 @@ def logistic_feature_sets_for(phase: int, hypothesis: str | None = None) -> tupl
     ``current``, ``diff``, and ``diff_only``. Phase 2 H2 scores ``current``,
     ``h2_def``, and ``h2_full``. Phase 2 H3 scores ``h2_full``, ``h3_split``,
     and ``h3_replace``. Phase 2 H4 scores ``h2_full``, ``h4_clean``, and
-    ``h4_clean_sr``. The ridge comparison's logistic row is ``h2_full``
+    ``h4_clean_sr``. Phase 2 H5 scores ``h2_full`` and ``h5_qb``.
+    The ridge comparison's logistic row is ``h2_full``
     only. Its L2 rows are returned by ``cv_model_specs_for``.
 
     Args:
@@ -1531,6 +1585,8 @@ def logistic_feature_sets_for(phase: int, hypothesis: str | None = None) -> tupl
             return PHASE2_H3_LOGISTIC_FEATURE_SETS
         if resolved == HYPOTHESIS_H4:
             return PHASE2_H4_LOGISTIC_FEATURE_SETS
+        if resolved == HYPOTHESIS_H5:
+            return PHASE2_H5_LOGISTIC_FEATURE_SETS
         if resolved == HYPOTHESIS_RIDGE:
             return (FEATURE_SET_H2_FULL,)
         return PHASE2_LOGISTIC_FEATURE_SETS
@@ -1540,7 +1596,7 @@ def logistic_feature_sets_for(phase: int, hypothesis: str | None = None) -> tupl
 def cv_model_specs_for(phase: int, hypothesis: str | None = None) -> tuple[CvModelSpec, ...]:
     """Return the model and feature-set pairs a phase scores, before baselines.
 
-    Phase 1 and hypotheses H1, H2, H3, and H4 score fixed-C logistic regression
+    Phase 1 and hypotheses H1, H2, H3, H4, and H5 score fixed-C logistic regression
     on ``logistic_feature_sets_for``. The ridge comparison scores fixed-C
     logistic on ``h2_full``, then L2 logistic on ``h2_full``, ``h3_split``,
     and ``h3_replace``.
@@ -1617,6 +1673,15 @@ def phase_tracking_settings(phase: int, hypothesis: str | None = None) -> dict[s
                 "note": PHASE2_H4_NOTE,
                 "output_dir": "reports/phase2_h4",
                 "title": "Phase 2 H4 clean EPA",
+            }
+        if resolved == HYPOTHESIS_H5:
+            return {
+                "experiment_name": PHASE2_H5_EXPERIMENT_NAME,
+                "phase_tag": PHASE2_TAG,
+                "hypothesis": HYPOTHESIS_H5,
+                "note": PHASE2_H5_NOTE,
+                "output_dir": "reports/phase2_h5",
+                "title": "Phase 2 H5 starting QB",
             }
         if resolved == HYPOTHESIS_RIDGE:
             return {
@@ -1894,6 +1959,82 @@ def validate_feature_columns(
     return passed
 
 
+def _oof_for(
+    results: list[dict[str, Any]], model_name: str, feature_set: str
+) -> pd.DataFrame | None:
+    """Return one scored model's out-of-fold table, or None when it is absent."""
+    for result in results:
+        if result["model"] == model_name and result["feature_set"] == feature_set:
+            oof: pd.DataFrame | None = result.get("oof")
+            return oof
+    return None
+
+
+def qb_change_subset_comparison(
+    features: pd.DataFrame,
+    results: list[dict[str, Any]],
+    reference_model: str,
+    reference_feature_set: str,
+    candidate_feature_set: str,
+    n_bootstrap: int,
+    seed: int,
+) -> dict[str, Any]:
+    """Paired log loss on games where either depth-chart starter changed.
+
+    The section is descriptive. It is not an acceptance decision. A game
+    counts when ``home_qb_changed`` or ``away_qb_changed`` is 1. Fewer than
+    two out-of-fold games, or a single class, skips the comparison.
+
+    Args:
+        features: Pregame frame with starter diagnostics.
+        results: CV rows, including out-of-fold tables.
+        reference_model: Reference model name.
+        reference_feature_set: Reference feature set.
+        candidate_feature_set: Feature set whose gap is described.
+        n_bootstrap: Resamples for the paired interval.
+        seed: Bootstrap seed.
+
+    Returns:
+        Dict with starter counts, ``n_qb_change_games``, ``status``
+        (``scored`` or ``skipped``), ``reason``, and ``comparison``.
+    """
+    home_source: pd.Series = features["home_starter_source"]
+    away_source: pd.Series = features["away_starter_source"]
+    changed: pd.Series = features["home_qb_changed"].eq(1) | features["away_qb_changed"].eq(1)
+    changed_ids: set[object] = set(features.loc[changed, "game_id"])
+    summary: dict[str, Any] = {
+        "n_depth_chart_starters": int((home_source == "depth_chart").sum())
+        + int((away_source == "depth_chart").sum()),
+        "n_previous_passer_starters": int((home_source == "previous_passer").sum())
+        + int((away_source == "previous_passer").sum()),
+        "n_qb_change_games": len(changed_ids),
+        "status": "skipped",
+        "reason": "too_few_games",
+        "comparison": None,
+    }
+    candidate: pd.DataFrame | None = _oof_for(results, "logistic", candidate_feature_set)
+    reference: pd.DataFrame | None = _oof_for(results, reference_model, reference_feature_set)
+    if candidate is None or reference is None or candidate.empty or reference.empty:
+        return summary
+    candidate_ids: set[object] = set(candidate["game_id"]).intersection(changed_ids)
+    shared_ids: set[object] = candidate_ids.intersection(set(reference["game_id"]))
+    if len(shared_ids) < 2:
+        return summary
+    labels: pd.Series = candidate.loc[candidate["game_id"].isin(shared_ids), "y_true"]
+    if int(labels.nunique()) < 2:
+        summary["reason"] = "single_class"
+        return summary
+    summary["status"] = "scored"
+    summary["reason"] = None
+    summary["comparison"] = compare_oof_to_reference(
+        candidate.loc[candidate["game_id"].isin(shared_ids)],
+        reference.loc[reference["game_id"].isin(shared_ids)],
+        n_bootstrap=n_bootstrap,
+        seed=seed,
+    )
+    return summary
+
+
 def run_phase1_baselines(
     games: pd.DataFrame,
     team_games: pd.DataFrame,
@@ -1908,6 +2049,8 @@ def run_phase1_baselines(
     phase: int = 1,
     hypothesis: str | None = None,
     max_null_fraction: float = DEFAULT_MAX_NULL_FRACTION,
+    expected_starters: pd.DataFrame | None = None,
+    qb_dropbacks: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
     """Score logistic feature sets, the home prior, Elo, and the market.
 
@@ -1918,10 +2061,11 @@ def run_phase1_baselines(
     Phase 2 H2 logs logistic ``current``, ``h2_def``, and ``h2_full``.
     Phase 2 H3 logs logistic ``h2_full``, ``h3_split``, and ``h3_replace``.
     Phase 2 H4 logs logistic ``h2_full``, ``h4_clean``, and ``h4_clean_sr``.
+    Phase 2 H5 logs logistic ``h2_full`` and ``h5_qb``.
     The ridge comparison logs logistic ``h2_full`` and ``logistic_l2`` on
     ``h2_full``, ``h3_split``, and ``h3_replace``. ``logistic_l2`` chooses
     C inside each training fold. H1 and H2 pair every model to logistic
-    ``current``. H3, H4, and ridge pair every model to logistic ``h2_full``.
+    ``current``. H3, H4, H5, and ridge pair every model to logistic ``h2_full``.
     ``reference_model`` and ``reference_feature_set`` override that default.
     The phase 1 call with no extra arguments is unchanged.
 
@@ -1937,8 +2081,10 @@ def run_phase1_baselines(
         reference_model: Reference model name. None uses the phase default.
         reference_feature_set: Reference feature set. None uses the phase default.
         phase: ``1`` keeps the phase 1 report. ``2`` is a phase 2 hypothesis.
-        hypothesis: ``h1``, ``h2``, ``h3``, ``h4``, or ``ridge``. None on phase 2 keeps H1.
+        hypothesis: ``h1``, ``h2``, ``h3``, ``h4``, ``h5``, or ``ridge``. None on phase 2 keeps H1.
         max_null_fraction: Fail a requested column at or above this null share.
+        expected_starters: Depth-chart QB1 table for H5. None leaves QB columns missing.
+        qb_dropbacks: Passer dropbacks for H5. None leaves QB columns missing.
 
     Returns:
         Dict with ``results``, ``comparison_table``, ``markdown``, ``config``,
@@ -1970,6 +2116,8 @@ def run_phase1_baselines(
         games,
         team_games,
         lookback_games=lookback_games,
+        expected_starters=expected_starters,
+        qb_dropbacks=qb_dropbacks,
     )
     requested_sets: list[str] = []
     for spec in model_specs:
@@ -1999,10 +2147,14 @@ def run_phase1_baselines(
         HYPOTHESIS_H2,
         HYPOTHESIS_H3,
         HYPOTHESIS_H4,
+        HYPOTHESIS_H5,
         HYPOTHESIS_RIDGE,
     }:
         shared_params["shrink_factor"] = SEASON_SHRINK_FACTOR
         shared_params["blend_k"] = SEASON_BLEND_K
+    if tracking["hypothesis"] == HYPOTHESIS_H5:
+        shared_params["qb_prior_dropbacks"] = QB_PRIOR_DROPBACKS
+        shared_params["replacement_epa_per_dropback"] = REPLACEMENT_EPA_PER_DROPBACK
     results: list[dict[str, Any]] = []
 
     current_matrix, current_target = prepare_training_data(
@@ -2170,6 +2322,17 @@ def run_phase1_baselines(
 
     comparison_table: pd.DataFrame = _comparison_table(results)
     apply_acceptance: bool = phase == 2
+    qb_subset: dict[str, Any] | None = None
+    if tracking["hypothesis"] == HYPOTHESIS_H5:
+        qb_subset = qb_change_subset_comparison(
+            features,
+            results,
+            reference_spec["model"],
+            reference_spec["feature_set"],
+            FEATURE_SET_H5_QB,
+            n_bootstrap=resolved.n_bootstrap,
+            seed=resolved.bootstrap_seed,
+        )
     report: dict[str, Any] = {
         "results": results,
         "comparison_table": comparison_table,
@@ -2188,6 +2351,7 @@ def run_phase1_baselines(
             "fct_games joined to pregame features, "
             f"seasons through {resolved.cv_end_season}, lookback {lookback_games}"
         ),
+        "qb_change_subset": qb_subset,
     }
     if apply_acceptance:
         report["acceptance"] = acceptance_decisions(
@@ -2294,6 +2458,44 @@ def _render_acceptance_section(report: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _format_optional_float(value: float | None) -> str:
+    """Format a metric, or ``missing`` when the interval was not computed."""
+    if value is None or pd.isna(value):
+        return "missing"
+    return f"{float(value):.4f}"
+
+
+def _qb_change_subset_lines(subset: dict[str, Any]) -> list[str]:
+    """Markdown for the descriptive QB-change slice. Not an acceptance rule."""
+    lines: list[str] = [
+        "## QB change subset",
+        "",
+        "Games where the depth-chart starter differs from the previous primary passer.",
+        "This section is descriptive. It is not an acceptance decision.",
+        f"Depth-chart starter sides: {subset['n_depth_chart_starters']}.",
+        f"Previous-passer fallback sides: {subset['n_previous_passer_starters']}.",
+        f"Games with a QB change: {subset['n_qb_change_games']}.",
+    ]
+    if subset["status"] != "scored" or subset["comparison"] is None:
+        reason: str = str(subset["reason"] or "not_scored")
+        lines.append(f"Subset comparison skipped ({reason}).")
+    else:
+        comparison: dict[str, Any] = subset["comparison"]
+        lines.append(
+            "On "
+            f"{comparison['n']} out-of-fold games with a QB change, "
+            f"h5_qb log loss is {_format_optional_float(comparison['log_loss'])} "
+            f"and the reference is {_format_optional_float(comparison['reference_log_loss'])}. "
+            "The difference is "
+            f"{_format_optional_float(comparison['log_loss_diff'])} "
+            "(interval "
+            f"{_format_optional_float(comparison['log_loss_diff_ci_low'])} to "
+            f"{_format_optional_float(comparison['log_loss_diff_ci_high'])})."
+        )
+    lines.append("")
+    return lines
+
+
 def render_phase1_report(report: dict[str, Any]) -> str:
     """Render the rolling-origin comparison. Numbers come only from ``report``."""
     config: dict[str, Any] = report["config"]
@@ -2342,6 +2544,10 @@ def render_phase1_report(report: dict[str, Any]) -> str:
         "## Folds",
         "",
     ]
+    subset: dict[str, Any] | None = report.get("qb_change_subset")
+    if subset is not None:
+        fold_at: int = lines.index("## Folds")
+        lines[fold_at:fold_at] = _qb_change_subset_lines(subset)
     if report.get("hypothesis") == HYPOTHESIS_H4:
         regression_note = [
             "Clean EPA keeps pass and run plays only.",
@@ -2356,6 +2562,19 @@ def render_phase1_report(report: dict[str, Any]) -> str:
             "A missing success rate is filled with 0.5.",
         ]
         lookback_index: int = lines.index(f"Lookback games: {report['lookback_games']}.")
+        lines[lookback_index + 1 : lookback_index + 1] = regression_note
+    elif report.get("hypothesis") == HYPOTHESIS_H5:
+        regression_note = [
+            "The starter is the offense QB1 on that week's depth chart.",
+            "A missing chart uses the previous game's primary passer.",
+            "The rating is EPA per dropback, shrunk toward replacement 0",
+            f"with weight n/(n+{QB_PRIOR_DROPBACKS:g}).",
+            "Only dropbacks from earlier gamedays count, across teams and seasons.",
+            "h5_qb is h2_full plus the home and away ratings and each rating",
+            "minus that team's recent passing EPA.",
+            "CPOE is stored on the dropback mart and is not in the rating.",
+        ]
+        lookback_index = lines.index(f"Lookback games: {report['lookback_games']}.")
         lines[lookback_index + 1 : lookback_index + 1] = regression_note
     elif report.get("hypothesis") in {HYPOTHESIS_H2, HYPOTHESIS_H3, HYPOTHESIS_RIDGE}:
         regression_note = [
@@ -2522,6 +2741,7 @@ def parent_run_name(
         HYPOTHESIS_H2: "h2",
         HYPOTHESIS_H3: "h3",
         HYPOTHESIS_H4: "h4",
+        HYPOTHESIS_H5: "h5",
         HYPOTHESIS_RIDGE: "ridge",
     }
     short: str | None = short_names.get(hypothesis)
@@ -2856,6 +3076,10 @@ def _run_phase1_cli(args: argparse.Namespace) -> None:
     )
     fixture_path: str | None = args.fixture_path if args.fixture_path else None
     games, team_games = load_data(fixture_path=fixture_path)
+    expected_starters: pd.DataFrame | None = None
+    qb_dropbacks: pd.DataFrame | None = None
+    if settings["hypothesis"] == HYPOTHESIS_H5:
+        expected_starters, qb_dropbacks = load_qb_inputs(fixture_path)
     report: dict[str, Any] = run_phase1_baselines(
         games,
         team_games,
@@ -2869,6 +3093,8 @@ def _run_phase1_cli(args: argparse.Namespace) -> None:
         phase=args.phase,
         hypothesis=args.hypothesis,
         max_null_fraction=args.max_null_fraction,
+        expected_starters=expected_starters,
+        qb_dropbacks=qb_dropbacks,
     )
     paths: dict[str, Any] = write_phase1_outputs(report, Path(output_dir))
     tracking_uri: str = resolve_tracking_uri(
@@ -2956,6 +3182,7 @@ def main(argv: list[str] | None = None) -> None:
             "--phase 2 --hypothesis h2 scores season defense and regressed EPA. "
             "--phase 2 --hypothesis h3 scores pass and rush splits against h2_full. "
             "--phase 2 --hypothesis h4 scores clean EPA against h2_full. "
+            "--phase 2 --hypothesis h5 scores starting QB ratings against h2_full. "
             "--phase 2 --hypothesis ridge scores logistic_l2 against logistic h2_full. "
             "Does not score 2024 or 2025."
         ),
@@ -2969,7 +3196,7 @@ def main(argv: list[str] | None = None) -> None:
         help=(
             "1 keeps the phase 1 report (home prior, current, with_games_played). "
             "2 scores the hypothesis from --hypothesis. H1 and H2 use logistic "
-            "current. H3, H4, and ridge use logistic h2_full."
+            "current. H3, H4, H5, and ridge use logistic h2_full."
         ),
     )
 
@@ -2984,6 +3211,7 @@ def main(argv: list[str] | None = None) -> None:
             "and writes reports/phase2_h2. h3 scores h3_split and h3_replace "
             "against h2_full and writes reports/phase2_h3. h4 scores h4_clean "
             "and h4_clean_sr against h2_full and writes reports/phase2_h4. "
+            "h5 scores h5_qb against h2_full and writes reports/phase2_h5. "
             "ridge scores "
             "logistic_l2 against logistic h2_full and writes reports/phase2_ridge. "
             "Phase 1 rejects this flag."
@@ -3007,7 +3235,7 @@ def main(argv: list[str] | None = None) -> None:
         help=(
             "Feature set of the reference model. "
             "Default is none for the home prior, current for logistic on H1 and H2, "
-            "and h2_full for logistic on H3, H4, and ridge."
+            "and h2_full for logistic on H3, H4, H5, and ridge."
         ),
     )
 
@@ -3021,6 +3249,7 @@ def main(argv: list[str] | None = None) -> None:
             "Phase 2 h2 with this default writes reports/phase2_h2. "
             "Phase 2 h3 with this default writes reports/phase2_h3. "
             "Phase 2 h4 with this default writes reports/phase2_h4. "
+            "Phase 2 h5 with this default writes reports/phase2_h5. "
             "Phase 2 ridge with this default writes reports/phase2_ridge."
         ),
     )
@@ -3104,11 +3333,19 @@ def main(argv: list[str] | None = None) -> None:
 
     # Build features
     logger.info(f"Building features with lookback={args.lookback}...")
+    expected_starters: pd.DataFrame | None = None
+    qb_dropbacks: pd.DataFrame | None = None
+    if args.feature_set == FEATURE_SET_H5_QB:
+        expected_starters, qb_dropbacks = load_qb_inputs(args.fixture_path)
     features = build_pregame_features(
         fct_games=fct_games,
         fct_team_game_epa=fct_team_game_epa,
         lookback_games=args.lookback,
+        expected_starters=expected_starters,
+        qb_dropbacks=qb_dropbacks,
     )
+    if args.feature_set == FEATURE_SET_H5_QB:
+        validate_feature_columns(features, (FEATURE_SET_H5_QB,))
 
     # Prepare training data
     X, y = prepare_training_data(
