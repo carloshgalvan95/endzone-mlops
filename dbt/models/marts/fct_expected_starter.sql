@@ -18,6 +18,13 @@ A missing chart leaves the starter id null. Python then uses the previous
 game's primary passer. A week with two QB1 rows keeps the lowest gsis_id.
 Non-game chart rows (null week, including the conference bye) are dropped.
 depth_team 2 is not promoted when QB1 is absent.
+
+From 2025 the chart week is not on the nflverse file. Ingest assigns it.
+The row is the latest snapshot with dt strictly before that game's kickoff,
+so a Thursday game does not see a Friday scrape. CV folds are 2016-2023 and
+do not use this mapping. 2025 is the held-out test. If that season was
+skipped, both starter ids stay null and the feature code uses the
+previous-game primary passer.
 */
 
 with games as (

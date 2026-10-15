@@ -51,6 +51,7 @@ NFLVERSE_DEPTH_CHARTS_URL_PATTERN = (
 )
 DEPTH_CHART_FIRST_SEASON = 2001
 # Columns present on depth_charts_2001.parquet through depth_charts_2024.parquet.
+# 2025 and later are mapped onto this list before the file is uploaded.
 DEPTH_CHART_COLUMNS: tuple[str, ...] = (
     "season",
     "club_code",
@@ -67,6 +68,50 @@ DEPTH_CHART_COLUMNS: tuple[str, ...] = (
     "elias_id",
     "depth_position",
     "full_name",
+)
+# Column order on depth_charts_2025.parquet. The release is a timestamped
+# snapshot, not a weekly chart. There is no week or game_type.
+DEPTH_CHART_2025_COLUMNS: tuple[str, ...] = (
+    "dt",
+    "team",
+    "player_name",
+    "espn_id",
+    "gsis_id",
+    "pos_grp_id",
+    "pos_grp",
+    "pos_id",
+    "pos_name",
+    "pos_abb",
+    "pos_slot",
+    "pos_rank",
+)
+# Columns the snapshot mapper reads. Extra release columns are ignored.
+_SNAPSHOT_REQUIRED_COLUMNS: tuple[str, ...] = (
+    "dt",
+    "team",
+    "gsis_id",
+    "pos_grp",
+    "pos_abb",
+    "pos_rank",
+)
+# nflverse pos_grp values on the 2025 release, and the weekly formation they are.
+# An unknown group is dropped rather than guessed.
+POS_GRP_TO_FORMATION: dict[str, str] = {
+    "3WR 1TE": "Offense",
+    "Base 4-3 D": "Defense",
+    "Base 3-4 D": "Defense",
+    "Special Teams": "Special Teams",
+}
+# nflverse publishes gametime in Eastern time. Snapshot dt is UTC.
+KICKOFF_TIMEZONE = "America/New_York"
+_SCHEDULE_COLUMNS: tuple[str, ...] = (
+    "season",
+    "week",
+    "game_type",
+    "gameday",
+    "gametime",
+    "home_team",
+    "away_team",
 )
 
 # Default season range (1999 is first nflverse season)
@@ -95,7 +140,7 @@ DATASET_CONFIG = {
     "depth_charts": {
         "filename_pattern": "depth_charts_{season}.parquet",
         "table_name": "depth_charts",
-        "description": "NFL weekly depth charts (2001-present)",
+        "description": "NFL depth charts (2001-present, 2025+ snapshots mapped to weeks)",
         "supports_season_filter": True,
     },
 }
@@ -428,18 +473,43 @@ def download_nflverse_pbp(
     return processed_seasons
 
 
-def select_depth_chart_columns(frame: pd.DataFrame, season: int) -> pd.DataFrame:
-    """Keep the stable depth-chart columns and refuse a file that lacks one.
+def _has_weekly_depth_chart_columns(frame: pd.DataFrame) -> bool:
+    """Return True when the frame already has the 2001-2024 weekly columns."""
+    return all(column in frame.columns for column in DEPTH_CHART_COLUMNS)
+
+
+def _is_snapshot_depth_chart(frame: pd.DataFrame) -> bool:
+    """Return True for the timestamped schema that starts in 2025.
+
+    A file that still has ``week`` stays on the weekly path. The snapshot
+    release has no week.
+    """
+    if "week" in frame.columns:
+        return False
+    return all(column in frame.columns for column in _SNAPSHOT_REQUIRED_COLUMNS)
+
+
+def _blank_string_column(index: pd.Index) -> pd.Series:
+    """Return an all-null string column aligned to ``index``.
+
+    An all-null object column is written as a null parquet type. The weekly
+    files use string, so the mapped file has to use string too.
+    """
+    return pd.Series(pd.NA, index=index, dtype="string")
+
+
+def _select_weekly_depth_chart_columns(frame: pd.DataFrame, season: int) -> pd.DataFrame:
+    """Keep the stable weekly columns and refuse a file that lacks one.
 
     Args:
-        frame: One season of nflverse depth charts.
+        frame: One season that already uses ``DEPTH_CHART_COLUMNS``.
         season: Season year, used in the error.
 
     Returns:
         A copy with ``DEPTH_CHART_COLUMNS`` only, in that order.
 
     Raises:
-        ValueError: A required column is absent.
+        ValueError: A required weekly column is absent.
     """
     missing: list[str] = [column for column in DEPTH_CHART_COLUMNS if column not in frame.columns]
     if missing:
@@ -455,30 +525,286 @@ def select_depth_chart_columns(frame: pd.DataFrame, season: int) -> pd.DataFrame
     return frame.loc[:, list(DEPTH_CHART_COLUMNS)].copy()
 
 
+def _kickoff_utc(gameday: pd.Series, gametime: pd.Series) -> pd.Series:
+    """Build a UTC kickoff from an Eastern ``gameday`` and ``gametime``.
+
+    nflverse ``gametime`` is Eastern (``America/New_York``), including the
+    daylight-saving offset. A clock time that cannot be placed on that date
+    becomes null, and the caller drops that game.
+
+    Args:
+        gameday: Game date as ``YYYY-MM-DD``.
+        gametime: Kickoff clock time, usually ``HH:MM``.
+
+    Returns:
+        Kickoff timestamps in UTC, null where the pair does not parse.
+    """
+    combined: pd.Series = (
+        gameday.astype("string").str.strip() + " " + gametime.astype("string").str.strip()
+    )
+    naive: pd.Series = pd.to_datetime(combined, errors="coerce", format="%Y-%m-%d %H:%M")
+    failed: pd.Index = naive.index[naive.isna()]
+    if len(failed):
+        naive.loc[failed] = pd.to_datetime(combined.loc[failed], errors="coerce")
+    localized: pd.Series = naive.dt.tz_localize(
+        KICKOFF_TIMEZONE,
+        ambiguous="NaT",
+        nonexistent="NaT",
+    )
+    return localized.dt.tz_convert("UTC")
+
+
+def _team_games_for_season(games: pd.DataFrame, season: int) -> pd.DataFrame:
+    """Expand one season of the schedule to one row per team-game.
+
+    Args:
+        games: nflverse games, one row per game. Other seasons are ignored.
+        season: Season year to keep.
+
+    Returns:
+        Columns ``club_code``, ``week``, ``game_type``, and ``kickoff_at``.
+
+    Raises:
+        ValueError: The schedule is missing a column this join needs, or the
+            season has no games.
+    """
+    missing: list[str] = [column for column in _SCHEDULE_COLUMNS if column not in games.columns]
+    if missing:
+        missing_list: str = ", ".join(missing)
+        raise ValueError(f"Games schedule is missing columns: {missing_list}")
+    season_number: pd.Series = pd.to_numeric(games["season"], errors="coerce")
+    schedule: pd.DataFrame = games.loc[season_number == season].copy()
+    if schedule.empty:
+        raise ValueError(f"Games schedule has no rows for season {season}")
+    schedule["kickoff_at"] = _kickoff_utc(schedule["gameday"], schedule["gametime"])
+    home: pd.DataFrame = schedule.assign(club_code=schedule["home_team"].astype("string"))
+    away: pd.DataFrame = schedule.assign(club_code=schedule["away_team"].astype("string"))
+    team_games: pd.DataFrame = pd.concat([home, away], ignore_index=True)
+    return team_games.loc[:, ["club_code", "week", "game_type", "kickoff_at"]].copy()
+
+
+def map_snapshot_depth_chart(
+    frame: pd.DataFrame,
+    season: int,
+    games: pd.DataFrame,
+) -> pd.DataFrame:
+    """Map a timestamped depth chart onto the weekly bronze columns.
+
+    The 2025 release is one league-wide scrape per ``dt`` (UTC, ``Z`` suffix).
+    It has ``team``, ``pos_grp``, ``pos_abb``, ``pos_rank``, and ``gsis_id``.
+    It does not have ``week`` or ``game_type``.
+
+    For each team-game in ``season``, keep the latest scrape whose timestamp
+    is strictly before that game's kickoff, then label those rows with that
+    game's ``week`` and ``game_type``. Kickoff is ``gameday`` plus ``gametime``
+    in Eastern time. A Thursday game therefore cannot see Friday's scrape, and
+    a Sunday game can. Scrapes after the last kickoff (the following offseason)
+    are not assigned to this season.
+
+    ``team`` becomes ``club_code``. ``pos_abb`` becomes ``position`` (``QB``
+    stays ``QB``). ``pos_rank`` becomes ``depth_team`` as text. ``pos_grp``
+    becomes ``formation`` through ``POS_GRP_TO_FORMATION``. ``player_name``
+    becomes ``full_name`` when it is present. Given name, jersey number, and
+    ``elias_id`` are not on the release, so those columns stay null.
+
+    Args:
+        frame: One season in the timestamped schema.
+        season: Season year written onto every output row.
+        games: nflverse schedule used to place each scrape on a game.
+
+    Returns:
+        A frame with ``DEPTH_CHART_COLUMNS`` only, in that order.
+
+    Raises:
+        ValueError: The schedule cannot place any scrape before a kickoff,
+            or no position group can be mapped.
+    """
+    chart: pd.DataFrame = frame.copy()
+    chart["formation"] = chart["pos_grp"].map(POS_GRP_TO_FORMATION)
+    unmapped: pd.Series = chart.loc[chart["formation"].isna(), "pos_grp"]
+    if not unmapped.empty:
+        unknown_groups: list[str] = sorted(set(unmapped.astype("string").fillna("<null>")))
+        logger.warning(
+            "Season %s depth chart dropping unmapped position groups: %s",
+            season,
+            ", ".join(unknown_groups),
+        )
+    chart = chart.loc[chart["formation"].notna()].copy()
+    if chart.empty:
+        raise ValueError(f"Season {season} depth chart has no mappable position group")
+
+    chart["snapshot_at"] = pd.to_datetime(chart["dt"], utc=True, errors="coerce")
+    bad_timestamps: int = int(chart["snapshot_at"].isna().sum())
+    if bad_timestamps:
+        logger.warning(
+            "Season %s depth chart dropping %s rows with no timestamp",
+            season,
+            bad_timestamps,
+        )
+        chart = chart.loc[chart["snapshot_at"].notna()].copy()
+    if chart.empty:
+        raise ValueError(f"Season {season} depth chart has no parseable snapshot time")
+
+    team_games: pd.DataFrame = _team_games_for_season(games, season)
+    missing_kickoff: pd.Series = team_games["kickoff_at"].isna()
+    if bool(missing_kickoff.any()):
+        logger.warning(
+            "Season %s dropping %s team-games with no Eastern kickoff",
+            season,
+            int(missing_kickoff.sum()),
+        )
+        team_games = team_games.loc[~missing_kickoff].copy()
+    if team_games.empty:
+        raise ValueError(f"Season {season} schedule has no kickoff to attach a depth chart to")
+
+    snapshot_times: pd.DataFrame = (
+        chart.loc[:, ["dt", "snapshot_at"]]
+        .drop_duplicates(subset=["snapshot_at"])
+        .sort_values("snapshot_at", kind="mergesort")
+    )
+    assigned: pd.DataFrame = pd.merge_asof(
+        team_games.sort_values("kickoff_at", kind="mergesort"),
+        snapshot_times,
+        left_on="kickoff_at",
+        right_on="snapshot_at",
+        direction="backward",
+        allow_exact_matches=False,
+    )
+    unmatched: int = int(assigned["dt"].isna().sum())
+    if unmatched:
+        logger.warning(
+            "Season %s has %s team-games with no depth-chart snapshot strictly before kickoff",
+            season,
+            unmatched,
+        )
+    assigned = assigned.dropna(subset=["dt"]).copy()
+    if assigned.empty:
+        raise ValueError(f"Season {season} has no depth-chart snapshot strictly before a kickoff")
+
+    if "player_name" not in chart.columns:
+        chart["player_name"] = pd.NA
+    chart_rows: pd.DataFrame = chart.loc[
+        :,
+        ["dt", "team", "gsis_id", "pos_abb", "pos_rank", "formation", "player_name"],
+    ].copy()
+    chart_rows["team"] = chart_rows["team"].astype("string")
+    assigned["club_code"] = assigned["club_code"].astype("string")
+    merged: pd.DataFrame = assigned.merge(
+        chart_rows,
+        left_on=["club_code", "dt"],
+        right_on=["team", "dt"],
+        how="inner",
+    )
+    if merged.empty:
+        raise ValueError(f"Season {season} depth chart snapshots did not match any scheduled team")
+    placed_keys: int = int(assigned.loc[:, ["club_code", "dt"]].drop_duplicates().shape[0])
+    found_keys: int = int(merged.loc[:, ["club_code", "dt"]].drop_duplicates().shape[0])
+    if found_keys < placed_keys:
+        logger.warning(
+            "Season %s depth chart is missing %s team snapshots that the schedule asked for",
+            season,
+            placed_keys - found_keys,
+        )
+
+    depth_team: pd.Series = (
+        pd.to_numeric(merged["pos_rank"], errors="coerce").round().astype("Int64").astype("string")
+    )
+    output: pd.DataFrame = pd.DataFrame(
+        {
+            "season": pd.Series(season, index=merged.index, dtype="int32"),
+            "club_code": merged["club_code"].astype("string"),
+            "week": merged["week"].astype("float64"),
+            "game_type": merged["game_type"].astype("string"),
+            "depth_team": depth_team,
+            "last_name": _blank_string_column(merged.index),
+            "first_name": _blank_string_column(merged.index),
+            "football_name": _blank_string_column(merged.index),
+            "formation": merged["formation"].astype("string"),
+            "gsis_id": merged["gsis_id"].astype("string"),
+            "jersey_number": _blank_string_column(merged.index),
+            "position": merged["pos_abb"].astype("string"),
+            "elias_id": _blank_string_column(merged.index),
+            "depth_position": _blank_string_column(merged.index),
+            "full_name": merged["player_name"].astype("string"),
+        }
+    )
+    logger.info(
+        "Season %s depth chart mapped %s snapshot times onto %s team-games (%s rows)",
+        season,
+        int(assigned["dt"].nunique()),
+        int(assigned.loc[:, ["club_code", "week", "game_type"]].drop_duplicates().shape[0]),
+        len(output),
+    )
+    return output.loc[:, list(DEPTH_CHART_COLUMNS)].reset_index(drop=True)
+
+
+def select_depth_chart_columns(
+    frame: pd.DataFrame,
+    season: int,
+    games: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """Return the stable depth-chart columns for one season file.
+
+    A 2001-2024 file already has those columns. A 2025-and-later snapshot is
+    mapped with ``games``. Anything else is an error.
+
+    Args:
+        frame: One season of nflverse depth charts.
+        season: Season year, used in errors and written onto mapped rows.
+        games: Schedule used only for the timestamped schema.
+
+    Returns:
+        A copy with ``DEPTH_CHART_COLUMNS`` only, in that order.
+
+    Raises:
+        ValueError: A weekly column is absent, or a snapshot cannot be mapped.
+    """
+    if _has_weekly_depth_chart_columns(frame):
+        return _select_weekly_depth_chart_columns(frame, season)
+    if _is_snapshot_depth_chart(frame):
+        if games is None:
+            raise ValueError(
+                f"Season {season} depth chart is a timestamped snapshot "
+                "and needs the games schedule"
+            )
+        return map_snapshot_depth_chart(frame, season, games)
+    missing: list[str] = [column for column in DEPTH_CHART_COLUMNS if column not in frame.columns]
+    missing_list: str = ", ".join(missing)
+    raise ValueError(f"Season {season} depth chart missing columns: {missing_list}")
+
+
 def download_nflverse_depth_charts(
     seasons: list[int],
     local_dir: Path,
     workspace_client: WorkspaceClient,
+    games: pd.DataFrame | None = None,
 ) -> list[int]:
-    """Download weekly depth charts and upload one parquet per season.
+    """Download depth charts and upload one parquet per season.
 
     Seasons before 2001 are skipped. A missing release (HTTP 404) is skipped.
-    A file that lacks a stable column is an error. Files land at
-    ``depth_charts/{season}/depth_charts_{season}.parquet`` so a later
-    current-season refresh replaces one season and leaves the others.
+    A weekly file that lacks a stable column is an error. A timestamped file
+    (2025 and later) is mapped onto those columns with the games schedule.
+    When that mapping is not possible, the season is skipped with a warning
+    and ``fct_expected_starter`` keeps the previous-game primary passer.
+    Files land at ``depth_charts/{season}/depth_charts_{season}.parquet`` so
+    a later refresh replaces one season and leaves the others.
 
     Args:
         seasons: Season years to attempt.
         local_dir: Temporary directory for the parquet files.
         workspace_client: Databricks client used for the volume upload.
+        games: Optional schedule. When omitted, a snapshot season downloads
+            ``games.parquet`` once.
 
     Returns:
         Season years that were uploaded.
 
     Raises:
-        ValueError: No season produced a file, or a file failed the column check.
+        ValueError: No season produced a file, or a weekly file failed the
+            column check.
     """
     processed: list[int] = []
+    games_frame: pd.DataFrame | None = games
     for season in seasons:
         if season < DEPTH_CHART_FIRST_SEASON:
             logger.info(
@@ -496,7 +822,22 @@ def download_nflverse_depth_charts(
                 logger.warning("Season %s depth chart was not found (HTTP 404), skipping", season)
                 continue
             raise
-        selected = select_depth_chart_columns(frame, season)
+        if _is_snapshot_depth_chart(frame):
+            try:
+                if games_frame is None:
+                    games_frame = download_parquet_with_validation(NFLVERSE_GAMES_URL)
+                selected = select_depth_chart_columns(frame, season, games_frame)
+            except ValueError as exc:
+                logger.warning(
+                    "Season %s depth chart uses the timestamped schema and was not "
+                    "loaded (%s). Skipping this season. fct_expected_starter uses "
+                    "the previous-game primary passer.",
+                    season,
+                    exc,
+                )
+                continue
+        else:
+            selected = select_depth_chart_columns(frame, season)
         local_path = local_dir / f"depth_charts_{season}.parquet"
         selected.to_parquet(local_path, index=False)
         upload_to_volume_depth_chart_season(workspace_client, local_path, season)

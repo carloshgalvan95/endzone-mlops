@@ -147,9 +147,11 @@ sources:
         # On local DuckDB this resolves to: main.raw_depth_charts
         identifier: "{{ 'depth_charts' if target.name == 'databricks' else 'raw_depth_charts' }}"
         description: |
-          Weekly NFL.com depth charts from nflverse, 2001-present.
+          NFL.com depth charts from nflverse, 2001-present.
           Loaded via src/ingest/load_raw_nflverse.py --dataset depth_charts.
-          1999 and 2000 were not published.
+          1999 and 2000 were not published. 2001-2024 are weekly. From 2025
+          the release is a timestamped snapshot, and ingest assigns each
+          team-game the latest snapshot strictly before kickoff.
 
         config:
           meta:
@@ -159,17 +161,17 @@ sources:
           - name: season
             description: "NFL season year"
           - name: club_code
-            description: "Team abbreviation for that season (historical, not the current franchise)"
+            description: "Team abbreviation for that season. From 2025 this is the snapshot team column."
           - name: week
-            description: "Week number. Null on non-game rows such as the conference bye."
+            description: "Week number. Null on non-game rows such as the conference bye. From 2025, ingest sets week from the scheduled game, using the latest snapshot strictly before that game's kickoff."
           - name: game_type
-            description: "Game type matching games.parquet (REG, WC, DIV, CON, SB)"
+            description: "Game type matching games.parquet (REG, WC, DIV, CON, SB). From 2025 this comes from that same game."
           - name: depth_team
-            description: "Depth rank as text. 1 is the listed starter."
+            description: "Depth rank as text. 1 is the listed starter. From 2025 this is pos_rank."
           - name: formation
-            description: "Offense, Defense, or Special Teams"
+            description: "Offense, Defense, or Special Teams. From 2025, 3WR 1TE is Offense, Base 4-3 D and Base 3-4 D are Defense, and Special Teams is unchanged."
           - name: position
-            description: "Listed position. Quarterbacks are QB."
+            description: "Listed position. Quarterbacks are QB. From 2025 this is pos_abb, so QB stays QB."
           - name: gsis_id
             description: "Player id. Same format as play-by-play passer_player_id."
           - name: full_name

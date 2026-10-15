@@ -153,6 +153,20 @@ class TestStagingModelColumns:
                 f"tests/fixtures/nflverse_depth_chart_columns.txt: {sorted(missing)}"
             )
 
+    def test_2025_depth_chart_release_has_no_week(self) -> None:
+        """The 2025 release is a snapshot. Staging still reads the weekly columns."""
+        weekly = load_column_fixture("nflverse_depth_chart_columns.txt")
+        snapshot = load_column_fixture("nflverse_depth_chart_2025_columns.txt")
+        assert "week" in weekly
+        assert "game_type" in weekly
+        assert "week" not in snapshot
+        assert "dt" in snapshot
+        assert "team" in snapshot
+        assert "pos_grp" in snapshot
+        assert "pos_abb" in snapshot
+        assert "pos_rank" in snapshot
+        assert "gsis_id" in snapshot
+
 
 class TestColumnFixtures:
     """Test that column fixtures are valid."""

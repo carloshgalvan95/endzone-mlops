@@ -16,6 +16,7 @@ import pytest
 from src.ingest.load_raw_nflverse import (
     DATASET_CONFIG,
     DEFAULT_SEASON_START,
+    DEPTH_CHART_2025_COLUMNS,
     DEPTH_CHART_COLUMNS,
     DEPTH_CHART_FIRST_SEASON,
     NFLVERSE_GAMES_URL,
@@ -710,3 +711,218 @@ class TestDepthCharts:
         """An empty range is an error, not an empty bronze table."""
         with pytest.raises(ValueError, match="No depth chart"):
             download_nflverse_depth_charts([1999, 2000], tmp_path, MagicMock())
+
+    def test_2025_column_fixture_is_the_release_order(self) -> None:
+        """The fixture lists depth_charts_2025.parquet columns, in file order."""
+        fixture_path = Path(__file__).parent / "fixtures" / "nflverse_depth_chart_2025_columns.txt"
+        listed = [line.strip() for line in fixture_path.read_text().splitlines() if line.strip()]
+        assert listed == list(DEPTH_CHART_2025_COLUMNS)
+        assert "week" not in listed
+        assert "dt" in listed
+        assert "pos_rank" in listed
+
+    def test_snapshot_uses_the_latest_scrape_strictly_before_kickoff(self) -> None:
+        """Thursday keeps Thursday morning. Sunday can see a later scrape."""
+        frame = _snapshot_depth_chart_frame()
+        selected = select_depth_chart_columns(frame, 2025, _schedule_frame())
+        starters = selected.loc[(selected["position"] == "QB") & (selected["depth_team"] == "1")]
+        phi = starters.loc[starters["club_code"] == "PHI"].iloc[0]
+        dal = starters.loc[starters["club_code"] == "DAL"].iloc[0]
+        atl = starters.loc[starters["club_code"] == "ATL"].iloc[0]
+        tb = starters.loc[starters["club_code"] == "TB"].iloc[0]
+        assert phi["full_name"] == "Jalen Hurts"
+        assert phi["gsis_id"] == "00-THU"
+        assert dal["full_name"] == "Dak Prescott"
+        assert atl["full_name"] == "Michael Penix Jr."
+        assert tb["gsis_id"] == "00-SUN"
+        assert list(selected.columns) == list(DEPTH_CHART_COLUMNS)
+        assert int(phi["season"]) == 2025
+        assert phi["week"] == 1.0
+        assert phi["game_type"] == "REG"
+        assert phi["formation"] == "Offense"
+        assert pd.isna(phi["last_name"])
+        assert pd.isna(phi["jersey_number"])
+        assert pd.isna(phi["elias_id"])
+        defense = selected.loc[selected["position"] == "LDE"].iloc[0]
+        assert defense["formation"] == "Defense"
+        special = selected.loc[selected["position"] == "KR"].iloc[0]
+        assert special["formation"] == "Special Teams"
+        assert "Goal Line" not in set(selected["formation"])
+        assert "SHOULD_NOT" not in set(selected["full_name"].dropna())
+
+    def test_snapshot_refuses_a_scrape_at_the_kickoff_instant(self) -> None:
+        """A scrape timestamp equal to kickoff is not pregame."""
+        rows = _snapshot_rows(
+            [
+                ("2025-09-05T00:20:00Z", "PHI", "Exact", "00-EXACT", "QB", "3WR 1TE", 1),
+                ("2025-09-04T12:00:00Z", "PHI", "Earlier", "00-EARLY", "QB", "3WR 1TE", 1),
+            ]
+        )
+        games = pd.DataFrame(
+            {
+                "season": [2025],
+                "week": [1],
+                "game_type": ["REG"],
+                "gameday": ["2025-09-04"],
+                "gametime": ["20:20"],
+                "home_team": ["PHI"],
+                "away_team": ["DAL"],
+            }
+        )
+        # Away team has no chart row. The home starter must be the earlier scrape.
+        selected = select_depth_chart_columns(rows, 2025, games)
+        phi = selected.loc[(selected["club_code"] == "PHI") & (selected["depth_team"] == "1")].iloc[
+            0
+        ]
+        assert phi["full_name"] == "Earlier"
+        assert phi["gsis_id"] == "00-EARLY"
+
+    def test_snapshot_requires_the_schedule(self) -> None:
+        """A timestamped file without games is an error at the column step."""
+        with pytest.raises(ValueError, match="games schedule"):
+            select_depth_chart_columns(_snapshot_depth_chart_frame(), 2025)
+
+    def test_snapshot_skips_when_nothing_is_before_kickoff(self) -> None:
+        """A scrape after every kickoff cannot be labeled with a week."""
+        rows = _snapshot_rows(
+            [("2025-12-01T00:00:00Z", "PHI", "Late", "00-LATE", "QB", "3WR 1TE", 1)]
+        )
+        games = pd.DataFrame(
+            {
+                "season": [2025],
+                "week": [1],
+                "game_type": ["REG"],
+                "gameday": ["2025-09-04"],
+                "gametime": ["20:20"],
+                "home_team": ["PHI"],
+                "away_team": ["DAL"],
+            }
+        )
+        with pytest.raises(ValueError, match="strictly before"):
+            select_depth_chart_columns(rows, 2025, games)
+
+    def test_snapshot_drops_an_unmapped_position_group(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """An unknown pos_grp is not called Offense."""
+        with caplog.at_level("WARNING", logger="src.ingest.load_raw_nflverse"):
+            selected = select_depth_chart_columns(
+                _snapshot_depth_chart_frame(), 2025, _schedule_frame()
+            )
+        assert "Goal Line" in caplog.text
+        assert selected.loc[selected["full_name"] == "Unmapped Player"].empty
+
+    def test_download_maps_a_snapshot_season(self, tmp_path: Path) -> None:
+        """A 2025 file is uploaded after the schedule places each scrape."""
+        client = MagicMock()
+
+        def fake_download(url: str) -> pd.DataFrame:
+            assert "2025" in url
+            return _snapshot_depth_chart_frame()
+
+        with patch(
+            "src.ingest.load_raw_nflverse.download_parquet_with_validation",
+            side_effect=fake_download,
+        ) as download:
+            processed = download_nflverse_depth_charts(
+                [2025], tmp_path, client, games=_schedule_frame()
+            )
+
+        assert processed == [2025]
+        assert download.call_count == 1
+        uploaded = client.files.upload.call_args[0][0]
+        assert uploaded.endswith("/depth_charts/2025/depth_charts_2025.parquet")
+
+    def test_download_skips_a_snapshot_when_the_schedule_is_missing(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """2024 still uploads when the 2025 schedule cannot be read."""
+        client = MagicMock()
+
+        def fake_download(url: str) -> pd.DataFrame:
+            if url.endswith("games.parquet"):
+                raise ValueError("Failed to download from games.parquet: HTTP 404 Not Found")
+            if "2025" in url:
+                return _snapshot_depth_chart_frame()
+            return _depth_chart_frame()
+
+        with patch(
+            "src.ingest.load_raw_nflverse.download_parquet_with_validation",
+            side_effect=fake_download,
+        ):
+            with caplog.at_level("WARNING", logger="src.ingest.load_raw_nflverse"):
+                processed = download_nflverse_depth_charts([2024, 2025], tmp_path, client)
+
+        assert processed == [2024]
+        assert "previous-game primary passer" in caplog.text
+        assert "2025" in caplog.text
+        uploaded = client.files.upload.call_args[0][0]
+        assert uploaded.endswith("/depth_charts/2024/depth_charts_2024.parquet")
+
+
+def _snapshot_rows(rows: list[tuple[str, str, str, str, str, str, int]]) -> pd.DataFrame:
+    """Build a 2025-shaped frame. Columns match the release, unused ones are blank."""
+    records = [
+        {
+            "dt": item[0],
+            "team": item[1],
+            "player_name": item[2],
+            "espn_id": "1",
+            "gsis_id": item[3],
+            "pos_grp_id": "1",
+            "pos_grp": item[5],
+            "pos_id": "1",
+            "pos_name": item[4],
+            "pos_abb": item[4],
+            "pos_slot": 1,
+            "pos_rank": item[6],
+        }
+        for item in rows
+    ]
+    frame = pd.DataFrame(records)
+    return frame.loc[:, list(DEPTH_CHART_2025_COLUMNS)]
+
+
+def _snapshot_depth_chart_frame() -> pd.DataFrame:
+    """Thursday morning, Friday afternoon, and Sunday morning scrapes."""
+    return _snapshot_rows(
+        [
+            ("2025-09-04T10:00:00Z", "PHI", "Jalen Hurts", "00-THU", "QB", "3WR 1TE", 1),
+            ("2025-09-04T10:00:00Z", "PHI", "Kenny Pickett", "00-THU2", "QB", "3WR 1TE", 2),
+            ("2025-09-04T10:00:00Z", "DAL", "Dak Prescott", "00-DAK", "QB", "3WR 1TE", 1),
+            (
+                "2025-09-04T10:00:00Z",
+                "ATL",
+                "Michael Penix Jr.",
+                "00-EARLY-ATL",
+                "QB",
+                "3WR 1TE",
+                1,
+            ),
+            ("2025-09-04T10:00:00Z", "TB", "Baker Mayfield", "00-EARLY-TB", "QB", "3WR 1TE", 1),
+            ("2025-09-04T10:00:00Z", "PHI", "Edge Rusher", "00-DE", "LDE", "Base 4-3 D", 1),
+            ("2025-09-04T10:00:00Z", "PHI", "Returner", "00-KR", "KR", "Special Teams", 1),
+            ("2025-09-04T10:00:00Z", "PHI", "Unmapped Player", "00-BAD", "XX", "Goal Line", 1),
+            ("2025-09-05T15:00:00Z", "PHI", "SHOULD_NOT", "00-ZZZ", "QB", "3WR 1TE", 1),
+            ("2025-09-05T15:00:00Z", "DAL", "SHOULD_NOT", "00-YYY", "QB", "3WR 1TE", 1),
+            ("2025-09-07T12:00:00Z", "ATL", "Michael Penix Jr.", "00-PENIX", "QB", "3WR 1TE", 1),
+            ("2025-09-07T12:00:00Z", "TB", "Baker Mayfield", "00-SUN", "QB", "3WR 1TE", 1),
+            ("2025-09-07T12:00:00Z", "PHI", "SHOULD_NOT", "00-LATE-PHI", "QB", "3WR 1TE", 1),
+            ("2025-09-07T12:00:00Z", "DAL", "SHOULD_NOT", "00-LATE-DAL", "QB", "3WR 1TE", 1),
+        ]
+    )
+
+
+def _schedule_frame() -> pd.DataFrame:
+    """Thursday PHI-DAL and Sunday ATL-TB, matching the snapshot fixture."""
+    return pd.DataFrame(
+        {
+            "season": [2025, 2025],
+            "week": [1, 1],
+            "game_type": ["REG", "REG"],
+            "gameday": ["2025-09-04", "2025-09-07"],
+            "gametime": ["20:20", "13:00"],
+            "home_team": ["PHI", "ATL"],
+            "away_team": ["DAL", "TB"],
+        }
+    )

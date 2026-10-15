@@ -1,0 +1,12 @@
+dt
+team
+player_name
+espn_id
+gsis_id
+pos_grp_id
+pos_grp
+pos_id
+pos_name
+pos_abb
+pos_slot
+pos_rank

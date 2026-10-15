@@ -18,6 +18,8 @@ The expected starter is the offense quarterback listed at `depth_team` 1 on that
 
 When the chart has no QB1, the starter is the previous game's primary passer for that franchise: the passer with the most dropbacks, and the lower id on a tie. The source is `depth_chart` or `previous_passer`. The change flag is 1 only when the chart and that previous passer both exist and differ, and 0 when they match. A missing chart cannot confirm a change, so the flag stays missing. Some weeks have no QB1 (2024 Jacksonville weeks 15 and 17, and 2001 week 1 Baltimore and Buffalo). Those rows use the fallback.
 
+From 2025 the nflverse file is a timestamped snapshot and has no `week`. Ingest keeps, for each team-game, the latest snapshot with `dt` strictly before kickoff (`gameday` plus `gametime` in Eastern time). `pos_abb` QB and `pos_grp` `3WR 1TE` are the offense QB, and `pos_rank` 1 is `depth_team` 1. A Thursday game does not see a Friday scrape. CV folds are 2016-2023, so they do not use this mapping. 2025 is the held-out test. If that season is skipped, the starter id stays null and the feature code uses the previous-game primary passer.
+
 ## Rating
 
 For the starter, sum dropbacks and EPA on plays with `gameday` strictly before the game. History follows the player across teams and seasons. Same-day games are excluded.

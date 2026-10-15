@@ -359,6 +359,8 @@ models:
       The starter is offense QB depth_team 1 for that season, week, and game_type.
       This model does not read play-by-play. A null starter id means the chart
       had no QB1, and the feature code falls back to the previous primary passer.
+      From 2025, week and game_type are assigned in ingest from the latest
+      snapshot strictly before kickoff. A skipped 2025 chart uses that fallback.
 
     config:
       meta:
