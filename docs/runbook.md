@@ -512,22 +512,22 @@ ORDER BY season;
 
 -- Check staging views
 SELECT 'stg_nflverse__games' as model, COUNT(*) as row_count
-FROM workspace.nfl_dev.stg_nflverse__games
+FROM workspace.nfl_dev_staging.stg_nflverse__games
 UNION ALL
 SELECT 'stg_nflverse__pbp', COUNT(*)
-FROM workspace.nfl_dev.stg_nflverse__pbp;
+FROM workspace.nfl_dev_staging.stg_nflverse__pbp;
 
 -- Check pbp-to-games foreign key integrity
 SELECT COUNT(DISTINCT pbp.game_id) as pbp_games,
        COUNT(DISTINCT g.game_id) as games_games
-FROM workspace.nfl_dev.stg_nflverse__pbp pbp
-LEFT JOIN workspace.nfl_dev.stg_nflverse__games g ON pbp.game_id = g.game_id;
+FROM workspace.nfl_dev_staging.stg_nflverse__pbp pbp
+LEFT JOIN workspace.nfl_dev_staging.stg_nflverse__games g ON pbp.game_id = g.game_id;
 -- Both counts should match
 
 -- Sample play-by-play data
 SELECT game_id, play_id, quarter, down, yards_to_go, play_type, 
        yards_gained, epa, wpa, success
-FROM workspace.nfl_dev.stg_nflverse__pbp
+FROM workspace.nfl_dev_staging.stg_nflverse__pbp
 WHERE season = 2024
 LIMIT 10;
 ```

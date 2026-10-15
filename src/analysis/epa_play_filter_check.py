@@ -28,7 +28,7 @@ logger = setup_logger(__name__)
 
 STAGING_TABLE: str = "stg_nflverse__pbp"
 RAW_TABLE: str = "play_by_play"
-DEFAULT_STAGING_SCHEMA: str = "nfl_dev"
+DEFAULT_STAGING_SCHEMA: str = "nfl_dev_staging"
 DEFAULT_RAW_SCHEMA: str = "nfl_raw"
 FLAG_COLUMNS: tuple[str, ...] = ("qb_kneel", "qb_spike")
 DEFAULT_OUTPUT: str = "reports/epa_filter_check.md"
@@ -60,8 +60,10 @@ def resolve_epa_filter_locations(
 ) -> dict[str, str]:
     """Resolve the staging view and the raw play-by-play table.
 
-    Staging lives in ``nfl_dev`` (the dbt target schema). Marts live in
-    ``nfl_dev_marts``. The raw table is ``workspace.nfl_raw.play_by_play``.
+    The dbt target schema is ``nfl_dev``. This repo has no
+    ``generate_schema_name`` macro, so dbt's default macro appends each
+    custom schema: staging views live in ``nfl_dev_staging`` and marts live
+    in ``nfl_dev_marts``. The raw table is ``workspace.nfl_raw.play_by_play``.
     ``DATABRICKS_CATALOG``, ``DATABRICKS_STAGING_SCHEMA``, and
     ``DATABRICKS_RAW_SCHEMA`` override those defaults.
 
@@ -451,7 +453,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument(
         "--staging-schema",
         default=None,
-        help="Schema of stg_nflverse__pbp. Default: nfl_dev.",
+        help="Schema of stg_nflverse__pbp. Default: nfl_dev_staging.",
     )
     parser.add_argument(
         "--raw-schema",
