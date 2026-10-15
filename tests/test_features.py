@@ -16,13 +16,19 @@ from src.features.pregame import (
     FEATURE_SET_DIFF_ONLY,
     FEATURE_SET_H2_DEF,
     FEATURE_SET_H2_FULL,
+    FEATURE_SET_H3_REPLACE,
+    FEATURE_SET_H3_SPLIT,
     FEATURE_SET_NAMES,
     FEATURE_SET_WITH_GAMES_PLAYED,
     GAMES_PLAYED_COLUMNS,
+    H3_REPLACED_COMBINED_COLUMNS,
+    PASS_RUSH_EPA_COLUMNS,
     PREGAME_FEATURE_COLUMNS,
     PREGAME_FEATURE_COLUMNS_DIFF,
     PREGAME_FEATURE_COLUMNS_H2_DEF,
     PREGAME_FEATURE_COLUMNS_H2_FULL,
+    PREGAME_FEATURE_COLUMNS_H3_REPLACE,
+    PREGAME_FEATURE_COLUMNS_H3_SPLIT,
     PREGAME_FEATURE_COLUMNS_WITH_GAMES_PLAYED,
     REGRESSED_EPA_COLUMNS,
     SEASON_BLEND_K,
@@ -268,6 +274,8 @@ class TestPrepareTrainingData:
             "diff_only",
             "h2_def",
             "h2_full",
+            "h3_split",
+            "h3_replace",
         )
         assert feature_columns_for("current") == PREGAME_FEATURE_COLUMNS
         assert feature_columns_for("with_games_played") == PREGAME_FEATURE_COLUMNS_WITH_GAMES_PLAYED
@@ -320,6 +328,47 @@ class TestPrepareTrainingData:
             column for column in h2_full.columns if column not in ("game_id", "gameday", "season")
         ]
         assert h2_columns == list(PREGAME_FEATURE_COLUMNS_H2_FULL)
+        assert feature_columns_for(FEATURE_SET_H3_SPLIT) == PREGAME_FEATURE_COLUMNS_H3_SPLIT
+        assert feature_columns_for(FEATURE_SET_H3_REPLACE) == PREGAME_FEATURE_COLUMNS_H3_REPLACE
+        assert PREGAME_FEATURE_COLUMNS_H3_SPLIT[: len(PREGAME_FEATURE_COLUMNS_H2_FULL)] == (
+            PREGAME_FEATURE_COLUMNS_H2_FULL
+        )
+        assert PREGAME_FEATURE_COLUMNS_H3_SPLIT[len(PREGAME_FEATURE_COLUMNS_H2_FULL) :] == (
+            PASS_RUSH_EPA_COLUMNS
+        )
+        kept_h2_columns: tuple[str, ...] = tuple(
+            column
+            for column in PREGAME_FEATURE_COLUMNS_H2_FULL
+            if column not in H3_REPLACED_COMBINED_COLUMNS
+        )
+        assert PREGAME_FEATURE_COLUMNS_H3_REPLACE[: len(kept_h2_columns)] == kept_h2_columns
+        assert set(H3_REPLACED_COMBINED_COLUMNS).isdisjoint(PREGAME_FEATURE_COLUMNS_H3_REPLACE)
+        assert set(PASS_RUSH_EPA_COLUMNS) <= set(PREGAME_FEATURE_COLUMNS_H3_SPLIT)
+        assert set(PASS_RUSH_EPA_COLUMNS) <= set(PREGAME_FEATURE_COLUMNS_H3_REPLACE)
+        assert set(PASS_RUSH_EPA_COLUMNS).isdisjoint(PREGAME_FEATURE_COLUMNS)
+        assert set(PASS_RUSH_EPA_COLUMNS).isdisjoint(PREGAME_FEATURE_COLUMNS_H2_FULL)
+        assert "home_recent_offensive_epa_per_play" not in feature_columns_for(
+            FEATURE_SET_H3_REPLACE
+        )
+        assert "home_regressed_season_offensive_epa_per_play" not in feature_columns_for(
+            FEATURE_SET_H3_REPLACE
+        )
+        assert "home_regressed_recent_offensive_epa_per_play" in feature_columns_for(
+            FEATURE_SET_H3_REPLACE
+        )
+        assert "home_recent_win_rate" in feature_columns_for(FEATURE_SET_H3_REPLACE)
+        assert "home_season_defensive_epa_per_play" in feature_columns_for(FEATURE_SET_H3_REPLACE)
+        assert "home_games_played" not in feature_columns_for(FEATURE_SET_H3_SPLIT)
+
+        h3_split, _h3_target = prepare_training_data(
+            synthetic_games,
+            features,
+            feature_set=FEATURE_SET_H3_SPLIT,
+        )
+        h3_columns = [
+            column for column in h3_split.columns if column not in ("game_id", "gameday", "season")
+        ]
+        assert h3_columns == list(PREGAME_FEATURE_COLUMNS_H3_SPLIT)
 
     def test_unknown_feature_set_is_rejected(
         self,

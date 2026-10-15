@@ -56,11 +56,13 @@ The builder also emits `home_season_defensive_epa_per_play` and `away_season_def
 
 In `fct_games`, `home_won` is 1 only when `home_score > away_score`. Every other completed game, including a tie, is 0. The recent win rate then treats `home_won == 0` as a win for the away franchise, so a tie also counts as an away win when that game is inside the lookback window. This note does not count ties.
 
-### 7. pass_epa and rush_epa are unused
+### 7. pass_epa and rush_epa are outside the default matrix
 
 **Verified.**
 
-`fct_team_game_epa` computes `pass_epa` and `rush_epa` (sums of EPA on `pass_attempt = 1` and `rush_attempt = 1` inside the `play = 1` rows). `build_pregame_features` reads `avg_offensive_epa` and `avg_defensive_epa_allowed` only. The pass and rush totals never become model inputs.
+`fct_team_game_epa` computes `pass_epa` and `rush_epa` (sums of EPA on `pass_attempt = 1` and `rush_attempt = 1` inside the `play = 1` rows) and the play counts `pass_plays` and `rush_plays`. Feature set `current` does not read them. The audit profiles `current`.
+
+Feature sets `h3_split` and `h3_replace` turn those sums into pass and rush EPA per play, for offense and for defense. Defense uses the opponent's offensive rate on the same game, because the mart does not store a defensive pass or rush column. See `docs/experiments/phase2_h3_pass_rush_epa.md`.
 
 ### 8. What play = 1 includes
 

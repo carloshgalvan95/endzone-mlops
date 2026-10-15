@@ -7,7 +7,7 @@ Usage:
     python -m src.train.train --model baseline-home
     python -m src.train.train --cv
     python -m src.train.train --cv --phase 2
-    python -m src.train.train --cv --phase 2 --hypothesis h2
+    python -m src.train.train --cv --phase 2 --hypothesis h3
 """
 
 import argparse
@@ -15,6 +15,7 @@ import os
 import subprocess
 import tempfile
 from collections.abc import Callable
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -43,6 +44,8 @@ from src.features.pregame import (
     FEATURE_SET_DIFF_ONLY,
     FEATURE_SET_H2_DEF,
     FEATURE_SET_H2_FULL,
+    FEATURE_SET_H3_REPLACE,
+    FEATURE_SET_H3_SPLIT,
     FEATURE_SET_NAMES,
     FEATURE_SET_WITH_GAMES_PLAYED,
     SEASON_BLEND_K,
@@ -79,19 +82,25 @@ PHASE1_EXPERIMENT_NAME: str = "nfl_pregame/phase1_baselines"
 PHASE1_TAG: str = "1"
 PHASE2_EXPERIMENT_NAME: str = "nfl_pregame/phase2_h1"
 PHASE2_H2_EXPERIMENT_NAME: str = "nfl_pregame/phase2_h2"
+PHASE2_H3_EXPERIMENT_NAME: str = "nfl_pregame/phase2_h3"
 PHASE2_TAG: str = "2"
 HYPOTHESIS_H1: str = "h1-diff"
 HYPOTHESIS_H2: str = "h2-season-def-regression"
+HYPOTHESIS_H3: str = "h3-pass-rush-epa"
 HYPOTHESIS_ALIASES: dict[str, str] = {
     "h1": HYPOTHESIS_H1,
     "h1-diff": HYPOTHESIS_H1,
     "h2": HYPOTHESIS_H2,
     "h2-season-def-regression": HYPOTHESIS_H2,
+    "h3": HYPOTHESIS_H3,
+    "h3-pass-rush-epa": HYPOTHESIS_H3,
 }
 CV_SCHEME: str = "rolling_season_2016_2023"
 PHASE1_MARKDOWN_NAME: str = "comparison.md"
 PHASE1_CSV_NAME: str = "comparison.csv"
 REFERENCE_MODEL_NAME: str = "baseline-home"
+BASELINE_MODEL_NAMES: frozenset[str] = frozenset({REFERENCE_MODEL_NAME, "elo", "market"})
+CV_DATASET_NAME: str = "nfl_pregame_cv"
 # Accept a set only when pooled log loss falls by at least this much.
 MIN_LOG_LOSS_IMPROVEMENT: float = 0.003
 PHASE1_LOGISTIC_FEATURE_SETS: tuple[str, ...] = (
@@ -108,10 +117,21 @@ PHASE2_H2_LOGISTIC_FEATURE_SETS: tuple[str, ...] = (
     FEATURE_SET_H2_DEF,
     FEATURE_SET_H2_FULL,
 )
-# Phase 1 stays on the home prior. Phase 2 H1 uses logistic ``current``.
+PHASE2_H3_LOGISTIC_FEATURE_SETS: tuple[str, ...] = (
+    FEATURE_SET_H2_FULL,
+    FEATURE_SET_H3_SPLIT,
+    FEATURE_SET_H3_REPLACE,
+)
+# Phase 1 stays on the home prior. Phase 2 H1 and H2 use logistic ``current``.
+# H3 uses logistic ``h2_full``. The hypothesis map is the phase 2 default.
 DEFAULT_REFERENCE_BY_PHASE: dict[int, tuple[str, str]] = {
     1: (REFERENCE_MODEL_NAME, "none"),
     2: ("logistic", FEATURE_SET_CURRENT),
+}
+DEFAULT_REFERENCE_BY_HYPOTHESIS: dict[str, tuple[str, str]] = {
+    HYPOTHESIS_H1: ("logistic", FEATURE_SET_CURRENT),
+    HYPOTHESIS_H2: ("logistic", FEATURE_SET_CURRENT),
+    HYPOTHESIS_H3: ("logistic", FEATURE_SET_H2_FULL),
 }
 MODEL_DEFAULT_FEATURE_SET: dict[str, str] = {
     REFERENCE_MODEL_NAME: "none",
@@ -131,6 +151,11 @@ PHASE2_NOTE: str = (
 )
 PHASE2_H2_NOTE: str = (
     "Phase 2 hypothesis h2-season-def-regression. "
+    f"{FINAL_VALIDATION_SEASON} and {HELD_OUT_TEST_SEASON} are not scored. "
+    "No model is promoted from this run."
+)
+PHASE2_H3_NOTE: str = (
+    "Phase 2 hypothesis h3-pass-rush-epa. "
     f"{FINAL_VALIDATION_SEASON} and {HELD_OUT_TEST_SEASON} are not scored. "
     "No model is promoted from this run."
 )
@@ -1005,18 +1030,21 @@ def resolve_reference_spec(
     phase: int,
     reference_model: str | None = None,
     reference_feature_set: str | None = None,
+    hypothesis: str | None = None,
 ) -> dict[str, str]:
     """Choose the paired-comparison reference for a CV phase.
 
-    Phase 1 defaults to the home prior. Phase 2 defaults to logistic
-    ``current``. Passing a model or a feature set replaces that default.
-    When only the model is set, its usual feature set is used. Logistic
-    stays on ``current`` unless a feature set is passed.
+    Phase 1 defaults to the home prior. Phase 2 H1 and H2 default to
+    logistic ``current``. Phase 2 H3 defaults to logistic ``h2_full``.
+    Passing a model or a feature set replaces that default. When only the
+    model is set, its usual feature set is used, except logistic on H3,
+    which stays on ``h2_full`` unless a feature set is passed.
 
     Args:
         phase: ``1`` or ``2``.
         reference_model: Model name, or None for the phase default.
         reference_feature_set: Feature set name, or None to derive it.
+        hypothesis: Phase 2 hypothesis name. None keeps H1.
 
     Returns:
         Dict with ``model`` and ``feature_set``.
@@ -1027,11 +1055,18 @@ def resolve_reference_spec(
     if phase not in DEFAULT_REFERENCE_BY_PHASE:
         known_phases: str = ", ".join(str(item) for item in sorted(DEFAULT_REFERENCE_BY_PHASE))
         raise ValueError(f"Unknown phase {phase}. Known phases: {known_phases}.")
-    default_model, default_feature_set = DEFAULT_REFERENCE_BY_PHASE[phase]
+    if phase == 2:
+        resolved_hypothesis: str | None = resolve_hypothesis(phase, hypothesis)
+        if resolved_hypothesis is None:
+            raise ValueError("Phase 2 requires a hypothesis.")
+        default_model, default_feature_set = DEFAULT_REFERENCE_BY_HYPOTHESIS[resolved_hypothesis]
+    else:
+        resolve_hypothesis(phase, hypothesis)
+        default_model, default_feature_set = DEFAULT_REFERENCE_BY_PHASE[phase]
     model_name: str = default_model if reference_model is None else reference_model
     if reference_feature_set is not None:
         feature_set = reference_feature_set
-    elif reference_model is None:
+    elif reference_model is None or model_name == default_model:
         feature_set = default_feature_set
     elif model_name in MODEL_DEFAULT_FEATURE_SET:
         feature_set = MODEL_DEFAULT_FEATURE_SET[model_name]
@@ -1048,16 +1083,16 @@ def resolve_hypothesis(phase: int, hypothesis: str | None = None) -> str | None:
     """Map a CLI hypothesis name to the tag stored on the run.
 
     Phase 1 has no hypothesis. Phase 2 defaults to H1 so the differential
-    report stays reproducible. ``h2`` and ``h2-season-def-regression`` both
-    select the season-defense hypothesis.
+    report stays reproducible. ``h2`` selects the season-defense hypothesis.
+    ``h3`` selects the pass/rush split.
 
     Args:
         phase: ``1`` or ``2``.
         hypothesis: Short or full hypothesis name, or None for the default.
 
     Returns:
-        ``None`` for phase 1, otherwise ``h1-diff`` or
-        ``h2-season-def-regression``.
+        ``None`` for phase 1, otherwise ``h1-diff``,
+        ``h2-season-def-regression``, or ``h3-pass-rush-epa``.
 
     Raises:
         ValueError: Phase 1 was given a hypothesis, or the name is unknown.
@@ -1082,7 +1117,8 @@ def logistic_feature_sets_for(phase: int, hypothesis: str | None = None) -> tupl
 
     Phase 1 scores ``current`` and ``with_games_played``. Phase 2 H1 scores
     ``current``, ``diff``, and ``diff_only``. Phase 2 H2 scores ``current``,
-    ``h2_def``, and ``h2_full``.
+    ``h2_def``, and ``h2_full``. Phase 2 H3 scores ``h2_full``, ``h3_split``,
+    and ``h3_replace``.
 
     Args:
         phase: ``1`` or ``2``.
@@ -1101,6 +1137,8 @@ def logistic_feature_sets_for(phase: int, hypothesis: str | None = None) -> tupl
         resolved: str | None = resolve_hypothesis(phase, hypothesis)
         if resolved == HYPOTHESIS_H2:
             return PHASE2_H2_LOGISTIC_FEATURE_SETS
+        if resolved == HYPOTHESIS_H3:
+            return PHASE2_H3_LOGISTIC_FEATURE_SETS
         return PHASE2_LOGISTIC_FEATURE_SETS
     raise ValueError(f"Unknown phase {phase}. Known phases: 1, 2.")
 
@@ -1140,6 +1178,15 @@ def phase_tracking_settings(phase: int, hypothesis: str | None = None) -> dict[s
                 "note": PHASE2_H2_NOTE,
                 "output_dir": "reports/phase2_h2",
                 "title": "Phase 2 H2 season defensive regression",
+            }
+        if resolved == HYPOTHESIS_H3:
+            return {
+                "experiment_name": PHASE2_H3_EXPERIMENT_NAME,
+                "phase_tag": PHASE2_TAG,
+                "hypothesis": HYPOTHESIS_H3,
+                "note": PHASE2_H3_NOTE,
+                "output_dir": "reports/phase2_h3",
+                "title": "Phase 2 H3 pass and rush EPA",
             }
         return {
             "experiment_name": PHASE2_EXPERIMENT_NAME,
@@ -1358,9 +1405,11 @@ def run_phase1_baselines(
     ``current`` and ``with_games_played`` and pairs every model to the home
     prior. Phase 2 H1 logs logistic ``current``, ``diff``, and ``diff_only``.
     Phase 2 H2 logs logistic ``current``, ``h2_def``, and ``h2_full``.
-    Both phase 2 hypotheses pair every model to logistic ``current`` unless
-    ``reference_model`` and ``reference_feature_set`` say otherwise. The
-    phase 1 call with no extra arguments is unchanged.
+    Phase 2 H3 logs logistic ``h2_full``, ``h3_split``, and ``h3_replace``.
+    H1 and H2 pair every model to logistic ``current``. H3 pairs every
+    model to logistic ``h2_full``. ``reference_model`` and
+    ``reference_feature_set`` override that default. The phase 1 call with
+    no extra arguments is unchanged.
 
     Args:
         games: Completed games, one row per game.
@@ -1374,7 +1423,7 @@ def run_phase1_baselines(
         reference_model: Reference model name. None uses the phase default.
         reference_feature_set: Reference feature set. None uses the phase default.
         phase: ``1`` keeps the phase 1 report. ``2`` is a phase 2 hypothesis.
-        hypothesis: ``h1`` or ``h2``. None on phase 2 keeps H1.
+        hypothesis: ``h1``, ``h2``, or ``h3``. None on phase 2 keeps H1.
 
     Returns:
         Dict with ``results``, ``comparison_table``, ``markdown``, ``config``,
@@ -1390,6 +1439,7 @@ def run_phase1_baselines(
         phase,
         reference_model=reference_model,
         reference_feature_set=reference_feature_set,
+        hypothesis=hypothesis,
     )
     selected_sets: tuple[str, ...] = (
         logistic_feature_sets_for(phase, hypothesis=hypothesis)
@@ -1414,7 +1464,7 @@ def run_phase1_baselines(
         "reference_model": reference_spec["model"],
         "reference_feature_set": reference_spec["feature_set"],
     }
-    if tracking["hypothesis"] == HYPOTHESIS_H2:
+    if tracking["hypothesis"] in {HYPOTHESIS_H2, HYPOTHESIS_H3}:
         shared_params["shrink_factor"] = SEASON_SHRINK_FACTOR
         shared_params["blend_k"] = SEASON_BLEND_K
     results: list[dict[str, Any]] = []
@@ -1577,6 +1627,11 @@ def run_phase1_baselines(
         "apply_acceptance": apply_acceptance,
         "min_log_loss_improvement": MIN_LOG_LOSS_IMPROVEMENT,
         "markdown": "",
+        "dataset_frame": _cv_dataset_frame(games, features, resolved.cv_end_season),
+        "dataset_source": (
+            "fct_games joined to pregame features, "
+            f"seasons through {resolved.cv_end_season}, lookback {lookback_games}"
+        ),
     }
     if apply_acceptance:
         report["acceptance"] = acceptance_decisions(
@@ -1731,7 +1786,7 @@ def render_phase1_report(report: dict[str, Any]) -> str:
         "## Folds",
         "",
     ]
-    if report.get("hypothesis") == HYPOTHESIS_H2:
+    if report.get("hypothesis") in {HYPOTHESIS_H2, HYPOTHESIS_H3}:
         regression_note: list[str] = [
             "Season defensive EPA is the same-season prior mean of EPA allowed.",
             "Regressed EPA starts from the previous season's final value,",
@@ -1739,6 +1794,16 @@ def render_phase1_report(report: dict[str, Any]) -> str:
             "then blends in current-season games with weight",
             f"n/(n+{SEASON_BLEND_K:g}). Week 1 of a season with no prior stays missing.",
         ]
+        if report.get("hypothesis") == HYPOTHESIS_H3:
+            regression_note.extend(
+                [
+                    "Pass and rush EPA per play split offense and defense.",
+                    "Recent splits use the lookback window on prior games,",
+                    "including prior seasons. Regressed-season splits use the",
+                    "same shrinkage and blend. Defensive splits are the",
+                    "opponent's offensive pass or rush rate from that game.",
+                ]
+            )
         lookback_index: int = lines.index(f"Lookback games: {report['lookback_games']}.")
         lines[lookback_index + 1 : lookback_index + 1] = regression_note
     if report.get("hypothesis"):
@@ -1819,6 +1884,226 @@ def write_phase1_outputs(report: dict[str, Any], output_dir: Path) -> dict[str, 
     }
 
 
+def _cv_dataset_frame(
+    games: pd.DataFrame,
+    features: pd.DataFrame,
+    cv_end_season: int,
+) -> pd.DataFrame:
+    """Rows that can enter rolling-origin CV, in a stable column order.
+
+    Seasons after ``cv_end_season`` stay out, so 2024 and 2025 are not part
+    of the digest when the window ends in 2023. The frame is the full
+    feature matrix plus the label, not one feature set.
+
+    Args:
+        games: Game table with ``game_id``, ``gameday``, ``season``, and ``home_won``.
+        features: Output of ``build_pregame_features``.
+        cv_end_season: Last season included in the CV window.
+
+    Returns:
+        One row per game with season at or before ``cv_end_season``, sorted
+        by gameday and game id.
+    """
+    labels: pd.DataFrame = games.loc[:, ["game_id", "gameday", "season", "home_won"]].copy()
+    merged: pd.DataFrame = features.merge(labels, on="game_id", how="inner")
+    kept: pd.DataFrame = merged.loc[merged["season"] <= cv_end_season].copy()
+    ordered: pd.DataFrame = kept.sort_values(["gameday", "game_id"], kind="mergesort")
+    id_columns: list[str] = ["game_id", "gameday", "season", "home_won"]
+    feature_columns: list[str] = [column for column in features.columns if column != "game_id"]
+    return ordered.loc[:, id_columns + feature_columns].reset_index(drop=True)
+
+
+def parent_run_name(
+    phase: int,
+    hypothesis: str | None,
+    timestamp: datetime | None = None,
+) -> str:
+    """Name the parent run for one CV invocation.
+
+    Args:
+        phase: ``1`` or ``2``.
+        hypothesis: Resolved hypothesis tag, or None for phase 1.
+        timestamp: Clock used in the name. Defaults to the current UTC time.
+
+    Returns:
+        A name such as ``phase1-<timestamp>`` or ``phase2-h3-<timestamp>``.
+    """
+    clock: datetime = timestamp if timestamp is not None else datetime.now(timezone.utc)
+    stamp: str = clock.strftime("%Y%m%dT%H%M%SZ")
+    if phase != 2 or hypothesis is None:
+        return f"phase1-{stamp}"
+    short_names: dict[str, str] = {
+        HYPOTHESIS_H1: "h1",
+        HYPOTHESIS_H2: "h2",
+        HYPOTHESIS_H3: "h3",
+    }
+    short: str | None = short_names.get(hypothesis)
+    if short is None:
+        return f"phase2-{stamp}"
+    return f"phase2-{short}-{stamp}"
+
+
+def mlflow_decision_tag(
+    result: dict[str, Any],
+    reference_model: str,
+    reference_feature_set: str,
+) -> str:
+    """Tag one scored model with the acceptance rule.
+
+    The reference row is ``reference``. Home prior, Elo, and the market are
+    ``baseline`` unless that model is the reference. A logistic candidate is
+    ``accepted`` only when pooled log loss improves by at least 0.003 and
+    the 95% interval lies entirely below 0. A missing interval is
+    ``inconclusive``. Every other candidate is ``rejected``.
+
+    Args:
+        result: One CV result dict with ``comparison`` attached.
+        reference_model: Model name of the reference.
+        reference_feature_set: Feature set of the reference.
+
+    Returns:
+        ``accepted``, ``rejected``, ``inconclusive``, ``reference``, or ``baseline``.
+    """
+    if result["model"] == reference_model and result["feature_set"] == reference_feature_set:
+        return "reference"
+    if result["model"] in BASELINE_MODEL_NAMES:
+        return "baseline"
+    comparison: dict[str, Any] = result.get("comparison") or {}
+    labeled: dict[str, Any] = decide_log_loss_improvement(
+        comparison.get("log_loss_diff"),
+        comparison.get("log_loss_diff_ci_low"),
+        comparison.get("log_loss_diff_ci_high"),
+    )
+    return str(labeled["decision"])
+
+
+def select_best_feature_set(
+    results: list[dict[str, Any]],
+    reference_model: str,
+    reference_feature_set: str,
+) -> str:
+    """Choose the feature set recorded on the parent run.
+
+    An accepted logistic set wins. If more than one is accepted, the lowest
+    pooled log loss wins. If none is accepted, the reference feature set is
+    kept.
+
+    Args:
+        results: CV result dicts with ``comparison`` and ``pooled`` attached.
+        reference_model: Model name of the reference.
+        reference_feature_set: Feature set of the reference.
+
+    Returns:
+        Feature set name, or ``none`` when the reference has no feature set
+        and no candidate was accepted.
+    """
+    decisions: list[dict[str, Any]] = acceptance_decisions(
+        results,
+        reference_model,
+        reference_feature_set,
+    )
+    loss_by_set: dict[str, float] = {}
+    for result in results:
+        if result["model"] != "logistic" or result["status"] != "ok":
+            continue
+        pooled: dict[str, Any] = result.get("pooled") or {}
+        value: object = pooled.get("log_loss")
+        if value is None or pd.isna(value):
+            continue
+        loss_by_set[str(result["feature_set"])] = float(value)
+    accepted: list[str] = [
+        str(row["feature_set"])
+        for row in decisions
+        if row["decision"] == "accepted" and row["feature_set"] in loss_by_set
+    ]
+    if not accepted:
+        return reference_feature_set
+    return min(accepted, key=lambda name: loss_by_set[name])
+
+
+def _description_dataset_source(description: str) -> Any:
+    """Dataset source that stores a short description of the CV matrix.
+
+    A plain sentence has no URI scheme, so MLflow would otherwise warn and
+    treat it as a local file path. The local source class still holds that
+    sentence, and passing the instance skips the ambiguous resolver.
+
+    Args:
+        description: Where the rows came from, in one sentence.
+
+    Returns:
+        A local MLflow dataset source.
+
+    Raises:
+        ValueError: MLflow did not register a local dataset source.
+    """
+    from mlflow.data.dataset_source_registry import get_registered_sources
+
+    local_sources: list[Any] = [
+        source_cls
+        for source_cls in get_registered_sources()
+        if source_cls._get_source_type() == "local"
+    ]
+    if not local_sources:
+        raise ValueError("MLflow did not register a local dataset source")
+    return local_sources[-1](description)
+
+
+def _cv_pandas_dataset(frame: pd.DataFrame, source: str) -> Any:
+    """Build one pandas dataset for the CV matrix.
+
+    Args:
+        frame: Dataset frame from ``_cv_dataset_frame``.
+        source: Short description of where the rows came from.
+
+    Returns:
+        An ``mlflow.data`` pandas dataset named ``nfl_pregame_cv``.
+    """
+    return mlflow.data.from_pandas(
+        frame,
+        source=_description_dataset_source(source),
+        name=CV_DATASET_NAME,
+        targets="home_won",
+    )
+
+
+def _log_dataset_lineage(dataset: Any, n_rows: int, n_columns: int) -> str:
+    """Log one CV dataset input and return its digest.
+
+    Parent and children receive the same dataset object, so the digest matches.
+
+    Args:
+        dataset: Dataset from ``_cv_pandas_dataset``.
+        n_rows: Row count of the matrix.
+        n_columns: Column count of the matrix.
+
+    Returns:
+        The dataset digest stored on the ``data_digest`` tag.
+    """
+    digest: str = str(dataset.digest)
+    mlflow.set_tag("data_digest", digest)
+    mlflow.log_input(dataset, context="training")
+    mlflow.log_params(
+        {
+            "data_n_rows": str(n_rows),
+            "data_n_columns": str(n_columns),
+        }
+    )
+    return digest
+
+
+def _log_paired_difference_metrics(comparison: dict[str, Any] | None) -> None:
+    """Log the paired log loss gap under the decision metric names."""
+    if comparison is None:
+        return
+    for source_name in ("log_loss_diff", "log_loss_diff_ci_low", "log_loss_diff_ci_high"):
+        metric_value: object = comparison.get(source_name)
+        if metric_value is None or pd.isna(metric_value):
+            continue
+        mlflow.log_metric(source_name, float(metric_value))
+        mlflow.log_metric(f"cv_{source_name}", float(metric_value))
+
+
 def log_phase1_to_mlflow(
     report: dict[str, Any],
     paths: dict[str, Any],
@@ -1828,11 +2113,14 @@ def log_phase1_to_mlflow(
     hypothesis: str | None = None,
     note: str | None = None,
 ) -> dict[str, Any]:
-    """Log one run per scored model.
+    """Log one parent run and one nested child per scored model.
 
-    Phase 1 callers can omit the tag arguments. Phase 2 H1 passes
-    ``hypothesis`` ``h1-diff``. Phase 2 H2 passes
-    ``h2-season-def-regression``. Both use ``phase_tag`` ``2``.
+    The parent carries the comparison report, the dataset digest, and
+    ``best_feature_set``. Each child is the same invocation with
+    ``nested=True``. Phase 1 callers can omit the tag arguments. Phase 2
+    H1 passes ``hypothesis`` ``h1-diff``. Phase 2 H2 passes
+    ``h2-season-def-regression``. Phase 2 H3 passes ``h3-pass-rush-epa``.
+    All three use ``phase_tag`` ``2``.
 
     Args:
         report: Result of ``run_phase1_baselines``.
@@ -1844,69 +2132,113 @@ def log_phase1_to_mlflow(
         note: Run note. The phase 1 note is used when this is None.
 
     Returns:
-        Dict with ``run_ids``, ``experiment_name``, and ``tracking_uri``.
+        Dict with ``run_ids`` (the children), ``parent_run_id``,
+        ``parent_run_name``, ``data_digest``, ``best_feature_set``,
+        ``experiment_name``, and ``tracking_uri``.
     """
     resolved_uri: str = resolve_tracking_uri(tracking_uri)
     activate_tracking_experiment(experiment_name, resolved_uri)
+    reference_model: str = str(report["reference_model"])
+    reference_feature_set: str = str(report["reference_feature_set"])
+    best_feature_set: str = select_best_feature_set(
+        report["results"],
+        reference_model,
+        reference_feature_set,
+    )
+    run_note: str = PHASE1_NOTE if note is None else note
+    git_commit: str = get_git_sha()
+    phase_value: int = int(report.get("phase") or phase_tag)
+    parent_name: str = parent_run_name(phase_value, hypothesis)
+    dataset_frame: pd.DataFrame | None = report.get("dataset_frame")
+    dataset_source: str = str(
+        report.get("dataset_source") or "pregame features joined to fct_games"
+    )
+    dataset: Any | None = None
+    if dataset_frame is not None:
+        dataset = _cv_pandas_dataset(dataset_frame, dataset_source)
     run_ids: list[dict[str, str]] = []
-    for result in report["results"]:
-        if result["status"] != "ok":
-            continue
-        run_name: str = f"{result['model']}-{result['feature_set']}"
-        with mlflow.start_run(run_name=run_name) as active_run:
-            mlflow.set_tag("phase", phase_tag)
-            if hypothesis is not None:
-                mlflow.set_tag("hypothesis", hypothesis)
-            mlflow.set_tag("feature_set", result["feature_set"])
-            mlflow.set_tag("cv_scheme", CV_SCHEME)
-            mlflow.set_tag("git_commit", get_git_sha())
-            mlflow.set_tag("mlflow.note.content", PHASE1_NOTE if note is None else note)
-            params: dict[str, Any] = {
-                key: value
-                for key, value in result["params"].items()
-                if value is not None and not isinstance(value, dict | list)
-            }
-            params["model_type"] = result["model"]
-            params["feature_set"] = result["feature_set"]
-            mlflow.log_params(params)
-            pooled: dict[str, Any] = result["pooled"] or {}
-            for metric_name in ("log_loss", "brier", "auc", "accuracy"):
-                metric_value = pooled.get(metric_name)
-                if metric_value is None or pd.isna(metric_value):
-                    continue
-                mlflow.log_metric(f"cv_{metric_name}", float(metric_value))
-            if pooled.get("n") is not None:
-                mlflow.log_metric("cv_n", float(pooled["n"]))
-            comparison: dict[str, Any] | None = result["comparison"]
-            if comparison is not None:
-                for source_name, metric_name in (
-                    ("log_loss_diff", "cv_log_loss_diff"),
-                    ("log_loss_diff_ci_low", "cv_log_loss_diff_ci_low"),
-                    ("log_loss_diff_ci_high", "cv_log_loss_diff_ci_high"),
-                ):
-                    metric_value = comparison.get(source_name)
+    with mlflow.start_run(run_name=parent_name) as parent_run:
+        mlflow.set_tag("phase", phase_tag)
+        if hypothesis is not None:
+            mlflow.set_tag("hypothesis", hypothesis)
+        mlflow.set_tag("cv_scheme", CV_SCHEME)
+        mlflow.set_tag("git_commit", git_commit)
+        mlflow.set_tag("reference_model", reference_model)
+        mlflow.set_tag("reference_feature_set", reference_feature_set)
+        mlflow.set_tag("best_feature_set", best_feature_set)
+        mlflow.set_tag("mlflow.note.content", run_note)
+        digest: str | None = None
+        if dataset is not None and dataset_frame is not None:
+            digest = _log_dataset_lineage(
+                dataset,
+                n_rows=len(dataset_frame),
+                n_columns=int(dataset_frame.shape[1]),
+            )
+        mlflow.log_artifact(paths["markdown_path"])
+        mlflow.log_artifact(paths["csv_path"])
+        for result in report["results"]:
+            if result["status"] != "ok":
+                continue
+            run_name: str = f"{result['model']}-{result['feature_set']}"
+            with mlflow.start_run(run_name=run_name, nested=True) as active_run:
+                mlflow.set_tag("phase", phase_tag)
+                if hypothesis is not None:
+                    mlflow.set_tag("hypothesis", hypothesis)
+                mlflow.set_tag("feature_set", result["feature_set"])
+                mlflow.set_tag("cv_scheme", CV_SCHEME)
+                mlflow.set_tag("git_commit", git_commit)
+                mlflow.set_tag(
+                    "decision",
+                    mlflow_decision_tag(result, reference_model, reference_feature_set),
+                )
+                mlflow.set_tag("mlflow.note.content", run_note)
+                if dataset is not None and dataset_frame is not None:
+                    _log_dataset_lineage(
+                        dataset,
+                        n_rows=len(dataset_frame),
+                        n_columns=int(dataset_frame.shape[1]),
+                    )
+                params: dict[str, Any] = {
+                    key: value
+                    for key, value in result["params"].items()
+                    if value is not None and not isinstance(value, dict | list)
+                }
+                params["model_type"] = result["model"]
+                params["feature_set"] = result["feature_set"]
+                mlflow.log_params(params)
+                pooled: dict[str, Any] = result["pooled"] or {}
+                for metric_name in ("log_loss", "brier", "auc", "accuracy"):
+                    metric_value = pooled.get(metric_name)
                     if metric_value is None or pd.isna(metric_value):
                         continue
-                    mlflow.log_metric(metric_name, float(metric_value))
-            scored_folds: int = sum(1 for fold in result["folds"] if fold["status"] == "scored")
-            skipped_folds: int = sum(1 for fold in result["folds"] if fold["status"] != "scored")
-            mlflow.log_metric("cv_folds_scored", float(scored_folds))
-            mlflow.log_metric("cv_folds_skipped", float(skipped_folds))
-            mlflow.log_artifact(paths["markdown_path"])
-            mlflow.log_artifact(paths["csv_path"])
-            oof_key: str = f"{result['model']}|{result['feature_set']}"
-            oof_path: str | None = paths["oof_paths"].get(oof_key)
-            if oof_path is not None:
-                mlflow.log_artifact(oof_path)
-            run_ids.append(
-                {
-                    "model": result["model"],
-                    "feature_set": result["feature_set"],
-                    "run_id": active_run.info.run_id,
-                }
-            )
+                    mlflow.log_metric(f"cv_{metric_name}", float(metric_value))
+                if pooled.get("n") is not None:
+                    mlflow.log_metric("cv_n", float(pooled["n"]))
+                _log_paired_difference_metrics(result.get("comparison"))
+                scored_folds: int = sum(1 for fold in result["folds"] if fold["status"] == "scored")
+                skipped_folds: int = sum(
+                    1 for fold in result["folds"] if fold["status"] != "scored"
+                )
+                mlflow.log_metric("cv_folds_scored", float(scored_folds))
+                mlflow.log_metric("cv_folds_skipped", float(skipped_folds))
+                oof_key: str = f"{result['model']}|{result['feature_set']}"
+                oof_path: str | None = paths["oof_paths"].get(oof_key)
+                if oof_path is not None:
+                    mlflow.log_artifact(oof_path)
+                run_ids.append(
+                    {
+                        "model": result["model"],
+                        "feature_set": result["feature_set"],
+                        "run_id": active_run.info.run_id,
+                    }
+                )
+        parent_run_id: str = parent_run.info.run_id
     return {
         "run_ids": run_ids,
+        "parent_run_id": parent_run_id,
+        "parent_run_name": parent_name,
+        "data_digest": digest,
+        "best_feature_set": best_feature_set,
         "experiment_name": experiment_name,
         "tracking_uri": resolved_uri,
     }
@@ -2026,6 +2358,7 @@ def main(argv: list[str] | None = None) -> None:
             "--phase 1 is the baseline report. "
             "--phase 2 --hypothesis h1 scores diff feature sets. "
             "--phase 2 --hypothesis h2 scores season defense and regressed EPA. "
+            "--phase 2 --hypothesis h3 scores pass and rush splits against h2_full. "
             "Does not score 2024 or 2025."
         ),
     )
@@ -2037,7 +2370,8 @@ def main(argv: list[str] | None = None) -> None:
         default=1,
         help=(
             "1 keeps the phase 1 report (home prior, current, with_games_played). "
-            "2 scores the hypothesis from --hypothesis against logistic current."
+            "2 scores the hypothesis from --hypothesis. H1 and H2 use logistic "
+            "current. H3 uses logistic h2_full."
         ),
     )
 
@@ -2049,7 +2383,8 @@ def main(argv: list[str] | None = None) -> None:
         help=(
             "Phase 2 hypothesis. Default h1 scores diff and diff_only "
             "and writes reports/phase2. h2 scores h2_def and h2_full "
-            "and writes reports/phase2_h2. Phase 1 rejects this flag."
+            "and writes reports/phase2_h2. h3 scores h3_split and h3_replace "
+            "against h2_full and writes reports/phase2_h3. Phase 1 rejects this flag."
         ),
     )
 
@@ -2069,7 +2404,8 @@ def main(argv: list[str] | None = None) -> None:
         default=None,
         help=(
             "Feature set of the reference model. "
-            "Default is none for the home prior and current for logistic."
+            "Default is none for the home prior, current for logistic on H1 and H2, "
+            "and h2_full for logistic on H3."
         ),
     )
 
@@ -2080,7 +2416,8 @@ def main(argv: list[str] | None = None) -> None:
         help=(
             "Directory for the comparison report. "
             "Phase 2 h1 with this default writes reports/phase2. "
-            "Phase 2 h2 with this default writes reports/phase2_h2."
+            "Phase 2 h2 with this default writes reports/phase2_h2. "
+            "Phase 2 h3 with this default writes reports/phase2_h3."
         ),
     )
 

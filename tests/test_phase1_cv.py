@@ -1,6 +1,7 @@
 """Phase 1 rolling-origin CV, Elo is covered with the leakage tests."""
 
 from collections.abc import Iterator
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -9,9 +10,12 @@ import pytest
 
 from src.features.pregame import (
     DIFF_FEATURE_COLUMNS,
+    PASS_RUSH_EPA_COLUMNS,
     PREGAME_FEATURE_COLUMNS,
     PREGAME_FEATURE_COLUMNS_H2_DEF,
     PREGAME_FEATURE_COLUMNS_H2_FULL,
+    PREGAME_FEATURE_COLUMNS_H3_REPLACE,
+    PREGAME_FEATURE_COLUMNS_H3_SPLIT,
     REGRESSED_EPA_COLUMNS,
     SEASON_DEFENSIVE_EPA_COLUMNS,
     american_odds_to_implied_probability,
@@ -21,11 +25,13 @@ from src.features.pregame import (
 from src.train.train import (
     HYPOTHESIS_H1,
     HYPOTHESIS_H2,
+    HYPOTHESIS_H3,
     MIN_LOG_LOSS_IMPROVEMENT,
     PHASE1_EXPERIMENT_NAME,
     PHASE1_TAG,
     PHASE2_EXPERIMENT_NAME,
     PHASE2_H2_EXPERIMENT_NAME,
+    PHASE2_H3_EXPERIMENT_NAME,
     PHASE2_TAG,
     attach_reference_comparison,
     binary_classification_metrics,
@@ -36,11 +42,14 @@ from src.train.train import (
     logistic_feature_sets_for,
     main,
     make_rolling_origin_config,
+    mlflow_decision_tag,
     paired_log_loss_difference,
+    parent_run_name,
     phase_tracking_settings,
     resolve_reference_spec,
     rolling_origin_cv,
     run_phase1_baselines,
+    select_best_feature_set,
     write_phase1_outputs,
 )
 
@@ -118,20 +127,33 @@ def _schedule(with_moneyline: bool) -> tuple[pd.DataFrame, pd.DataFrame]:
     if with_moneyline:
         games["home_moneyline"] = -150
         games["away_moneyline"] = 130
+    opponent_by_team: dict[tuple[str, str], str] = {}
+    for _, game in games.iterrows():
+        game_id = str(game["game_id"])
+        home_team = str(game["home_team_franchise"])
+        away_team = str(game["away_team_franchise"])
+        opponent_by_team[(game_id, home_team)] = away_team
+        opponent_by_team[(game_id, away_team)] = home_team
     epa_rows: list[dict[str, object]] = []
     for _, game in games.iterrows():
         for team, offense in (
             (game["home_team_franchise"], 0.2 if game["home_won"] == 1 else -0.1),
             (game["away_team_franchise"], -0.05),
         ):
+            offense_value = float(offense)
             epa_rows.append(
                 {
                     "game_id": game["game_id"],
                     "season": game["season"],
                     "gameday": game["gameday"],
                     "team_franchise": team,
-                    "avg_offensive_epa": offense,
-                    "avg_defensive_epa_allowed": -offense,
+                    "opponent_franchise": opponent_by_team[(str(game["game_id"]), str(team))],
+                    "avg_offensive_epa": offense_value,
+                    "avg_defensive_epa_allowed": -offense_value,
+                    "pass_plays": 10,
+                    "rush_plays": 8,
+                    "pass_epa": offense_value * 10.0,
+                    "rush_epa": offense_value * -4.0,
                 }
             )
     return games, pd.DataFrame(epa_rows)
@@ -505,7 +527,7 @@ class TestPhase1Report:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Each scored model is a phase=1 run. A skipped market is not logged."""
+        """One parent holds the report. Each scored model is a nested child."""
         import mlflow
 
         games, team_games = _schedule(with_moneyline=False)
@@ -516,6 +538,9 @@ class TestPhase1Report:
             lookback_games=2,
             logistic_max_iter=200,
         )
+        frame = report["dataset_frame"]
+        assert int(frame["season"].max()) == 2023
+        assert set(frame["season"]).isdisjoint({2024, 2025})
         paths = write_phase1_outputs(report, tmp_path / "report")
         tracking_uri: str = "sqlite:///" + (tmp_path / "mlflow.db").as_posix()
         monkeypatch.setattr("src.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
@@ -523,21 +548,64 @@ class TestPhase1Report:
             logged = log_phase1_to_mlflow(report, paths, tracking_uri=tracking_uri)
             client = mlflow.tracking.MlflowClient(tracking_uri=tracking_uri)
             assert logged["experiment_name"] == PHASE1_EXPERIMENT_NAME
+            assert logged["parent_run_name"].startswith("phase1-")
+            assert logged["best_feature_set"] == select_best_feature_set(
+                report["results"],
+                report["reference_model"],
+                report["reference_feature_set"],
+            )
             logged_pairs = {(item["model"], item["feature_set"]) for item in logged["run_ids"]}
             assert ("market", "market") not in logged_pairs
             assert ("logistic", "current") in logged_pairs
             assert ("logistic", "with_games_played") in logged_pairs
+            parent = client.get_run(logged["parent_run_id"])
+            assert parent.data.tags.get("hypothesis") is None
+            assert parent.data.tags["phase"] == PHASE1_TAG
+            assert parent.data.tags["reference_model"] == "baseline-home"
+            assert parent.data.tags["reference_feature_set"] == "none"
+            assert parent.data.tags["best_feature_set"] == logged["best_feature_set"]
+            assert parent.data.tags["cv_scheme"] == "rolling_season_2016_2023"
+            assert parent.data.tags["data_digest"] == logged["data_digest"]
+            assert parent.data.params["data_n_rows"] == str(len(frame))
+            assert parent.data.params["data_n_columns"] == str(frame.shape[1])
+            parent_inputs = parent.inputs.dataset_inputs
+            assert len(parent_inputs) == 1
+            logged_dataset = parent_inputs[0].dataset
+            assert logged_dataset.name == "nfl_pregame_cv"
+            assert logged_dataset.digest == logged["data_digest"]
+            assert "fct_games" in logged_dataset.source
+            parent_artifacts = {item.path for item in client.list_artifacts(parent.info.run_id)}
+            assert "comparison.md" in parent_artifacts
+            assert "comparison.csv" in parent_artifacts
             sample = client.get_run(logged["run_ids"][0]["run_id"])
+            assert sample.data.tags["mlflow.parentRunId"] == parent.info.run_id
             assert sample.data.tags["phase"] == PHASE1_TAG
+            assert sample.data.tags["data_digest"] == logged["data_digest"]
             assert sample.data.tags["cv_scheme"] == "rolling_season_2016_2023"
             assert "git_commit" in sample.data.tags
             assert "feature_set" in sample.data.params
             assert "model_type" in sample.data.params
+            assert sample.data.params["data_n_rows"] == str(len(frame))
             assert "cv_log_loss" in sample.data.metrics
+            assert "log_loss_diff" in sample.data.metrics
+            assert "log_loss_diff_ci_low" in sample.data.metrics
+            assert "log_loss_diff_ci_high" in sample.data.metrics
             assert "val_log_loss" not in sample.data.metrics
-            artifact_names = {item.path for item in client.list_artifacts(sample.info.run_id)}
-            assert "comparison.md" in artifact_names
-            assert "comparison.csv" in artifact_names
+            child_artifacts = {item.path for item in client.list_artifacts(sample.info.run_id)}
+            assert "comparison.md" not in child_artifacts
+            assert "comparison.csv" not in child_artifacts
+            child_inputs = sample.inputs.dataset_inputs
+            assert len(child_inputs) == 1
+            assert child_inputs[0].dataset.digest == logged["data_digest"]
+            decisions = {
+                (item["model"], item["feature_set"]): client.get_run(item["run_id"]).data.tags[
+                    "decision"
+                ]
+                for item in logged["run_ids"]
+            }
+            assert decisions[("baseline-home", "none")] == "reference"
+            assert decisions[("elo", "elo")] == "baseline"
+            assert decisions[("logistic", "current")] in {"accepted", "rejected", "inconclusive"}
         finally:
             _reset_mlflow_tracking()
 
@@ -622,11 +690,17 @@ class TestReferenceSelection:
     """The paired reference is chosen by phase, model, and feature set."""
 
     def test_phase_defaults_and_explicit_overrides(self) -> None:
-        """Phase 1 stays on the home prior. Phase 2 uses logistic current."""
+        """Phase 1 stays on the home prior. H1 and H2 use logistic current. H3 uses h2_full."""
         phase1 = resolve_reference_spec(1)
         assert phase1 == {"model": "baseline-home", "feature_set": "none"}
         phase2 = resolve_reference_spec(2)
         assert phase2 == {"model": "logistic", "feature_set": "current"}
+        h2_reference = resolve_reference_spec(2, hypothesis="h2")
+        assert h2_reference == {"model": "logistic", "feature_set": "current"}
+        h3_reference = resolve_reference_spec(2, hypothesis="h3")
+        assert h3_reference == {"model": "logistic", "feature_set": "h2_full"}
+        h3_logistic = resolve_reference_spec(2, reference_model="logistic", hypothesis="h3")
+        assert h3_logistic == {"model": "logistic", "feature_set": "h2_full"}
         elo = resolve_reference_spec(2, reference_model="elo")
         assert elo == {"model": "elo", "feature_set": "elo"}
         logistic_diff = resolve_reference_spec(
@@ -643,6 +717,16 @@ class TestReferenceSelection:
             "h2_def",
             "h2_full",
         )
+        assert logistic_feature_sets_for(2, hypothesis="h3") == (
+            "h2_full",
+            "h3_split",
+            "h3_replace",
+        )
+        assert logistic_feature_sets_for(2, hypothesis="h3-pass-rush-epa") == (
+            "h2_full",
+            "h3_split",
+            "h3_replace",
+        )
         h1_settings = phase_tracking_settings(2)
         assert h1_settings["hypothesis"] == HYPOTHESIS_H1
         assert h1_settings["output_dir"] == "reports/phase2"
@@ -652,6 +736,11 @@ class TestReferenceSelection:
         assert h2_settings["output_dir"] == "reports/phase2_h2"
         assert h2_settings["experiment_name"] == PHASE2_H2_EXPERIMENT_NAME
         assert h2_settings["phase_tag"] == PHASE2_TAG
+        h3_settings = phase_tracking_settings(2, hypothesis="h3")
+        assert h3_settings["hypothesis"] == HYPOTHESIS_H3
+        assert h3_settings["output_dir"] == "reports/phase2_h3"
+        assert h3_settings["experiment_name"] == PHASE2_H3_EXPERIMENT_NAME
+        assert h3_settings["phase_tag"] == PHASE2_TAG
         with pytest.raises(ValueError, match="Unknown phase"):
             resolve_reference_spec(3)
         with pytest.raises(ValueError, match="Unknown reference model"):
@@ -659,7 +748,7 @@ class TestReferenceSelection:
         with pytest.raises(ValueError, match="does not take a hypothesis"):
             logistic_feature_sets_for(1, hypothesis="h2")
         with pytest.raises(ValueError, match="Unknown hypothesis"):
-            logistic_feature_sets_for(2, hypothesis="h3")
+            logistic_feature_sets_for(2, hypothesis="h4")
 
     def test_attach_uses_the_named_reference_and_rejects_a_missing_one(self) -> None:
         """Log loss gaps are versus the selected row, which differs from itself by zero."""
@@ -720,6 +809,11 @@ class TestReferenceSelection:
             assert column in h2_groups["epa"]
             assert column not in h2_groups["win_rate"]
             assert column not in h2_groups["diff"]
+        h3_groups = feature_column_groups(list(PREGAME_FEATURE_COLUMNS_H3_SPLIT))
+        for column in PASS_RUSH_EPA_COLUMNS:
+            assert column in h3_groups["epa"]
+            assert column not in h3_groups["win_rate"]
+            assert column not in h3_groups["diff"]
 
 
 class TestPhase2Hypothesis:
@@ -975,3 +1069,245 @@ class TestPhase2H2Hypothesis:
             assert h1_experiment is None
         finally:
             _reset_mlflow_tracking()
+
+
+class TestPhase2H3Hypothesis:
+    """H3 scores pass/rush splits against logistic h2_full, plus the baselines."""
+
+    def test_phase2_h3_report_uses_h2_full_as_the_reference(self) -> None:
+        """h3_split and h3_replace replace the H2 candidates. Older sets stay out."""
+        games, team_games = _schedule(with_moneyline=False)
+        report = run_phase1_baselines(
+            games,
+            team_games,
+            config=_fast_config(n_bootstrap=8),
+            lookback_games=2,
+            logistic_max_iter=200,
+            phase=2,
+            hypothesis="h3",
+        )
+        table = report["comparison_table"]
+        pairs = set(zip(table["model"], table["feature_set"], strict=True))
+        assert pairs == {
+            ("baseline-home", "none"),
+            ("logistic", "h2_full"),
+            ("logistic", "h3_split"),
+            ("logistic", "h3_replace"),
+            ("elo", "elo"),
+            ("market", "market"),
+        }
+        assert report["reference_model"] == "logistic"
+        assert report["reference_feature_set"] == "h2_full"
+        assert report["hypothesis"] == HYPOTHESIS_H3
+        assert report["title"] == "Phase 2 H3 pass and rush EPA"
+        reference = next(item for item in report["results"] if item["feature_set"] == "h2_full")
+        h3_split = next(item for item in report["results"] if item["feature_set"] == "h3_split")
+        h3_replace = next(item for item in report["results"] if item["feature_set"] == "h3_replace")
+        assert reference["comparison"]["log_loss_diff"] == pytest.approx(0.0)
+        assert h3_split["comparison"]["reference_log_loss"] == pytest.approx(
+            reference["comparison"]["log_loss"]
+        )
+        assert h3_replace["comparison"]["n"] == reference["comparison"]["n"]
+        assert h3_split["params"]["features"].split(",") == list(PREGAME_FEATURE_COLUMNS_H3_SPLIT)
+        assert h3_replace["params"]["features"].split(",") == list(
+            PREGAME_FEATURE_COLUMNS_H3_REPLACE
+        )
+        assert h3_split["params"]["shrink_factor"] == pytest.approx(1.0 / 3.0)
+        assert h3_split["params"]["blend_k"] == pytest.approx(4.0)
+        assert "home_games_played" not in h3_split["params"]["features"]
+        assert "home_recent_offensive_epa_per_play" not in h3_replace["params"]["features"]
+        assert "home_recent_offensive_pass_epa_per_play" in h3_split["params"]["features"]
+        decisions = {row["feature_set"]: row["decision"] for row in report["acceptance"]}
+        assert decisions["h2_full"] == "reference"
+        assert decisions["h3_split"] in {"accepted", "rejected", "inconclusive"}
+        assert decisions["h3_replace"] in {"accepted", "rejected", "inconclusive"}
+        assert "Hypothesis: `h3-pass-rush-epa`" in report["markdown"]
+        assert "on feature set `h2_full`" in report["markdown"]
+        assert "0.003" in report["markdown"]
+        assert "Pass and rush EPA per play" in report["markdown"]
+        assert "No model is promoted" in report["markdown"]
+        assert "\u2014" not in report["markdown"]
+        for result in report["results"]:
+            if result["oof"] is None:
+                continue
+            assert set(result["oof"]["season"]).isdisjoint({2024, 2025})
+
+    def test_cli_phase2_h3_tags_hypothesis_and_keeps_h2_available(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """``--hypothesis h3`` logs phase=2 and writes reports/phase2_h3."""
+        import mlflow
+
+        games, team_games = _schedule(with_moneyline=True)
+        fixture_dir = tmp_path / "fixtures"
+        fixture_dir.mkdir()
+        games.to_parquet(fixture_dir / "fct_games.parquet")
+        team_games.to_parquet(fixture_dir / "fct_team_game_epa.parquet")
+        tracking_uri: str = "sqlite:///" + (tmp_path / "mlflow.db").as_posix()
+        monkeypatch.setenv("MLFLOW_TRACKING_URI", tracking_uri)
+        monkeypatch.setattr("src.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
+        output_dir = tmp_path / "phase2_h3"
+        try:
+            main(
+                [
+                    "--cv",
+                    "--phase",
+                    "2",
+                    "--hypothesis",
+                    "h3",
+                    "--fixture-path",
+                    str(fixture_dir),
+                    "--output-dir",
+                    str(output_dir),
+                    "--cv-start-season",
+                    "2022",
+                    "--cv-end-season",
+                    "2023",
+                    "--n-bootstrap",
+                    "4",
+                    "--lookback",
+                    "2",
+                    "--max-iter",
+                    "200",
+                    "--seed",
+                    "7",
+                ]
+            )
+            table = pd.read_csv(output_dir / "comparison.csv")
+            pairs = set(zip(table["model"], table["feature_set"], strict=True))
+            assert ("logistic", "h3_split") in pairs
+            assert ("logistic", "h3_replace") in pairs
+            assert ("logistic", "h2_full") in pairs
+            assert ("logistic", "current") not in pairs
+            assert ("logistic", "h2_def") not in pairs
+            assert ("elo", "elo") in pairs
+            assert ("baseline-home", "none") in pairs
+            markdown = (output_dir / "comparison.md").read_text(encoding="utf-8")
+            assert "Hypothesis: `h3-pass-rush-epa`" in markdown
+            assert "on feature set `h2_full`" in markdown
+            assert "\u2014" not in markdown
+            client = mlflow.tracking.MlflowClient(tracking_uri=tracking_uri)
+            experiment = client.get_experiment_by_name(PHASE2_H3_EXPERIMENT_NAME)
+            assert experiment is not None
+            runs = client.search_runs(experiment_ids=[experiment.experiment_id])
+            assert runs
+            assert all(run.data.tags.get("phase") == PHASE2_TAG for run in runs)
+            assert all(run.data.tags.get("hypothesis") == HYPOTHESIS_H3 for run in runs)
+            parents = [run for run in runs if "mlflow.parentRunId" not in run.data.tags]
+            children = [run for run in runs if "mlflow.parentRunId" in run.data.tags]
+            assert len(parents) == 1
+            parent = client.get_run(parents[0].info.run_id)
+            assert parent.info.run_name.startswith("phase2-h3-")
+            assert parent.data.tags["reference_model"] == "logistic"
+            assert parent.data.tags["reference_feature_set"] == "h2_full"
+            assert parent.data.tags["best_feature_set"] in {"h2_full", "h3_split", "h3_replace"}
+            digest = parent.data.tags["data_digest"]
+            assert digest
+            assert all(
+                child.data.tags["mlflow.parentRunId"] == parent.info.run_id for child in children
+            )
+            assert all(child.data.tags["data_digest"] == digest for child in children)
+            by_pair = {
+                (child.data.params["model_type"], child.data.params["feature_set"]): child
+                for child in children
+            }
+            assert by_pair[("logistic", "h2_full")].data.tags["decision"] == "reference"
+            assert by_pair[("baseline-home", "none")].data.tags["decision"] == "baseline"
+            assert by_pair[("elo", "elo")].data.tags["decision"] == "baseline"
+            assert by_pair[("market", "market")].data.tags["decision"] == "baseline"
+            split_run = by_pair[("logistic", "h3_split")]
+            assert split_run.data.tags["decision"] in {"accepted", "rejected", "inconclusive"}
+            assert "log_loss_diff" in split_run.data.metrics
+            assert "log_loss_diff_ci_low" in split_run.data.metrics
+            assert "log_loss_diff_ci_high" in split_run.data.metrics
+            parent_artifacts = {item.path for item in client.list_artifacts(parent.info.run_id)}
+            assert "comparison.md" in parent_artifacts
+            assert "comparison.csv" in parent_artifacts
+            split_artifacts = {item.path for item in client.list_artifacts(split_run.info.run_id)}
+            assert "comparison.md" not in split_artifacts
+            h2_experiment = client.get_experiment_by_name(PHASE2_H2_EXPERIMENT_NAME)
+            assert h2_experiment is None
+        finally:
+            _reset_mlflow_tracking()
+
+
+def _labeled_result(
+    model_name: str,
+    feature_set: str,
+    log_loss_value: float,
+    difference: float | None,
+    ci_low: float | None,
+    ci_high: float | None,
+) -> dict[str, object]:
+    """One CV row with pooled log loss and a paired comparison."""
+    comparison: dict[str, float | None]
+    comparison = {
+        "log_loss_diff": difference,
+        "log_loss_diff_ci_low": ci_low,
+        "log_loss_diff_ci_high": ci_high,
+    }
+    return {
+        "model": model_name,
+        "feature_set": feature_set,
+        "status": "ok",
+        "pooled": {"log_loss": log_loss_value},
+        "comparison": comparison,
+    }
+
+
+class TestCvRunStructure:
+    """Parent names, decision tags, and the feature set recorded on the parent."""
+
+    def test_parent_run_name_uses_phase_and_hypothesis(self) -> None:
+        """Phase 1 and each phase 2 hypothesis get a stable prefix."""
+        stamp = datetime(2026, 10, 15, 1, 2, 3, tzinfo=timezone.utc)
+        assert parent_run_name(1, None, timestamp=stamp) == "phase1-20261015T010203Z"
+        assert parent_run_name(2, HYPOTHESIS_H1, timestamp=stamp) == "phase2-h1-20261015T010203Z"
+        assert parent_run_name(2, HYPOTHESIS_H2, timestamp=stamp) == "phase2-h2-20261015T010203Z"
+        assert parent_run_name(2, HYPOTHESIS_H3, timestamp=stamp) == "phase2-h3-20261015T010203Z"
+        assert parent_run_name(2, "not-a-hypothesis", timestamp=stamp) == "phase2-20261015T010203Z"
+
+    def test_decision_tag_marks_reference_baseline_and_candidates(self) -> None:
+        """The reference wins over the baseline label. A missing interval stays inconclusive."""
+        reference = _labeled_result("logistic", "h2_full", 0.64, 0.0, 0.0, 0.0)
+        assert mlflow_decision_tag(reference, "logistic", "h2_full") == "reference"
+        home_reference = _labeled_result("baseline-home", "none", 0.69, 0.0, 0.0, 0.0)
+        assert mlflow_decision_tag(home_reference, "baseline-home", "none") == "reference"
+        elo = _labeled_result("elo", "elo", 0.65, -0.01, -0.02, -0.005)
+        assert mlflow_decision_tag(elo, "logistic", "h2_full") == "baseline"
+        market = _labeled_result("market", "market", 0.61, -0.03, -0.04, -0.02)
+        assert mlflow_decision_tag(market, "logistic", "h2_full") == "baseline"
+        accepted = _labeled_result("logistic", "h3_split", 0.63, -0.004, -0.01, -0.001)
+        assert mlflow_decision_tag(accepted, "logistic", "h2_full") == "accepted"
+        rejected = _labeled_result("logistic", "h3_replace", 0.639, -0.001, -0.002, 0.001)
+        assert mlflow_decision_tag(rejected, "logistic", "h2_full") == "rejected"
+        missing = _labeled_result("logistic", "h3_split", 0.63, None, None, None)
+        assert mlflow_decision_tag(missing, "logistic", "h2_full") == "inconclusive"
+
+    def test_best_feature_set_prefers_the_accepted_logistic_set(self) -> None:
+        """A lower rejected loss does not replace an accepted set."""
+        results = [
+            _labeled_result("logistic", "h2_full", 0.640, 0.0, 0.0, 0.0),
+            _labeled_result("logistic", "h3_split", 0.636, -0.004, -0.008, -0.001),
+            _labeled_result("logistic", "h3_replace", 0.620, -0.020, -0.030, 0.001),
+            _labeled_result("market", "market", 0.610, -0.030, -0.040, -0.020),
+        ]
+        assert select_best_feature_set(results, "logistic", "h2_full") == "h3_split"
+        both_accepted = [
+            _labeled_result("logistic", "h2_full", 0.640, 0.0, 0.0, 0.0),
+            _labeled_result("logistic", "h3_split", 0.636, -0.004, -0.008, -0.001),
+            _labeled_result("logistic", "h3_replace", 0.632, -0.008, -0.012, -0.002),
+        ]
+        assert select_best_feature_set(both_accepted, "logistic", "h2_full") == "h3_replace"
+        none_accepted = [
+            _labeled_result("logistic", "h2_full", 0.640, 0.0, 0.0, 0.0),
+            _labeled_result("logistic", "h3_split", 0.641, 0.001, -0.001, 0.002),
+        ]
+        assert select_best_feature_set(none_accepted, "logistic", "h2_full") == "h2_full"
+        phase1 = [
+            _labeled_result("baseline-home", "none", 0.690, 0.0, 0.0, 0.0),
+            _labeled_result("logistic", "current", 0.680, -0.010, -0.020, -0.004),
+        ]
+        assert select_best_feature_set(phase1, "baseline-home", "none") == "current"

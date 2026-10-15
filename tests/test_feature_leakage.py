@@ -17,6 +17,7 @@ from src.features.pregame import (
     ELO_SCALE,
     ELO_SEASON_REVERSION,
     GAMES_PLAYED_COLUMNS,
+    PASS_RUSH_EPA_COLUMNS,
     PREGAME_COMPUTED_COLUMNS,
     PREGAME_FEATURE_COLUMNS,
     REGRESSED_EPA_COLUMNS,
@@ -33,6 +34,7 @@ CHECKED_FEATURE_COLUMNS: tuple[str, ...] = (
     + DIFF_FEATURE_COLUMNS
     + SEASON_DEFENSIVE_EPA_COLUMNS
     + REGRESSED_EPA_COLUMNS
+    + PASS_RUSH_EPA_COLUMNS
 )
 
 LOOKBACK_GAMES: int = 2
@@ -651,6 +653,233 @@ class TestSeasonRegressionLeakage:
             baseline_row["home_regressed_season_offensive_epa_per_play"]
         )
         assert pd.isna(changed_row["home_season_offensive_epa_per_play"])
+
+
+def _pass_rush_row(
+    game_id: str,
+    season: int,
+    gameday: str,
+    team: str,
+    opponent: str,
+    off_pass: float,
+    off_rush: float,
+    pass_plays: int = 10,
+    rush_plays: int = 10,
+) -> dict[str, object]:
+    """One team-game with pass and rush totals that divide back to the rates."""
+    return {
+        "game_id": game_id,
+        "season": season,
+        "gameday": pd.Timestamp(gameday),
+        "team_franchise": team,
+        "opponent_franchise": opponent,
+        "avg_offensive_epa": 0.0,
+        "avg_defensive_epa_allowed": 0.0,
+        "pass_plays": pass_plays,
+        "rush_plays": rush_plays,
+        "pass_epa": float(off_pass) * pass_plays if pass_plays else 0.0,
+        "rush_epa": float(off_rush) * rush_plays if rush_plays else 0.0,
+    }
+
+
+def _pass_rush_games() -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Two prior-season games, a same-day week 1, and a week 2 that must not leak."""
+    games = pd.DataFrame(
+        {
+            "game_id": ["P1", "P2", "W1", "SAME", "W2"],
+            "season": [2023, 2023, 2024, 2024, 2024],
+            "gameday": pd.to_datetime(
+                ["2023-09-10", "2023-09-17", "2024-09-08", "2024-09-08", "2024-09-15"]
+            ),
+            "home_team_franchise": ["A", "A", "A", "A", "A"],
+            "away_team_franchise": ["B", "C", "B", "D", "B"],
+            "home_score": [21, 17, 24, 10, 28],
+            "away_score": [14, 20, 7, 14, 21],
+            "home_won": [1, 0, 1, 0, 1],
+            "home_rest": [7, 7, 7, 7, 7],
+            "away_rest": [7, 7, 7, 7, 7],
+        }
+    )
+    rates: dict[tuple[str, str], tuple[float, float]] = {
+        ("P1", "A"): (0.20, 0.10),
+        ("P1", "B"): (0.50, -0.30),
+        ("P2", "A"): (0.40, 0.00),
+        ("P2", "C"): (0.10, 0.20),
+        ("W1", "A"): (9.00, 9.00),
+        ("W1", "B"): (7.00, 7.00),
+        ("SAME", "A"): (8.00, 8.00),
+        ("SAME", "D"): (6.00, 6.00),
+        ("W2", "A"): (1.00, 1.00),
+        ("W2", "B"): (1.00, 1.00),
+    }
+    opponents: dict[tuple[str, str], str] = {
+        ("P1", "A"): "B",
+        ("P1", "B"): "A",
+        ("P2", "A"): "C",
+        ("P2", "C"): "A",
+        ("W1", "A"): "B",
+        ("W1", "B"): "A",
+        ("SAME", "A"): "D",
+        ("SAME", "D"): "A",
+        ("W2", "A"): "B",
+        ("W2", "B"): "A",
+    }
+    epa_rows: list[dict[str, object]] = []
+    for (game_id, team), (off_pass, off_rush) in rates.items():
+        season = 2023 if game_id.startswith("P") else 2024
+        gameday = {
+            "P1": "2023-09-10",
+            "P2": "2023-09-17",
+            "W1": "2024-09-08",
+            "SAME": "2024-09-08",
+            "W2": "2024-09-15",
+        }[game_id]
+        epa_rows.append(
+            _pass_rush_row(
+                game_id,
+                season,
+                gameday,
+                team,
+                opponents[(game_id, team)],
+                off_pass,
+                off_rush,
+            )
+        )
+    return games, pd.DataFrame(epa_rows)
+
+
+class TestPassRushLeakage:
+    """Pass and rush splits use only prior games, and defense is the opponent rate."""
+
+    def test_week_one_uses_the_prior_window_and_the_shrunk_season(self) -> None:
+        """Lookback 10 averages both prior games. The current game's 9.0 stays out.
+
+        Defensive pass EPA is the opponent's offensive pass rate, not the
+        team's own. The regressed-season value is the prior-season mean
+        shrunk one third toward the 2023 league mean. Week 1 has no blend.
+        """
+        games, epa = _pass_rush_games()
+        features = build_pregame_features(games, epa, lookback_games=10)
+        opener = _feature_row(features, "W1")
+        same_day = _feature_row(features, "SAME")
+        league_pass: float = 0.30
+        league_rush: float = 0.0
+        prior_off_pass: float = 0.30
+        prior_off_rush: float = 0.05
+        prior_def_pass: float = 0.30
+        prior_def_rush: float = -0.05
+        shrunk_off_rush: float = league_rush + (2.0 / 3.0) * (prior_off_rush - league_rush)
+        shrunk_def_rush: float = league_rush + (2.0 / 3.0) * (prior_def_rush - league_rush)
+        assert opener["home_recent_offensive_pass_epa_per_play"] == pytest.approx(prior_off_pass)
+        assert opener["home_recent_offensive_rush_epa_per_play"] == pytest.approx(prior_off_rush)
+        assert opener["home_recent_defensive_pass_epa_per_play"] == pytest.approx(prior_def_pass)
+        assert opener["home_recent_defensive_rush_epa_per_play"] == pytest.approx(prior_def_rush)
+        assert opener["home_recent_offensive_rush_epa_per_play"] != pytest.approx(prior_def_rush)
+        assert opener["home_regressed_season_offensive_pass_epa_per_play"] == pytest.approx(
+            league_pass
+        )
+        assert opener["home_regressed_season_offensive_rush_epa_per_play"] == pytest.approx(
+            shrunk_off_rush
+        )
+        assert opener["home_regressed_season_defensive_pass_epa_per_play"] == pytest.approx(
+            league_pass
+        )
+        assert opener["home_regressed_season_defensive_rush_epa_per_play"] == pytest.approx(
+            shrunk_def_rush
+        )
+        assert opener["home_regressed_season_offensive_pass_epa_per_play"] != pytest.approx(9.0)
+        for column in PASS_RUSH_EPA_COLUMNS:
+            if column.startswith("away_"):
+                continue
+            _assert_equal(same_day[column], opener[column], column)
+
+    def test_recent_window_is_the_last_prior_game_only(self) -> None:
+        """Lookback 1 keeps P2 and drops P1. The season mean still uses both."""
+        games, epa = _pass_rush_games()
+        features = build_pregame_features(games, epa, lookback_games=1)
+        opener = _feature_row(features, "W1")
+        assert opener["home_recent_offensive_pass_epa_per_play"] == pytest.approx(0.40)
+        assert opener["home_recent_defensive_rush_epa_per_play"] == pytest.approx(0.20)
+        assert opener["home_regressed_season_offensive_pass_epa_per_play"] == pytest.approx(0.30)
+        assert opener["home_regressed_season_offensive_rush_epa_per_play"] == pytest.approx(
+            (2.0 / 3.0) * 0.05
+        )
+
+    def test_later_week_blends_current_season_rates_and_ignores_itself(self) -> None:
+        """W1 and SAME are the current season. W2's own rate of 1.0 is not."""
+        games, epa = _pass_rush_games()
+        features = build_pregame_features(games, epa, lookback_games=10)
+        second = _feature_row(features, "W2")
+        # Recent crosses seasons: P1, P2, W1, and SAME. W2 itself is excluded.
+        recent_off_pass: float = (0.20 + 0.40 + 9.0 + 8.0) / 4.0
+        recent_def_pass: float = (0.50 + 0.10 + 7.0 + 6.0) / 4.0
+        current_off_pass: float = (9.0 + 8.0) / 2.0
+        shrunk_off_pass: float = 0.30
+        weight: float = 2.0 / (2.0 + SEASON_BLEND_K)
+        expected: float = weight * current_off_pass + (1.0 - weight) * shrunk_off_pass
+        assert second["home_recent_offensive_pass_epa_per_play"] == pytest.approx(recent_off_pass)
+        assert second["home_recent_defensive_pass_epa_per_play"] == pytest.approx(recent_def_pass)
+        assert second["home_regressed_season_offensive_pass_epa_per_play"] == pytest.approx(
+            expected
+        )
+        assert second["home_regressed_season_offensive_pass_epa_per_play"] != pytest.approx(1.0)
+        earlier_games = games.loc[games["gameday"] < pd.Timestamp("2024-09-15")]
+        current_game = games.loc[games["game_id"] == "W2"]
+        truncated = build_pregame_features(
+            pd.concat([earlier_games, current_game], ignore_index=True),
+            epa.loc[epa["gameday"] < pd.Timestamp("2024-09-15")],
+            lookback_games=10,
+        )
+        truncated_row = _feature_row(truncated, "W2")
+        for column in PASS_RUSH_EPA_COLUMNS:
+            _assert_equal(truncated_row[column], second[column], column)
+
+    def test_same_day_and_future_pass_rates_do_not_move_week_one(self) -> None:
+        """Poisoning week 1, the same day, and week 2 leaves the opener put."""
+        games, epa = _pass_rush_games()
+        baseline = build_pregame_features(games, epa, lookback_games=10)
+        poisoned = epa.copy()
+        later = poisoned["gameday"] >= pd.Timestamp("2024-09-08")
+        poisoned.loc[later, "pass_epa"] = 500.0
+        poisoned.loc[later, "rush_epa"] = -500.0
+        updated = build_pregame_features(games, poisoned, lookback_games=10)
+        baseline_row = _feature_row(baseline, "W1")
+        updated_row = _feature_row(updated, "W1")
+        for column in PASS_RUSH_EPA_COLUMNS:
+            _assert_equal(updated_row[column], baseline_row[column], column)
+
+    def test_zero_pass_plays_stay_missing_and_a_partial_source_is_refused(self) -> None:
+        """A zero denominator is not a zero rate. Some source columns and not all fail."""
+        games = pd.DataFrame(
+            {
+                "game_id": ["Z1", "Z2"],
+                "season": [2023, 2023],
+                "gameday": pd.to_datetime(["2023-09-10", "2023-09-17"]),
+                "home_team_franchise": ["A", "A"],
+                "away_team_franchise": ["B", "B"],
+                "home_score": [10, 14],
+                "away_score": [7, 10],
+                "home_won": [1, 1],
+                "home_rest": [7, 7],
+                "away_rest": [7, 7],
+            }
+        )
+        epa = pd.DataFrame(
+            [
+                _pass_rush_row("Z1", 2023, "2023-09-10", "A", "B", 0.0, 0.20, pass_plays=0),
+                _pass_rush_row("Z1", 2023, "2023-09-10", "B", "A", 0.50, 0.10),
+                _pass_rush_row("Z2", 2023, "2023-09-17", "A", "B", 1.00, 1.00),
+                _pass_rush_row("Z2", 2023, "2023-09-17", "B", "A", 1.00, 1.00),
+            ]
+        )
+        features = build_pregame_features(games, epa, lookback_games=10)
+        second = _feature_row(features, "Z2")
+        assert pd.isna(second["home_recent_offensive_pass_epa_per_play"])
+        assert second["home_recent_offensive_rush_epa_per_play"] == pytest.approx(0.20)
+        assert second["home_recent_defensive_pass_epa_per_play"] == pytest.approx(0.50)
+        partial = epa.drop(columns=["pass_plays"])
+        with pytest.raises(ValueError, match="missing pass/rush columns"):
+            build_pregame_features(games, partial, lookback_games=10)
 
 
 def _elo_games() -> pd.DataFrame:
