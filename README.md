@@ -25,9 +25,9 @@ Build a reproducible lakehouse pipeline for NFL pregame predictions (win probabi
 - **CI**: GitHub Actions runs ruff lint + format check, pytest on Python 3.10/3.11, dbt compile against DuckDB, cross-platform matrix (Ubuntu, Windows, macOS). Tests verify column references against real nflverse schema (fixtures in tests/fixtures), schema conforming logic, feature leakage protection, and end-to-end training.
 - **PR Guard**: Branch protection with freshness check, Conventional Commit titles, PR template verification, no secrets/data files, commit identity validation.
 
-**Next**: H4, clean EPA. The `play = 1` filter is about 6.9% `no_play` (penalty) rows, not special teams. Forecasting (batch scoring) comes after the feature work.
+**Next**: H4, clean EPA, is implemented and waiting on the warehouse run. The `play = 1` filter is about 6.9% `no_play` (penalty) rows, not special teams. `make train-cv` scores `h4_clean` and `h4_clean_sr` against logistic `h2_full` after `make dbt-build-databricks`. Forecasting (batch scoring) comes after that result.
 
-**2024 validation** (`make train-sweep`, 285 games, feature set that included `games_played`). Rounded to 2 decimals. The 2025 test season is held out and is not reported. Phase 1 does not replace this table. `make train-cv` writes the Phase 2 ridge reference comparison under `reports/phase2_ridge/`. The Phase 1 report stays `python -m src.train.train --cv`, which writes `reports/phase1/`. Hypothesis H1 writes `reports/phase2/`. Hypothesis H2 writes `reports/phase2_h2/`. Hypothesis H3 writes `reports/phase2_h3/`.
+**2024 validation** (`make train-sweep`, 285 games, feature set that included `games_played`). Rounded to 2 decimals. The 2025 test season is held out and is not reported. Phase 1 does not replace this table. `make train-cv` writes the Phase 2 H4 comparison under `reports/phase2_h4/`. The Phase 1 report stays `python -m src.train.train --cv`, which writes `reports/phase1/`. Hypothesis H1 writes `reports/phase2/`. Hypothesis H2 writes `reports/phase2_h2/`. Hypothesis H3 writes `reports/phase2_h3/`. The ridge comparison writes `reports/phase2_ridge/` from the explicit `--hypothesis ridge` command.
 
 | Model | Accuracy | AUC | Brier | Log loss |
 | --- | --- | --- | --- | --- |
@@ -317,7 +317,7 @@ make mlflow-ui
 
 ### EPA play filter check
 
-`make check-epa-filter` (Windows: `.\scripts\dev.ps1 check-epa-filter`) counts `workspace.nfl_dev_staging.stg_nflverse__pbp` rows with `play = 1` by `play_type`, which is the filter `fct_team_game_epa` uses. It also counts `qb_kneel = 1` and `qb_spike = 1`. Those columns are not on the staging view, so the counts come from `workspace.nfl_raw.play_by_play` unless a future staging view adds them. The command uses the same Databricks client as training and writes `reports/epa_filter_check.md` (gitignored). The frozen copy is `docs/experiments/reports/epa_filter_check.md`. It does not change dbt models.
+`make check-epa-filter` (Windows: `.\scripts\dev.ps1 check-epa-filter`) counts `workspace.nfl_dev_staging.stg_nflverse__pbp` rows with `play = 1` by `play_type`, which is the filter the original EPA columns in `fct_team_game_epa` use. It also counts `qb_kneel = 1` and `qb_spike = 1`. Staging now selects those flags. Until `make dbt-build-databricks` rebuilds the view, the live staging table can still lack them, and the check then counts them from `workspace.nfl_raw.play_by_play`. The command uses the same Databricks client as training and writes `reports/epa_filter_check.md` (gitignored). The frozen copy is `docs/experiments/reports/epa_filter_check.md`. It does not change dbt models.
 
 | play_type | n_plays | share |
 | --- | --- | --- |
@@ -345,7 +345,7 @@ No special-teams play types are in that filter. Only 36 kneels and 70 spikes hav
 
 ### Phase 2 ridge reference
 
-`make train-cv` (Windows: `.\scripts\dev.ps1 train-cv`) is `--phase 2 --hypothesis ridge`. It scores fixed-C logistic regression on `h2_full` (the reference), `logistic_l2` on `h2_full`, `h3_split`, and `h3_replace`, plus the home prior, Elo, and the market. `logistic_l2` is L2 logistic regression. C is chosen inside each training fold by an expanding season split. The scored season is not used to pick C. The chosen C is logged on the MLflow child run and in the fold table. The paired comparison and the 0.003 acceptance rule are the same, against logistic `h2_full`. Runs go to MLflow experiment `nfl_pregame/phase2_ridge` with tags `phase=2` and `hypothesis=ridge-reference`. The comparison is written to `reports/phase2_ridge/` (gitignored). The frozen copy is `docs/experiments/reports/phase2_ridge_comparison.md`. This is setup work: if `logistic_l2` on `h2_full` is not worse (`log_loss_diff` <= 0), it becomes the reference for the next hypothesis, so a later rejection means the columns lacked signal. The local run did not meet that bar. Method and the full reading are in `docs/experiments/phase2_ridge_reference.md`.
+The ridge command is `python -m src.train.train --cv --phase 2 --hypothesis ridge --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_ridge`. It scores fixed-C logistic regression on `h2_full` (the reference), `logistic_l2` on `h2_full`, `h3_split`, and `h3_replace`, plus the home prior, Elo, and the market. `logistic_l2` is L2 logistic regression. C is chosen inside each training fold by an expanding season split. The scored season is not used to pick C. The chosen C is logged on the MLflow child run and in the fold table. The paired comparison and the 0.003 acceptance rule are the same, against logistic `h2_full`. Runs go to MLflow experiment `nfl_pregame/phase2_ridge` with tags `phase=2` and `hypothesis=ridge-reference`. The comparison is written to `reports/phase2_ridge/` (gitignored). The frozen copy is `docs/experiments/reports/phase2_ridge_comparison.md`. This is setup work: if `logistic_l2` on `h2_full` is not worse (`log_loss_diff` <= 0), it becomes the reference for the next hypothesis, so a later rejection means the columns lacked signal. The local run did not meet that bar. Method and the full reading are in `docs/experiments/phase2_ridge_reference.md`.
 
 | model | feature_set | n | log_loss | log_loss_diff | ci_low | ci_high |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -358,9 +358,17 @@ Fold-tuned L2 does not help. Plain logistic `h2_full` stays the reference. The L
 
 The parent run name for this comparison is `phase2-ridge-<timestamp>`.
 
+### Phase 2 H4: clean EPA
+
+`make train-cv` (Windows: `.\scripts\dev.ps1 train-cv`) is `--phase 2 --hypothesis h4`. It scores logistic regression on `h2_full` (the reference), `h4_clean`, and `h4_clean_sr`, plus the home prior, Elo, and the market. `h4_clean` is `h2_full` with every EPA input taken from pass and run plays only, excluding kneels, spikes, `no_play`, and garbage time (`wp` below 0.05 or above 0.95). A missing `wp` stays in. `h4_clean_sr` adds the recent clean success rate. Shrinkage (1/3), blend (`n / (n + 4)`), the lookback, and the garbage-time cutoffs are fixed. They are not tuned on this run. The paired comparison and the 0.003 acceptance rule are the same, against logistic `h2_full`. Runs go to MLflow experiment `nfl_pregame/phase2_h4` with tags `phase=2` and `hypothesis=h4-clean-epa`. The comparison is written to `reports/phase2_h4/` (gitignored). The method and the empty result table are in `docs/experiments/phase2_h4_clean_epa.md`. This README does not invent a warehouse result.
+
+`qb_kneel`, `qb_spike`, and `wp` are already on `workspace.nfl_raw.play_by_play`. `wp` is already staged as `win_probability`. Do not run `make ingest`. Run `make dbt-build-databricks`, then `make train-cv`. Training before the rebuild leaves the clean columns absent.
+
+The parent run name for this comparison is `phase2-h4-<timestamp>`.
+
 ### Reading CV runs in the MLflow UI
 
-Every `--cv` invocation, including phase 1 and each phase 2 hypothesis, logs one parent run and one nested child per scored model. The parent name is `phase1-<timestamp>`, `phase2-h1-<timestamp>`, `phase2-h2-<timestamp>`, `phase2-h3-<timestamp>`, or `phase2-ridge-<timestamp>`. Open the parent to read `comparison.md` and `comparison.csv`. Its tags include `phase`, `hypothesis` when the phase has one, `cv_scheme`, `git_commit`, `reference_model`, `reference_feature_set`, `best_feature_set`, and `data_digest`. The dataset input is named `nfl_pregame_cv`. Its source text says the rows are `fct_games` joined to pregame features for seasons through the CV end season. `data_n_rows` and `data_n_columns` are params on the parent and on each child. The same `data_digest` on the parent and every child means those runs compared the same matrix.
+Every `--cv` invocation, including phase 1 and each phase 2 hypothesis, logs one parent run and one nested child per scored model. The parent name is `phase1-<timestamp>`, `phase2-h1-<timestamp>`, `phase2-h2-<timestamp>`, `phase2-h3-<timestamp>`, `phase2-h4-<timestamp>`, or `phase2-ridge-<timestamp>`. Open the parent to read `comparison.md` and `comparison.csv`. Its tags include `phase`, `hypothesis` when the phase has one, `cv_scheme`, `git_commit`, `reference_model`, `reference_feature_set`, `best_feature_set`, and `data_digest`. The dataset input is named `nfl_pregame_cv`. Its source text says the rows are `fct_games` joined to pregame features for seasons through the CV end season. `data_n_rows` and `data_n_columns` are params on the parent and on each child. The same `data_digest` on the parent and every child means those runs compared the same matrix.
 
 Each child logs `log_loss_diff`, `log_loss_diff_ci_low`, and `log_loss_diff_ci_high` against the reference, plus a `decision` tag:
 

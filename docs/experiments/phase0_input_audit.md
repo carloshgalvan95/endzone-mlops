@@ -68,7 +68,7 @@ Feature sets `h3_split` and `h3_replace` turn those sums into pass and rush EPA 
 
 **Verified for the filter this repo applies. The warehouse counts are frozen elsewhere. This note does not restate them.**
 
-`fct_team_game_epa` keeps play-by-play rows with `where play = 1`. It does not filter `play_type`, `aborted_play`, quarter, or score differential. Garbage time stays in the average. Staging describes `play` as "Play validity flag (1 = valid play, 0 = no play)." That sentence is coarser than the upstream definition.
+`fct_team_game_epa` keeps play-by-play rows with `where play = 1` for the original EPA columns. Those columns do not filter `play_type`, `aborted_play`, quarter, or score differential. Garbage time stays in that average. Staging describes `play` as "Play validity flag (1 = valid play, 0 = no play)." That sentence is coarser than the upstream definition. Clean EPA columns use a separate filter and are not in the matrix this audit profiles. See `docs/experiments/phase2_h4_clean_epa.md`.
 
 Upstream, nflfastR sets `play` to 1 when EPA and posteam are present, the description is not a review and does not start with "Timeout ", and `play_type` is one of `no_play`, `pass`, or `run` (`clean_pbp` in `nflverse/nflfastR` `R/helper_additional_functions.R`). That includes penalty rows (`no_play`). Special-teams types (`kickoff`, `punt`, `field_goal`, `extra_point`) are outside that list. This repo does not recompute the flag. The warehouse check is frozen in `docs/experiments/reports/epa_filter_check.md`. No row counts are stated in this note.
 
