@@ -350,3 +350,91 @@ models:
             expression: "away_team != home_team"
           config:
             where: "away_team is not null and home_team is not null"
+
+  - name: fct_expected_starter
+    description: |
+      Expected starting quarterback from the weekly depth chart.
+
+      Grain: one row per completed game.
+      The starter is offense QB depth_team 1 for that season, week, and game_type.
+      This model does not read play-by-play. A null starter id means the chart
+      had no QB1, and the feature code falls back to the previous primary passer.
+
+    config:
+      meta:
+        owner: "Carlos Galvan"
+        layer: "marts"
+        grain: "game_id"
+
+    columns:
+      - name: game_id
+        description: "Completed game identifier"
+        tests:
+          - unique
+          - not_null
+      - name: season
+        description: "NFL season year"
+        tests:
+          - not_null
+      - name: gameday
+        description: "Date of the game"
+        tests:
+          - not_null
+      - name: home_team
+        description: "Home team abbreviation on the schedule"
+        tests:
+          - not_null
+      - name: away_team
+        description: "Away team abbreviation on the schedule"
+        tests:
+          - not_null
+      - name: home_starter_player_id
+        description: "Depth-chart QB1 gsis id for the home team. Null when the chart has no QB1."
+      - name: away_starter_player_id
+        description: "Depth-chart QB1 gsis id for the away team. Null when the chart has no QB1."
+
+  - name: fct_qb_dropbacks
+    description: |
+      Dropbacks by passer and completed game.
+
+      Grain: one row per game_id and passer_player_id.
+      This is who played. It is not the expected starter.
+
+    config:
+      meta:
+        owner: "Carlos Galvan"
+        layer: "marts"
+        grain: "game_id, passer_player_id"
+
+    columns:
+      - name: game_id
+        description: "Completed game identifier"
+        tests:
+          - not_null
+      - name: passer_player_id
+        description: "GSIS id of the passer who dropped back"
+        tests:
+          - not_null
+      - name: team_franchise
+        description: "Current franchise of the possession team"
+        tests:
+          - not_null
+      - name: dropbacks
+        description: "Dropback count for this passer in this game"
+        tests:
+          - not_null
+      - name: dropback_epa
+        description: "Sum of EPA on those dropbacks. A null EPA counts as 0."
+        tests:
+          - not_null
+      - name: gameday
+        description: "Date of the game"
+        tests:
+          - not_null
+
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - game_id
+              - passer_player_id

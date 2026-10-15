@@ -121,6 +121,12 @@ with source as (
         aborted_play,
         qb_kneel,
         qb_spike,
+
+        -- Passer identity for pregame QB ratings. The starter is not this
+        -- column. Same-game passer rows are who played, not who was expected.
+        passer_player_id,
+        qb_dropback,
+        cpoe,
         
         -- Order
         order_sequence
