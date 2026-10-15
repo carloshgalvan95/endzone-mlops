@@ -1,8 +1,9 @@
 """
 Load raw nflverse data into Databricks Free Edition.
 
-Downloads nflverse datasets (games, play-by-play) from official GitHub releases,
-uploads to Unity Catalog Volumes, and creates bronze Delta tables.
+Downloads nflverse datasets (games, play-by-play, weekly depth charts) from
+official GitHub releases, uploads to Unity Catalog Volumes, and creates
+bronze Delta tables.
 
 Usage:
     python -m src.ingest.load_raw_nflverse --seasons 2022 2023 2024
@@ -43,6 +44,30 @@ NFLVERSE_GAMES_URL = (
 NFLVERSE_PBP_URL_PATTERN = (
     "https://github.com/nflverse/nflverse-data/releases/download/pbp/play_by_play_{season}.parquet"
 )
+# Weekly NFL.com depth charts. The release starts in 2001. There is no 1999 file.
+NFLVERSE_DEPTH_CHARTS_URL_PATTERN = (
+    "https://github.com/nflverse/nflverse-data/releases/download/"
+    "depth_charts/depth_charts_{season}.parquet"
+)
+DEPTH_CHART_FIRST_SEASON = 2001
+# Columns present on depth_charts_2001.parquet through depth_charts_2024.parquet.
+DEPTH_CHART_COLUMNS: tuple[str, ...] = (
+    "season",
+    "club_code",
+    "week",
+    "game_type",
+    "depth_team",
+    "last_name",
+    "first_name",
+    "football_name",
+    "formation",
+    "gsis_id",
+    "jersey_number",
+    "position",
+    "elias_id",
+    "depth_position",
+    "full_name",
+)
 
 # Default season range (1999 is first nflverse season)
 # Upper bound is derived dynamically from games.parquet
@@ -65,6 +90,12 @@ DATASET_CONFIG = {
         "filename_pattern": "play_by_play_{season}.parquet",
         "table_name": "play_by_play",
         "description": "NFL play-by-play data",
+        "supports_season_filter": True,
+    },
+    "depth_charts": {
+        "filename_pattern": "depth_charts_{season}.parquet",
+        "table_name": "depth_charts",
+        "description": "NFL weekly depth charts (2001-present)",
         "supports_season_filter": True,
     },
 }
@@ -397,6 +428,110 @@ def download_nflverse_pbp(
     return processed_seasons
 
 
+def select_depth_chart_columns(frame: pd.DataFrame, season: int) -> pd.DataFrame:
+    """Keep the stable depth-chart columns and refuse a file that lacks one.
+
+    Args:
+        frame: One season of nflverse depth charts.
+        season: Season year, used in the error.
+
+    Returns:
+        A copy with ``DEPTH_CHART_COLUMNS`` only, in that order.
+
+    Raises:
+        ValueError: A required column is absent.
+    """
+    missing: list[str] = [column for column in DEPTH_CHART_COLUMNS if column not in frame.columns]
+    if missing:
+        missing_list: str = ", ".join(missing)
+        raise ValueError(f"Season {season} depth chart missing columns: {missing_list}")
+    extra: list[str] = sorted(set(frame.columns) - set(DEPTH_CHART_COLUMNS))
+    if extra:
+        logger.warning(
+            "Season %s depth chart dropping columns not in the stable list: %s",
+            season,
+            extra[:10],
+        )
+    return frame.loc[:, list(DEPTH_CHART_COLUMNS)].copy()
+
+
+def download_nflverse_depth_charts(
+    seasons: list[int],
+    local_dir: Path,
+    workspace_client: WorkspaceClient,
+) -> list[int]:
+    """Download weekly depth charts and upload one parquet per season.
+
+    Seasons before 2001 are skipped. A missing release (HTTP 404) is skipped.
+    A file that lacks a stable column is an error. Files land at
+    ``depth_charts/{season}/depth_charts_{season}.parquet`` so a later
+    current-season refresh replaces one season and leaves the others.
+
+    Args:
+        seasons: Season years to attempt.
+        local_dir: Temporary directory for the parquet files.
+        workspace_client: Databricks client used for the volume upload.
+
+    Returns:
+        Season years that were uploaded.
+
+    Raises:
+        ValueError: No season produced a file, or a file failed the column check.
+    """
+    processed: list[int] = []
+    for season in seasons:
+        if season < DEPTH_CHART_FIRST_SEASON:
+            logger.info(
+                "Season %s is before depth charts (%s), skipping",
+                season,
+                DEPTH_CHART_FIRST_SEASON,
+            )
+            continue
+        url = NFLVERSE_DEPTH_CHARTS_URL_PATTERN.format(season=season)
+        logger.info("Processing depth charts for season %s", season)
+        try:
+            frame = download_parquet_with_validation(url)
+        except ValueError as exc:
+            if "HTTP 404" in str(exc):
+                logger.warning("Season %s depth chart was not found (HTTP 404), skipping", season)
+                continue
+            raise
+        selected = select_depth_chart_columns(frame, season)
+        local_path = local_dir / f"depth_charts_{season}.parquet"
+        selected.to_parquet(local_path, index=False)
+        upload_to_volume_depth_chart_season(workspace_client, local_path, season)
+        local_path.unlink()
+        processed.append(season)
+    if not processed:
+        raise ValueError(f"No depth chart data found for seasons {seasons}")
+    logger.info("Uploaded depth charts for %s seasons", len(processed))
+    return processed
+
+
+def upload_to_volume_depth_chart_season(
+    workspace_client: WorkspaceClient,
+    local_path: Path,
+    season: int,
+) -> str:
+    """Upload one season of depth charts to the landing volume.
+
+    Args:
+        workspace_client: Databricks WorkspaceClient.
+        local_path: Local parquet path.
+        season: Season year used in the volume directory.
+
+    Returns:
+        Volume path of the uploaded file.
+    """
+    volume_root = f"/Volumes/{CATALOG}/{SCHEMA_RAW}/{VOLUME_NAME}"
+    volume_path = f"{volume_root}/depth_charts/{season}/{local_path.name}"
+    logger.info("Uploading %s to %s", local_path.name, volume_path)
+    with open(local_path, "rb") as handle:
+        workspace_client.files.upload(volume_path, handle, overwrite=True)
+    logger.info("Uploaded depth charts to %s", volume_path)
+    return volume_path
+
+
 def upload_to_volume_pbp_season(
     workspace_client: WorkspaceClient, local_path: Path, season: int
 ) -> str:
@@ -543,6 +678,8 @@ def create_bronze_table(
     if dataset == "pbp":
         # For pbp, read from entire pbp folder (all season partitions)
         read_path = f"/Volumes/{CATALOG}/{SCHEMA_RAW}/{VOLUME_NAME}/pbp"
+    elif dataset == "depth_charts":
+        read_path = f"/Volumes/{CATALOG}/{SCHEMA_RAW}/{VOLUME_NAME}/depth_charts"
     else:
         # For games, use the specific file path
         if volume_path is None:
@@ -624,9 +761,9 @@ See .env.example and docs/runbook.md for configuration details.
 
     parser.add_argument(
         "--dataset",
-        choices=["games", "pbp", "all"],
+        choices=["games", "pbp", "depth_charts", "all"],
         default="all",
-        help="Dataset to load (default: all)",
+        help="Dataset to load (default: all). depth_charts is the weekly starter chart.",
     )
 
     parser.add_argument(
@@ -655,10 +792,15 @@ See .env.example and docs/runbook.md for configuration details.
     if args.current_season:
         current = get_current_season()
         pbp_seasons = [current]
+        depth_chart_seasons = [current]
         games_seasons = all_seasons
-        logger.info(f"Current season mode: pbp will load {current} only, games loads full range")
+        logger.info(
+            "Current season mode: pbp and depth charts load %s only, games loads full range",
+            current,
+        )
     else:
         pbp_seasons = all_seasons
+        depth_chart_seasons = all_seasons
         games_seasons = all_seasons
 
     try:
@@ -729,6 +871,23 @@ See .env.example and docs/runbook.md for configuration details.
                         create_bronze_table(
                             sql_connection,
                             "pbp",
+                            volume_path=None,
+                        )
+
+                if args.dataset in ("depth_charts", "all"):
+                    logger.info("Loading depth charts for seasons: %s", depth_chart_seasons)
+                    with TemporaryDirectory() as depth_dir:
+                        processed_charts = download_nflverse_depth_charts(
+                            depth_chart_seasons,
+                            Path(depth_dir),
+                            workspace_client,
+                        )
+                    if not processed_charts:
+                        logger.warning("No depth charts processed, skipping bronze table creation")
+                    else:
+                        create_bronze_table(
+                            sql_connection,
+                            "depth_charts",
                             volume_path=None,
                         )
 

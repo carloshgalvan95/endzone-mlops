@@ -1,6 +1,6 @@
 # Phase 2 H4: clean EPA
 
-Method note. This file does not report warehouse metrics. Reproduce this comparison with `make train-cv` (Windows: `.\scripts\dev.ps1 train-cv`), which runs `python -m src.train.train --cv --phase 2 --hypothesis h4 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h4`. It writes `reports/phase2_h4/comparison.md` and `reports/phase2_h4/comparison.csv`. Those files are local outputs. The result section below is a placeholder until that run exists. Do not copy numbers from a test fixture. Do not add a frozen snapshot until the hypothesis is decided.
+Method note. Reproduce this comparison with `python -m src.train.train --cv --phase 2 --hypothesis h4 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h4`. It writes `reports/phase2_h4/comparison.md` and `reports/phase2_h4/comparison.csv`. Those files are local outputs. The result section records the local H4 run. The frozen copy is `docs/experiments/reports/phase2_h4_comparison.md`. Do not copy numbers from a test fixture. `make train-cv` (Windows: `.\scripts\dev.ps1 train-cv`) now runs H5. See `docs/experiments/phase2_h5_starting_qb.md`.
 
 No model is promoted from a phase 2 run. 2024 stays the final validation. 2025 is not scored here.
 
@@ -63,18 +63,17 @@ Names look like `home_recent_clean_offensive_epa_per_play`, `away_regressed_seas
 Bronze already has `qb_kneel`, `qb_spike`, and `wp`. Do not run `make ingest` for this hypothesis.
 
 ```bash
-make dbt-build-databricks
-make train-cv
+make dbt-build-databricks && python -m src.train.train --cv --phase 2 --hypothesis h4 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h4
 ```
 
-Windows:
+Windows PowerShell 5.1 has no `&&`:
 
 ```powershell
 .\scripts\dev.ps1 dbt-build-databricks
-.\scripts\dev.ps1 train-cv
+if ($LASTEXITCODE -eq 0) { python -m src.train.train --cv --phase 2 --hypothesis h4 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h4 }
 ```
 
-`make dbt-build-databricks` rebuilds `nfl_dev_staging`, `nfl_dev_marts`, and `nfl_dev_test_results`, including the new staging columns and the clean mart columns. `make train-cv` then reads `fct_games` and `fct_team_game_epa` from `workspace.nfl_dev_marts`. Running `train-cv` before that rebuild leaves the clean columns absent. The features stay missing and the comparison is not this hypothesis.
+`make dbt-build-databricks` runs `dbt deps`, then rebuilds `nfl_dev_staging`, `nfl_dev_marts`, and `nfl_dev_test_results`, including the clean mart columns. The H4 command then reads `fct_games` and `fct_team_game_epa` from `workspace.nfl_dev_marts`. Running it before that rebuild leaves the clean columns absent. Training refuses a feature set whose columns are missing or at least 50% null. `make train-cv` is H5, not this hypothesis.
 
 ## Method
 
@@ -108,16 +107,20 @@ If either condition fails, the set is rejected. If the interval is missing, the 
 
 ## Result
 
-Pending. `make train-cv` has not been run on the rebuilt mart. This section stays empty until that local report exists. Do not fill it from a unit test.
+Local rolling-origin run, CV 2016-2023, n=2191, reference logistic `h2_full` 0.6377. These rows are that run, after `make dbt-build-databricks` rebuilt the clean columns. They are not taken from a test fixture. The frozen copy is `docs/experiments/reports/phase2_h4_comparison.md`.
 
 | feature_set | n | log_loss | log_loss_diff | ci_low | ci_high | decision |
 | --- | --- | --- | --- | --- | --- | --- |
-| h2_full | | | | | | reference |
-| h4_clean | | | | | | |
-| h4_clean_sr | | | | | | |
+| h2_full | 2191 | 0.6377 | 0.0000 | 0.0000 | 0.0000 | reference |
+| h4_clean | 2191 | 0.6398 | +0.0021 | -0.0012 | 0.0053 | rejected |
+| h4_clean_sr | 2191 | 0.6379 | +0.0002 | -0.0036 | 0.0039 | rejected |
+
+`h2_full` is the reference row. Its difference is zero. `h4_clean` is worse by 0.0021. `h4_clean_sr` matches the reference within 0.0002. The home prior, Elo, and the market were scored by the same command. They are baselines, not this hypothesis, and this record does not restate them.
+
+A first local run, before that dbt rebuild, printed the same log loss 0.6509 for the clean sets. The clean columns were absent from `fct_team_game_epa`, so the clean features were empty and the imputer filled them with constants. Those identical numbers are not this comparison. Training now refuses that case. Before CV, each requested feature column has to exist and stay under 50% null. The error names the feature set and the columns and says to run `make dbt-build-databricks`.
 
 ## Decision log
 
-Running. Not decided.
+Rejected.
 
-The feature sets are in code so the comparison can be run. 2024 stays the final validation. 2025 stays unscored. No model is promoted from this note.
+`h4_clean` and `h4_clean_sr` are both rejected. Neither improved pooled log loss by at least 0.003, and neither 95% interval lies entirely below 0. Removing `no_play`, kneels, spikes, and garbage time adds no signal. Averaging EPA over many plays already absorbs that noise. The feature sets stay in code so this comparison can be rerun. 2024 stays the final validation. 2025 stays unscored. No model is promoted from this note.

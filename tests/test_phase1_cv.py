@@ -18,9 +18,11 @@ from src.features.pregame import (
     PREGAME_FEATURE_COLUMNS_H3_SPLIT,
     PREGAME_FEATURE_COLUMNS_H4_CLEAN,
     PREGAME_FEATURE_COLUMNS_H4_CLEAN_SR,
+    PREGAME_FEATURE_COLUMNS_H5_QB,
     REGRESSED_EPA_COLUMNS,
     SEASON_DEFENSIVE_EPA_COLUMNS,
     american_odds_to_implied_probability,
+    feature_columns_for,
     market_home_probabilities,
     no_vig_home_probability,
 )
@@ -29,6 +31,7 @@ from src.train.train import (
     HYPOTHESIS_H2,
     HYPOTHESIS_H3,
     HYPOTHESIS_H4,
+    HYPOTHESIS_H5,
     HYPOTHESIS_RIDGE,
     MIN_LOG_LOSS_IMPROVEMENT,
     PHASE1_EXPERIMENT_NAME,
@@ -37,6 +40,7 @@ from src.train.train import (
     PHASE2_H2_EXPERIMENT_NAME,
     PHASE2_H3_EXPERIMENT_NAME,
     PHASE2_H4_EXPERIMENT_NAME,
+    PHASE2_H5_EXPERIMENT_NAME,
     PHASE2_RIDGE_EXPERIMENT_NAME,
     PHASE2_TAG,
     CvModelSpec,
@@ -58,6 +62,7 @@ from src.train.train import (
     rolling_origin_cv,
     run_phase1_baselines,
     select_best_feature_set,
+    validate_feature_columns,
     write_phase1_outputs,
 )
 
@@ -162,6 +167,10 @@ def _schedule(with_moneyline: bool) -> tuple[pd.DataFrame, pd.DataFrame]:
                     "rush_plays": 8,
                     "pass_epa": offense_value * 10.0,
                     "rush_epa": offense_value * -4.0,
+                    "avg_clean_offensive_epa": offense_value,
+                    "avg_clean_defensive_epa_allowed": -offense_value,
+                    "clean_success_rate": 0.55,
+                    "clean_defensive_success_rate": 0.45,
                 }
             )
     return games, pd.DataFrame(epa_rows)
@@ -752,6 +761,14 @@ class TestReferenceSelection:
             CvModelSpec("logistic", "h4_clean"),
             CvModelSpec("logistic", "h4_clean_sr"),
         )
+        h5_reference = resolve_reference_spec(2, hypothesis="h5")
+        assert h5_reference == {"model": "logistic", "feature_set": "h2_full"}
+        assert logistic_feature_sets_for(2, hypothesis="h5") == ("h2_full", "h5_qb")
+        assert logistic_feature_sets_for(2, hypothesis="h5-starting-qb") == ("h2_full", "h5_qb")
+        assert cv_model_specs_for(2, hypothesis="h5") == (
+            CvModelSpec("logistic", "h2_full"),
+            CvModelSpec("logistic", "h5_qb"),
+        )
         ridge_reference = resolve_reference_spec(2, hypothesis="ridge")
         assert ridge_reference == {"model": "logistic", "feature_set": "h2_full"}
         assert logistic_feature_sets_for(2, hypothesis="ridge") == ("h2_full",)
@@ -783,6 +800,11 @@ class TestReferenceSelection:
         assert h4_settings["output_dir"] == "reports/phase2_h4"
         assert h4_settings["experiment_name"] == PHASE2_H4_EXPERIMENT_NAME
         assert h4_settings["phase_tag"] == PHASE2_TAG
+        h5_settings = phase_tracking_settings(2, hypothesis="h5")
+        assert h5_settings["hypothesis"] == HYPOTHESIS_H5
+        assert h5_settings["output_dir"] == "reports/phase2_h5"
+        assert h5_settings["experiment_name"] == PHASE2_H5_EXPERIMENT_NAME
+        assert h5_settings["phase_tag"] == PHASE2_TAG
         ridge_settings = phase_tracking_settings(2, hypothesis="ridge")
         assert ridge_settings["hypothesis"] == HYPOTHESIS_RIDGE
         assert ridge_settings["output_dir"] == "reports/phase2_ridge"
@@ -869,6 +891,11 @@ class TestReferenceSelection:
         assert "home_recent_clean_defensive_success_rate" in sr_groups["success_rate"]
         assert "home_recent_clean_offensive_success_rate" not in sr_groups["epa"]
         assert "home_recent_clean_offensive_success_rate" not in sr_groups["other"]
+        h5_groups = feature_column_groups(list(PREGAME_FEATURE_COLUMNS_H5_QB))
+        assert "home_qb_rating" in h5_groups["epa"]
+        assert "away_qb_rating" in h5_groups["epa"]
+        assert "home_qb_rating_minus_team_pass_epa" in h5_groups["epa"]
+        assert "home_qb_rating" not in h5_groups["other"]
 
 
 class TestPhase2Hypothesis:
@@ -1490,6 +1517,7 @@ class TestCvRunStructure:
         assert parent_run_name(2, HYPOTHESIS_H2, timestamp=stamp) == "phase2-h2-20261015T010203Z"
         assert parent_run_name(2, HYPOTHESIS_H3, timestamp=stamp) == "phase2-h3-20261015T010203Z"
         assert parent_run_name(2, HYPOTHESIS_H4, timestamp=stamp) == "phase2-h4-20261015T010203Z"
+        assert parent_run_name(2, HYPOTHESIS_H5, timestamp=stamp) == "phase2-h5-20261015T010203Z"
         assert parent_run_name(2, HYPOTHESIS_RIDGE, timestamp=stamp) == (
             "phase2-ridge-20261015T010203Z"
         )
@@ -1689,5 +1717,230 @@ class TestPhase2RidgeReference:
             assert child.data.params["regularization"] == "l2"
             h3_experiment = client.get_experiment_by_name(PHASE2_H3_EXPERIMENT_NAME)
             assert h3_experiment is None
+        finally:
+            _reset_mlflow_tracking()
+
+
+class TestFeatureColumnValidation:
+    """CV refuses a feature set whose columns are missing or mostly null."""
+
+    def test_missing_column_names_the_set_and_the_rebuild_hint(self) -> None:
+        """The error names the feature set, the column, and the dbt rebuild."""
+        columns: list[str] = list(feature_columns_for("h2_full"))
+        frame = pd.DataFrame({column: [0.1, 0.2, 0.3] for column in columns})
+        frame = frame.drop(columns=["home_rest_days"])
+        with pytest.raises(ValueError, match="h2_full") as exc_info:
+            validate_feature_columns(frame, ("h2_full",))
+        message = str(exc_info.value)
+        assert "home_rest_days" in message
+        assert "missing columns" in message
+        assert "run make dbt-build-databricks" in message
+
+    def test_null_share_at_the_threshold_fails_and_below_it_passes(self) -> None:
+        """Exactly 50% null fails. 49% null passes. The limit is configurable."""
+        columns: list[str] = list(feature_columns_for("current"))
+        frame = pd.DataFrame({column: [1.0] * 100 for column in columns})
+        frame.loc[:48, "away_rest_days"] = np.nan
+        passed = validate_feature_columns(frame, ("current",))
+        assert passed["current"]["away_rest_days"] == pytest.approx(0.49)
+        frame.loc[49, "away_rest_days"] = np.nan
+        with pytest.raises(ValueError, match="away_rest_days") as exc_info:
+            validate_feature_columns(frame, ("current",))
+        assert "50% null" in str(exc_info.value)
+        assert "run make dbt-build-databricks" in str(exc_info.value)
+        relaxed = validate_feature_columns(frame, ("current",), max_null_fraction=0.9)
+        assert relaxed["current"]["away_rest_days"] == pytest.approx(0.5)
+
+    def test_invalid_threshold_and_an_empty_frame_are_refused(self) -> None:
+        """The share has to sit in (0, 1], and a frame with no rows cannot pass."""
+        columns: list[str] = list(feature_columns_for("current"))
+        frame = pd.DataFrame({column: [1.0] for column in columns})
+        with pytest.raises(ValueError, match="max_null_fraction"):
+            validate_feature_columns(frame, ("current",), max_null_fraction=0.0)
+        with pytest.raises(ValueError, match="max_null_fraction"):
+            validate_feature_columns(frame, ("current",), max_null_fraction=1.1)
+        empty = frame.iloc[0:0]
+        with pytest.raises(ValueError, match="no rows"):
+            validate_feature_columns(empty, ("current",))
+
+    def test_h4_without_clean_mart_columns_fails_before_scoring(self) -> None:
+        """Absent clean columns stay all null, so H4 CV raises instead of fitting."""
+        games, team_games = _schedule(with_moneyline=False)
+        drop_names = [
+            column
+            for column in team_games.columns
+            if column.startswith("avg_clean_") or column.startswith("clean_")
+        ]
+        bare = team_games.drop(columns=drop_names)
+        with pytest.raises(ValueError, match="h4_clean") as exc_info:
+            run_phase1_baselines(
+                games,
+                bare,
+                config=_fast_config(),
+                phase=2,
+                hypothesis="h4",
+            )
+        message = str(exc_info.value)
+        assert "h4_clean_sr" in message
+        assert "home_recent_clean_offensive_epa_per_play" in message
+        assert "run make dbt-build-databricks" in message
+
+
+def _h5_tables(games: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Chart flips in 2022. Dropbacks stay with the previous passer, so the change is real."""
+    starter_rows: list[dict[str, object]] = []
+    dropback_rows: list[dict[str, object]] = []
+    for _, game in games.iterrows():
+        season: int = int(game["season"])
+        home: str = str(game["home_team_franchise"])
+        away: str = str(game["away_team_franchise"])
+        starter_rows.append(
+            {
+                "game_id": game["game_id"],
+                "home_starter_player_id": f"QB-{home}" if season <= 2021 else f"QB-{home}-NEW",
+                "away_starter_player_id": f"QB-{away}" if season <= 2021 else f"QB-{away}-NEW",
+            }
+        )
+        for franchise in (home, away):
+            dropback_rows.append(
+                {
+                    "game_id": game["game_id"],
+                    "gameday": game["gameday"],
+                    "team_franchise": franchise,
+                    "passer_player_id": f"QB-{franchise}",
+                    "dropbacks": 20,
+                    "dropback_epa": 2.0,
+                }
+            )
+    return pd.DataFrame(starter_rows), pd.DataFrame(dropback_rows)
+
+
+class TestPhase2H5Hypothesis:
+    """H5 scores the starting-QB rating against logistic h2_full, plus the baselines."""
+
+    def test_phase2_h5_report_uses_h2_full_and_describes_qb_changes(self) -> None:
+        """h5_qb replaces the H4 candidates. The change slice is not an acceptance rule."""
+        games, team_games = _schedule(with_moneyline=False)
+        starters, dropbacks = _h5_tables(games)
+        report = run_phase1_baselines(
+            games,
+            team_games,
+            config=_fast_config(n_bootstrap=8),
+            lookback_games=2,
+            logistic_max_iter=200,
+            phase=2,
+            hypothesis="h5",
+            expected_starters=starters,
+            qb_dropbacks=dropbacks,
+        )
+        table = report["comparison_table"]
+        pairs = set(zip(table["model"], table["feature_set"], strict=True))
+        assert pairs == {
+            ("baseline-home", "none"),
+            ("logistic", "h2_full"),
+            ("logistic", "h5_qb"),
+            ("elo", "elo"),
+            ("market", "market"),
+        }
+        assert report["reference_feature_set"] == "h2_full"
+        assert report["hypothesis"] == HYPOTHESIS_H5
+        h5 = next(item for item in report["results"] if item["feature_set"] == "h5_qb")
+        assert h5["params"]["features"].split(",") == list(PREGAME_FEATURE_COLUMNS_H5_QB)
+        assert float(h5["params"]["qb_prior_dropbacks"]) == pytest.approx(100.0)
+        assert float(h5["params"]["replacement_epa_per_dropback"]) == pytest.approx(0.0)
+        subset = report["qb_change_subset"]
+        assert subset["status"] == "scored"
+        assert subset["n_qb_change_games"] >= 2
+        assert subset["n_depth_chart_starters"] > 0
+        assert subset["comparison"]["n"] >= 2
+        assert "Hypothesis: `h5-starting-qb`" in report["markdown"]
+        assert "## QB change subset" in report["markdown"]
+        assert "not an acceptance decision" in report["markdown"]
+        assert "CPOE is stored" in report["markdown"]
+        assert "\u2014" not in report["markdown"]
+
+    def test_h5_without_qb_tables_fails_before_scoring(self) -> None:
+        """Missing starter inputs leave the ratings null, so CV names h5_qb and the rebuild hint."""
+        games, team_games = _schedule(with_moneyline=False)
+        with pytest.raises(ValueError, match="h5_qb") as exc_info:
+            run_phase1_baselines(
+                games,
+                team_games,
+                config=_fast_config(),
+                phase=2,
+                hypothesis="h5",
+            )
+        message = str(exc_info.value)
+        assert "home_qb_rating" in message
+        assert "run make dbt-build-databricks" in message
+
+    def test_cli_phase2_h5_tags_hypothesis(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """``--hypothesis h5`` logs phase=2 and writes reports/phase2_h5."""
+        import mlflow
+
+        games, team_games = _schedule(with_moneyline=True)
+        starters, dropbacks = _h5_tables(games)
+        fixture_dir = tmp_path / "fixtures"
+        fixture_dir.mkdir()
+        games.to_parquet(fixture_dir / "fct_games.parquet")
+        team_games.to_parquet(fixture_dir / "fct_team_game_epa.parquet")
+        starters.to_parquet(fixture_dir / "fct_expected_starter.parquet")
+        dropbacks.to_parquet(fixture_dir / "fct_qb_dropbacks.parquet")
+        tracking_uri: str = "sqlite:///" + (tmp_path / "mlflow.db").as_posix()
+        monkeypatch.setenv("MLFLOW_TRACKING_URI", tracking_uri)
+        monkeypatch.setattr("src.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
+        output_dir = tmp_path / "phase2_h5"
+        try:
+            main(
+                [
+                    "--cv",
+                    "--phase",
+                    "2",
+                    "--hypothesis",
+                    "h5",
+                    "--fixture-path",
+                    str(fixture_dir),
+                    "--output-dir",
+                    str(output_dir),
+                    "--cv-start-season",
+                    "2022",
+                    "--cv-end-season",
+                    "2023",
+                    "--n-bootstrap",
+                    "4",
+                    "--lookback",
+                    "2",
+                    "--max-iter",
+                    "200",
+                    "--seed",
+                    "7",
+                ]
+            )
+            markdown = (output_dir / "comparison.md").read_text(encoding="utf-8")
+            assert "Hypothesis: `h5-starting-qb`" in markdown
+            assert "## QB change subset" in markdown
+            assert "\u2014" not in markdown
+            client = mlflow.tracking.MlflowClient(tracking_uri=tracking_uri)
+            experiment = client.get_experiment_by_name(PHASE2_H5_EXPERIMENT_NAME)
+            assert experiment is not None
+            runs = client.search_runs(experiment_ids=[experiment.experiment_id])
+            parents = [run for run in runs if "mlflow.parentRunId" not in run.data.tags]
+            assert len(parents) == 1
+            parent = client.get_run(parents[0].info.run_id)
+            assert parent.info.run_name.startswith("phase2-h5-")
+            assert parent.data.tags["hypothesis"] == HYPOTHESIS_H5
+            children = [run for run in runs if "mlflow.parentRunId" in run.data.tags]
+            by_pair = {
+                (child.data.params["model_type"], child.data.params["feature_set"]): child
+                for child in children
+            }
+            h5_run = by_pair[("logistic", "h5_qb")]
+            assert float(h5_run.data.params["qb_prior_dropbacks"]) == pytest.approx(100.0)
+            assert h5_run.data.tags["decision"] in {"accepted", "rejected", "inconclusive"}
+            assert by_pair[("logistic", "h2_full")].data.tags["decision"] == "reference"
         finally:
             _reset_mlflow_tracking()

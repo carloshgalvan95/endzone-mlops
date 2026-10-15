@@ -17,12 +17,12 @@ function Show-Help {
     Write-Host "  dbt-compile         - Compile dbt models"
     Write-Host "  dbt-run             - Run dbt models (creates tables)"
     Write-Host "  dbt-test            - Run dbt tests"
-    Write-Host "  ingest              - Load all seasons (1999-2026, games and pbp)"
+    Write-Host "  ingest              - Load all seasons (games, pbp, depth charts from 2001)"
     Write-Host "  ingest-current      - Refresh current season only (for weekly update)"
-    Write-Host "  dbt-build-databricks - Build dbt models on Databricks target"
+    Write-Host "  dbt-build-databricks - dbt deps, then build models on the Databricks target"
     Write-Host "  train               - Train NFL pregame prediction models with MLflow"
     Write-Host "  train-sweep         - Run training sweep (5+ configs for MLflow comparison)"
-    Write-Host "  train-cv            - Phase 2 H4 clean EPA CV against logistic h2_full"
+    Write-Host "  train-cv            - Phase 2 H5 starting QB CV against logistic h2_full"
     Write-Host "  mlflow-ui           - Open MLflow UI against the local SQLite store"
     Write-Host "  audit-features      - Profile current pregame inputs (no feature changes)"
     Write-Host "  check-epa-filter    - Count play types in the EPA filter, plus kneel and spike rows"
@@ -127,8 +127,8 @@ function Invoke-TrainSweep {
 
 function Invoke-TrainCv {
     Load-Env
-    Write-Host "Running phase 2 H4 clean EPA CV..."
-    python -m src.train.train --cv --phase 2 --hypothesis h4 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h4
+    Write-Host "Running phase 2 H5 starting QB CV..."
+    python -m src.train.train --cv --phase 2 --hypothesis h5 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h5
 }
 
 function Invoke-MlflowUi {
@@ -167,10 +167,13 @@ function Invoke-IngestCurrent {
 }
 
 function Invoke-DbtBuildDatabricks {
-    Write-Host "Building dbt models on Databricks target..."
+    Write-Host "Installing dbt packages, then building on the Databricks target..."
     Push-Location dbt
     try {
+        dbt deps --profiles-dir .
+        if ($LASTEXITCODE -ne 0) { throw "dbt deps failed" }
         dbt build --profiles-dir . --target databricks
+        if ($LASTEXITCODE -ne 0) { throw "dbt build failed" }
     }
     finally {
         Pop-Location

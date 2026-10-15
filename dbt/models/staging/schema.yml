@@ -167,6 +167,15 @@ models:
 
       - name: qb_spike
         description: "Spike flag from nflverse (1 = qb_spike, 0 = not a spike). Distinct from play_type."
+
+      - name: passer_player_id
+        description: "GSIS id of the passer. Who threw on this play. Not the pregame starter."
+
+      - name: qb_dropback
+        description: "1 when the play is a dropback. The QB dropback mart keeps these rows."
+
+      - name: cpoe
+        description: "Completion percentage over expected. Stored for a later rating. Not used by H5."
     
     tests:
       # Uniqueness test: game_id + play_id should uniquely identify plays

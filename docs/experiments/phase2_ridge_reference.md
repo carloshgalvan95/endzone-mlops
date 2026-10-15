@@ -1,6 +1,6 @@
 # Phase 2 ridge reference
 
-Method note. This file does not report warehouse metrics. Reproduce this comparison with `python -m src.train.train --cv --phase 2 --hypothesis ridge --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_ridge`. It writes the measured comparison to `reports/phase2_ridge/comparison.md` and `reports/phase2_ridge/comparison.csv`. `make train-cv` now runs H4 and writes `reports/phase2_h4/`. See `docs/experiments/phase2_h4_clean_epa.md`. Those files are local outputs. The frozen copy is `docs/experiments/reports/phase2_ridge_comparison.md`. Do not copy numbers from a test fixture.
+Method note. This file does not report warehouse metrics. Reproduce this comparison with `python -m src.train.train --cv --phase 2 --hypothesis ridge --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_ridge`. It writes the measured comparison to `reports/phase2_ridge/comparison.md` and `reports/phase2_ridge/comparison.csv`. `make train-cv` now runs H5 and writes `reports/phase2_h5/`. See `docs/experiments/phase2_h5_starting_qb.md` and `docs/experiments/phase2_h4_clean_epa.md`. Those files are local outputs. The frozen copy is `docs/experiments/reports/phase2_ridge_comparison.md`. Do not copy numbers from a test fixture.
 
 No model is promoted from this run. 2024 stays the final validation. 2025 is not scored here.
 
@@ -91,4 +91,4 @@ The same inner C search leaves `h3_split` and `h3_replace` worse than logistic `
 
 No special-teams play types (`kickoff`, `punt`, `field_goal`, `extra_point`) are in that filter. Kneel and spike counts come from `workspace.nfl_raw.play_by_play`: 36 `qb_kneel = 1` rows and 70 `qb_spike = 1` rows also have `play = 1`.
 
-The contamination is the roughly 6.9% `no_play` (penalty) rows, not special teams. That finding drives H4, clean EPA. The method is in `docs/experiments/phase2_h4_clean_epa.md`. The warehouse result is pending.
+The contamination is the roughly 6.9% `no_play` (penalty) rows, not special teams. That finding drives H4, clean EPA. The method and the rejection are in `docs/experiments/phase2_h4_clean_epa.md`. Both clean sets were rejected against logistic `h2_full` 0.6377.

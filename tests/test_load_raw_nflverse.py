@@ -16,11 +16,14 @@ import pytest
 from src.ingest.load_raw_nflverse import (
     DATASET_CONFIG,
     DEFAULT_SEASON_START,
+    DEPTH_CHART_COLUMNS,
+    DEPTH_CHART_FIRST_SEASON,
     NFLVERSE_GAMES_URL,
     cleanup_stale_pbp_files,
     conform_table_to_schema,
     create_bronze_table,
     create_schema_and_volume,
+    download_nflverse_depth_charts,
     download_nflverse_games,
     download_nflverse_pbp,
     download_parquet_with_validation,
@@ -29,7 +32,9 @@ from src.ingest.load_raw_nflverse import (
     get_default_season_range,
     load_target_schema,
     parse_seasons,
+    select_depth_chart_columns,
     upload_to_volume,
+    upload_to_volume_depth_chart_season,
     upload_to_volume_pbp_season,
 )
 
@@ -617,3 +622,91 @@ class TestCurrentSeasonMode:
 
         # Verify pbp would receive only current season
         assert pbp_seasons == [2026]
+
+
+def _depth_chart_frame() -> pd.DataFrame:
+    """One row with every stable depth-chart column."""
+    return pd.DataFrame({column: ["QB"] for column in DEPTH_CHART_COLUMNS})
+
+
+class TestDepthCharts:
+    """Weekly depth charts land in workspace.nfl_raw.depth_charts."""
+
+    def test_config_names_the_bronze_table(self) -> None:
+        """The dataset key, table, and first season match the nflverse release."""
+        assert DATASET_CONFIG["depth_charts"]["table_name"] == "depth_charts"
+        assert DATASET_CONFIG["depth_charts"]["supports_season_filter"] is True
+        assert DEPTH_CHART_FIRST_SEASON == 2001
+        assert "gsis_id" in DEPTH_CHART_COLUMNS
+        assert "depth_team" in DEPTH_CHART_COLUMNS
+
+    def test_select_keeps_stable_columns_and_refuses_a_missing_one(self) -> None:
+        """Extra columns are dropped. A missing stable column is an error."""
+        frame = _depth_chart_frame()
+        frame["extra_col"] = ["drop-me"]
+        selected = select_depth_chart_columns(frame, 2024)
+        assert list(selected.columns) == list(DEPTH_CHART_COLUMNS)
+        broken = frame.drop(columns=["gsis_id"])
+        with pytest.raises(ValueError, match="2024"):
+            select_depth_chart_columns(broken, 2024)
+        with pytest.raises(ValueError, match="gsis_id"):
+            select_depth_chart_columns(broken, 2024)
+
+    def test_create_reads_the_depth_chart_folder(self) -> None:
+        """Bronze replace reads the season folder, not one file."""
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = (100,)
+        mock_connection = MagicMock()
+        mock_connection.cursor.return_value = mock_cursor
+
+        create_bronze_table(mock_connection, dataset="depth_charts", volume_path=None)
+
+        create_call = mock_cursor.execute.call_args_list[0][0][0]
+        assert "workspace.nfl_raw.depth_charts" in create_call
+        assert "/Volumes/workspace/nfl_raw/landing/depth_charts" in create_call
+        assert "read_files" in create_call
+
+    def test_upload_uses_a_season_directory(self, tmp_path: Path) -> None:
+        """One season file does not overwrite the other seasons."""
+        local_path = tmp_path / "depth_charts_2024.parquet"
+        _depth_chart_frame().to_parquet(local_path, index=False)
+        client = MagicMock()
+        volume_path = upload_to_volume_depth_chart_season(client, local_path, 2024)
+        assert volume_path.endswith("/depth_charts/2024/depth_charts_2024.parquet")
+
+    def test_download_skips_early_and_missing_seasons(self, tmp_path: Path) -> None:
+        """1999 has no release. HTTP 404 is skipped. A good file is uploaded."""
+        client = MagicMock()
+
+        def fake_download(url: str) -> pd.DataFrame:
+            if "2001" in url:
+                raise ValueError("Failed to download: HTTP 404")
+            return _depth_chart_frame()
+
+        with patch(
+            "src.ingest.load_raw_nflverse.download_parquet_with_validation",
+            side_effect=fake_download,
+        ) as download:
+            processed = download_nflverse_depth_charts([1999, 2001, 2024], tmp_path, client)
+
+        assert processed == [2024]
+        assert download.call_count == 2
+        uploaded = client.files.upload.call_args[0][0]
+        assert uploaded.endswith("/depth_charts/2024/depth_charts_2024.parquet")
+
+    def test_download_refuses_a_file_that_lacks_a_stable_column(self, tmp_path: Path) -> None:
+        """A schema change stops the load before the volume upload."""
+        client = MagicMock()
+        broken = _depth_chart_frame().drop(columns=["gsis_id"])
+        with patch(
+            "src.ingest.load_raw_nflverse.download_parquet_with_validation",
+            return_value=broken,
+        ):
+            with pytest.raises(ValueError, match="gsis_id"):
+                download_nflverse_depth_charts([2024], tmp_path, client)
+        client.files.upload.assert_not_called()
+
+    def test_download_raises_when_every_season_is_missing(self, tmp_path: Path) -> None:
+        """An empty range is an error, not an empty bronze table."""
+        with pytest.raises(ValueError, match="No depth chart"):
+            download_nflverse_depth_charts([1999, 2000], tmp_path, MagicMock())

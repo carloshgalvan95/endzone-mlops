@@ -14,12 +14,12 @@ help:
 	@echo "  dbt-compile         - Compile dbt models"
 	@echo "  dbt-run             - Run dbt models (creates tables)"
 	@echo "  dbt-test            - Run dbt tests"
-	@echo "  ingest              - Load nflverse data (all seasons 1999-2026, games and pbp)"
+	@echo "  ingest              - Load nflverse games, play-by-play, and depth charts"
 	@echo "  ingest-current      - Refresh current season only (for weekly update)"
-	@echo "  dbt-build-databricks - Build dbt models on Databricks target"
+	@echo "  dbt-build-databricks - dbt deps, then build models on the Databricks target"
 	@echo "  train               - Train NFL pregame prediction models with MLflow"
 	@echo "  train-sweep         - Run training sweep (5+ configs for MLflow comparison)"
-	@echo "  train-cv            - Phase 2 H4 clean EPA CV against logistic h2_full"
+	@echo "  train-cv            - Phase 2 H5 starting QB CV against logistic h2_full"
 	@echo "  mlflow-ui           - Open MLflow UI against the local SQLite store"
 	@echo "  audit-features      - Profile current pregame inputs (no feature changes)"
 	@echo "  check-epa-filter    - Count play types in the EPA filter, plus kneel and spike rows"
@@ -75,8 +75,8 @@ clean:
 	rm -rf dbt/target dbt/logs dbt/dbt_packages
 
 dbt-build-databricks:
-	@echo "Building dbt models on Databricks target..."
-	cd dbt && dbt build --profiles-dir . --target databricks
+	@echo "Installing dbt packages, then building on the Databricks target..."
+	cd dbt && dbt deps --profiles-dir . && dbt build --profiles-dir . --target databricks
 
 train:
 	@if [ -f .env ]; then set -a && . ./.env && set +a; fi; \
@@ -87,7 +87,7 @@ train-sweep:
 
 train-cv:
 	@if [ -f .env ]; then set -a && . ./.env && set +a; fi; \
-	python -m src.train.train --cv --phase 2 --hypothesis h4 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h4
+	python -m src.train.train --cv --phase 2 --hypothesis h5 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h5
 
 mlflow-ui:
 	mlflow ui --backend-store-uri sqlite:///mlflow.db --workers 1

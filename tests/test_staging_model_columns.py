@@ -135,6 +135,24 @@ class TestStagingModelColumns:
                 f"Available columns are in tests/fixtures/nflverse_pbp_columns.txt"
             )
 
+    def test_stg_nflverse_depth_chart_columns_exist(self) -> None:
+        """All columns in stg_nflverse__depth_charts.sql exist on the nflverse release."""
+        sql_path = (
+            Path(__file__).parent.parent
+            / "dbt"
+            / "models"
+            / "staging"
+            / "stg_nflverse__depth_charts.sql"
+        )
+        fixture_columns = load_column_fixture("nflverse_depth_chart_columns.txt")
+        referenced_columns = extract_columns_from_sql(sql_path)
+        missing = referenced_columns - fixture_columns
+        if missing:
+            pytest.fail(
+                "stg_nflverse__depth_charts.sql references columns missing from "
+                f"tests/fixtures/nflverse_depth_chart_columns.txt: {sorted(missing)}"
+            )
+
 
 class TestColumnFixtures:
     """Test that column fixtures are valid."""

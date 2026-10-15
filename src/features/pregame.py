@@ -13,6 +13,7 @@ Features computed:
 - Cross-season regression of season and recent EPA (h2_full only)
 - Recent and regressed-season pass and rush EPA per play (h3 sets only)
 - Clean EPA, same windows as h2_full, plus a recent clean success rate (h4 sets)
+- A shrunk pregame starting-QB rating carried across teams and seasons (h5)
 - A simple Elo rating and a no-vig market probability
 """
 
@@ -37,6 +38,7 @@ FEATURE_SET_H3_SPLIT: str = "h3_split"
 FEATURE_SET_H3_REPLACE: str = "h3_replace"
 FEATURE_SET_H4_CLEAN: str = "h4_clean"
 FEATURE_SET_H4_CLEAN_SR: str = "h4_clean_sr"
+FEATURE_SET_H5_QB: str = "h5_qb"
 
 # Level columns, in the pre-phase-1 order. Differentials are appended after
 # these so ``current`` and ``with_games_played`` stay the same matrices.
@@ -265,6 +267,42 @@ CLEAN_EPA_FEATURE_COLUMNS: tuple[str, ...] = _h4_columns_from_h2(
     tuple(column for column in PREGAME_FEATURE_COLUMNS_H2_FULL if column not in H2_CONTEXT_COLUMNS)
 )
 
+# Pregame starting QB. Prior dropbacks shrink EPA per dropback toward
+# replacement. 100 prior dropbacks is half weight. Replacement is 0.
+# CPOE is not mixed in. It is a different unit, and a blend would be a
+# second hypothesis.
+QB_PRIOR_DROPBACKS: float = 100.0
+REPLACEMENT_EPA_PER_DROPBACK: float = 0.0
+QB_RATING_COLUMNS: tuple[str, ...] = (
+    "home_qb_rating",
+    "away_qb_rating",
+    "home_qb_rating_minus_team_pass_epa",
+    "away_qb_rating_minus_team_pass_epa",
+)
+QB_DIAGNOSTIC_COLUMNS: tuple[str, ...] = (
+    "home_starter_player_id",
+    "away_starter_player_id",
+    "home_starter_source",
+    "away_starter_source",
+    "home_qb_changed",
+    "away_qb_changed",
+)
+QB_OUTPUT_COLUMNS: tuple[str, ...] = QB_RATING_COLUMNS + QB_DIAGNOSTIC_COLUMNS
+PREGAME_FEATURE_COLUMNS_H5_QB: tuple[str, ...] = PREGAME_FEATURE_COLUMNS_H2_FULL + QB_RATING_COLUMNS
+EXPECTED_STARTER_COLUMNS: tuple[str, ...] = (
+    "game_id",
+    "home_starter_player_id",
+    "away_starter_player_id",
+)
+QB_DROPBACK_COLUMNS: tuple[str, ...] = (
+    "game_id",
+    "gameday",
+    "team_franchise",
+    "passer_player_id",
+    "dropbacks",
+    "dropback_epa",
+)
+
 FEATURE_SET_NAMES: tuple[str, ...] = (
     FEATURE_SET_CURRENT,
     FEATURE_SET_WITH_GAMES_PLAYED,
@@ -276,6 +314,7 @@ FEATURE_SET_NAMES: tuple[str, ...] = (
     FEATURE_SET_H3_REPLACE,
     FEATURE_SET_H4_CLEAN,
     FEATURE_SET_H4_CLEAN_SR,
+    FEATURE_SET_H5_QB,
 )
 
 FEATURE_SET_COLUMNS: dict[str, tuple[str, ...]] = {
@@ -289,6 +328,7 @@ FEATURE_SET_COLUMNS: dict[str, tuple[str, ...]] = {
     FEATURE_SET_H3_REPLACE: PREGAME_FEATURE_COLUMNS_H3_REPLACE,
     FEATURE_SET_H4_CLEAN: PREGAME_FEATURE_COLUMNS_H4_CLEAN,
     FEATURE_SET_H4_CLEAN_SR: PREGAME_FEATURE_COLUMNS_H4_CLEAN_SR,
+    FEATURE_SET_H5_QB: PREGAME_FEATURE_COLUMNS_H5_QB,
 }
 
 # FiveThirtyEight-style Elo. Home advantage is added only when a game is
@@ -775,12 +815,419 @@ def _regressed_season_pass_rush(
     return columns
 
 
+def _require_frame_columns(frame: pd.DataFrame, columns: tuple[str, ...], label: str) -> None:
+    """Raise when ``frame`` is missing any of ``columns``."""
+    missing: list[str] = [column for column in columns if column not in frame.columns]
+    if missing:
+        missing_list: str = ", ".join(missing)
+        raise ValueError(f"{label} missing columns: {missing_list}")
+
+
+def _player_id_text(values: pd.Series) -> pd.Series:
+    """Strip ids. Blank values and the text nan stay missing."""
+    text: pd.Series = values.astype("string").str.strip()
+    missing: pd.Series = text.isna() | text.eq("") | text.str.lower().isin(["nan", "none", "<na>"])
+    return text.mask(missing)
+
+
+def shrink_qb_rating(
+    prior_dropbacks: float,
+    prior_epa: float,
+    prior_strength: float = QB_PRIOR_DROPBACKS,
+    replacement_epa: float = REPLACEMENT_EPA_PER_DROPBACK,
+) -> dict[str, float]:
+    """Shrink EPA per dropback toward replacement by the number of prior dropbacks.
+
+    ``weight`` is ``n / (n + prior_strength)``. The value is
+    ``weight * (prior_epa / n) + (1 - weight) * replacement_epa``.
+    ``n`` of 0, or a missing ``n``, returns the replacement and weight 0.
+    The strength and the replacement are fixed. They are not tuned per run.
+
+    Args:
+        prior_dropbacks: Dropbacks strictly before the game.
+        prior_epa: Sum of EPA on those dropbacks.
+        prior_strength: Pseudo-dropbacks of the replacement prior. Default 100.
+        replacement_epa: EPA per dropback of a replacement passer. Default 0.
+
+    Returns:
+        Dict with ``value``, ``weight``, and ``raw_epa_per_dropback``.
+        The raw rate is NaN when ``n`` is 0.
+
+    Raises:
+        ValueError: ``prior_strength`` is not a positive finite number, or
+            ``replacement_epa`` is not finite.
+    """
+    strength: float = float(prior_strength)
+    replacement: float = float(replacement_epa)
+    if not np.isfinite(strength) or strength <= 0.0:
+        raise ValueError("prior_strength must be a positive finite number")
+    if not np.isfinite(replacement):
+        raise ValueError("replacement_epa must be finite")
+    dropbacks: float = 0.0
+    if pd.notna(prior_dropbacks) and float(prior_dropbacks) > 0.0:
+        dropbacks = float(prior_dropbacks)
+    if dropbacks == 0.0:
+        return {
+            "value": replacement,
+            "weight": 0.0,
+            "raw_epa_per_dropback": float("nan"),
+        }
+    raw: float = float(prior_epa) / dropbacks
+    weight: float = dropbacks / (dropbacks + strength)
+    value: float = weight * raw + (1.0 - weight) * replacement
+    return {"value": value, "weight": weight, "raw_epa_per_dropback": raw}
+
+
+def _missing_qb_features(game_ids: pd.Series) -> pd.DataFrame:
+    """QB columns for a call that did not pass starter or dropback tables."""
+    frame = pd.DataFrame({"game_id": game_ids.to_numpy()})
+    for column in QB_OUTPUT_COLUMNS:
+        frame[column] = np.nan
+    return frame
+
+
+def _prepare_dropbacks(qb_dropbacks: pd.DataFrame) -> pd.DataFrame:
+    """Keep dated dropbacks with a passer, a franchise, and a positive count."""
+    frame: pd.DataFrame = qb_dropbacks.loc[:, list(QB_DROPBACK_COLUMNS)].copy()
+    frame["gameday"] = pd.to_datetime(frame["gameday"])
+    frame["passer_player_id"] = _player_id_text(frame["passer_player_id"])
+    frame["team_franchise"] = _player_id_text(frame["team_franchise"])
+    frame["dropbacks"] = pd.to_numeric(frame["dropbacks"], errors="coerce")
+    frame["dropback_epa"] = pd.to_numeric(frame["dropback_epa"], errors="coerce").fillna(0.0)
+    kept: pd.Series = (
+        frame["gameday"].notna()
+        & frame["passer_player_id"].notna()
+        & frame["team_franchise"].notna()
+        & frame["dropbacks"].notna()
+        & (frame["dropbacks"] > 0)
+    )
+    return frame.loc[kept].reset_index(drop=True)
+
+
+def _prior_player_totals(
+    passer_ids: pd.Series,
+    query_dates: np.ndarray,
+    dropbacks: pd.DataFrame,
+) -> dict[str, np.ndarray]:
+    """Cumulative dropbacks and EPA for each passer strictly before ``query_dates``.
+
+    Same-day rows are excluded. ``searchsorted(..., side='left') - 1`` is the
+    last history row before the query date.
+    """
+    row_count: int = len(passer_ids)
+    prior_dropbacks: np.ndarray = np.zeros(row_count, dtype=float)
+    prior_epa: np.ndarray = np.zeros(row_count, dtype=float)
+    if dropbacks.empty:
+        return {"dropbacks": prior_dropbacks, "epa": prior_epa}
+    history: pd.DataFrame = (
+        dropbacks.groupby(["passer_player_id", "game_id", "gameday"], as_index=False)
+        .agg(dropbacks=("dropbacks", "sum"), dropback_epa=("dropback_epa", "sum"))
+        .sort_values(["passer_player_id", "gameday", "game_id"], kind="mergesort")
+    )
+    by_passer: dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
+    for passer, group in history.groupby("passer_player_id", sort=False):
+        by_passer[str(passer)] = (
+            group["gameday"].to_numpy(dtype="datetime64[ns]"),
+            np.cumsum(group["dropbacks"].to_numpy(dtype=float)),
+            np.cumsum(group["dropback_epa"].to_numpy(dtype=float)),
+        )
+    queries = pd.DataFrame(
+        {
+            "passer": passer_ids.astype("string").to_numpy(),
+            "date": query_dates,
+            "pos": np.arange(row_count),
+        }
+    )
+    known = queries.loc[queries["passer"].notna()]
+    for passer, group in known.groupby("passer", sort=False):
+        stored: tuple[np.ndarray, np.ndarray, np.ndarray] | None = by_passer.get(str(passer))
+        if stored is None:
+            continue
+        dates, cumulative_dropbacks, cumulative_epa = stored
+        prior_index: np.ndarray = (
+            np.searchsorted(dates, group["date"].to_numpy(dtype="datetime64[ns]"), side="left") - 1
+        )
+        valid: np.ndarray = prior_index >= 0
+        if not bool(valid.any()):
+            continue
+        slots: np.ndarray = group["pos"].to_numpy()[valid]
+        prior_dropbacks[slots] = cumulative_dropbacks[prior_index[valid]]
+        prior_epa[slots] = cumulative_epa[prior_index[valid]]
+    return {"dropbacks": prior_dropbacks, "epa": prior_epa}
+
+
+def _previous_primary_passers(
+    franchises: pd.Series,
+    query_dates: np.ndarray,
+    dropbacks: pd.DataFrame,
+) -> pd.Series:
+    """Primary passer on each franchise's last team-game strictly before the query.
+
+    Primary means the most dropbacks. Ties keep the lower passer id.
+    """
+    row_count: int = len(franchises)
+    previous: pd.Series = pd.Series(pd.NA, index=range(row_count), dtype="string")
+    if dropbacks.empty:
+        return previous
+    ranked: pd.DataFrame = dropbacks.sort_values(
+        ["team_franchise", "game_id", "dropbacks", "passer_player_id"],
+        ascending=[True, True, False, True],
+        kind="mergesort",
+    )
+    primary: pd.DataFrame = (
+        ranked.groupby(["game_id", "team_franchise"], as_index=False)
+        .head(1)
+        .sort_values(["team_franchise", "gameday", "game_id"], kind="mergesort")
+    )
+    by_team: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    for franchise, group in primary.groupby("team_franchise", sort=False):
+        by_team[str(franchise)] = (
+            group["gameday"].to_numpy(dtype="datetime64[ns]"),
+            group["passer_player_id"].astype("string").to_numpy(),
+        )
+    queries = pd.DataFrame(
+        {
+            "franchise": franchises.astype("string").to_numpy(),
+            "date": query_dates,
+            "pos": np.arange(row_count),
+        }
+    )
+    known = queries.loc[queries["franchise"].notna()]
+    for franchise, group in known.groupby("franchise", sort=False):
+        stored_team: tuple[np.ndarray, np.ndarray] | None = by_team.get(str(franchise))
+        if stored_team is None:
+            continue
+        dates, passers = stored_team
+        prior_index = (
+            np.searchsorted(dates, group["date"].to_numpy(dtype="datetime64[ns]"), side="left") - 1
+        )
+        valid = prior_index >= 0
+        if not bool(valid.any()):
+            continue
+        slots = group["pos"].to_numpy()[valid]
+        previous.iloc[slots] = passers[prior_index[valid]]
+    return previous
+
+
+def _recent_team_pass_epa(
+    franchises: pd.Series,
+    query_dates: np.ndarray,
+    dropbacks: pd.DataFrame,
+    lookback_games: int,
+) -> np.ndarray:
+    """EPA per dropback over the last ``lookback_games`` team-games before the query.
+
+    Every passer on those team-games counts. Same-day team-games are excluded.
+    """
+    rates: np.ndarray = np.full(len(franchises), np.nan)
+    if dropbacks.empty:
+        return rates
+    totals: pd.DataFrame = (
+        dropbacks.groupby(["team_franchise", "game_id", "gameday"], as_index=False)
+        .agg(dropbacks=("dropbacks", "sum"), dropback_epa=("dropback_epa", "sum"))
+        .sort_values(["team_franchise", "gameday", "game_id"], kind="mergesort")
+    )
+    by_team: dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
+    for franchise, group in totals.groupby("team_franchise", sort=False):
+        by_team[str(franchise)] = (
+            group["gameday"].to_numpy(dtype="datetime64[ns]"),
+            np.cumsum(group["dropbacks"].to_numpy(dtype=float)),
+            np.cumsum(group["dropback_epa"].to_numpy(dtype=float)),
+        )
+    queries = pd.DataFrame(
+        {
+            "franchise": franchises.astype("string").to_numpy(),
+            "date": query_dates,
+            "pos": np.arange(len(franchises)),
+        }
+    )
+    known = queries.loc[queries["franchise"].notna()]
+    for franchise, group in known.groupby("franchise", sort=False):
+        stored_totals: tuple[np.ndarray, np.ndarray, np.ndarray] | None = by_team.get(
+            str(franchise)
+        )
+        if stored_totals is None:
+            continue
+        dates, cumulative_dropbacks, cumulative_epa = stored_totals
+        end_index: np.ndarray = (
+            np.searchsorted(dates, group["date"].to_numpy(dtype="datetime64[ns]"), side="left") - 1
+        )
+        valid = end_index >= 0
+        if not bool(valid.any()):
+            continue
+        end_valid: np.ndarray = end_index[valid]
+        start: np.ndarray = np.maximum(end_valid - lookback_games + 1, 0)
+        window_dropbacks: np.ndarray = cumulative_dropbacks[end_valid] - np.where(
+            start > 0, cumulative_dropbacks[start - 1], 0.0
+        )
+        window_epa: np.ndarray = cumulative_epa[end_valid] - np.where(
+            start > 0, cumulative_epa[start - 1], 0.0
+        )
+        usable: np.ndarray = window_dropbacks > 0
+        slots = group["pos"].to_numpy()[valid][usable]
+        rates[slots] = window_epa[usable] / window_dropbacks[usable]
+    return rates
+
+
+def attach_qb_features(
+    games: pd.DataFrame,
+    expected_starters: pd.DataFrame | None,
+    qb_dropbacks: pd.DataFrame | None,
+    lookback_games: int = 10,
+    prior_strength: float = QB_PRIOR_DROPBACKS,
+    replacement_epa: float = REPLACEMENT_EPA_PER_DROPBACK,
+) -> pd.DataFrame:
+    """Pregame QB rating, the gap to recent team passing EPA, and the change flag.
+
+    The depth-chart starter is used when it is present. A null chart falls
+    back to the previous game's primary passer for that franchise. The change
+    flag is 1 only when the chart and that previous passer both exist and
+    differ, and 0 when they match. A missing chart cannot confirm a change,
+    so the flag stays missing.
+
+    History is every dropback by that passer with ``gameday`` strictly before
+    the game, across teams and seasons. A known starter with no prior
+    dropbacks is rated at replacement. An unknown starter stays missing.
+    Team passing EPA is EPA per dropback over the last ``lookback_games``
+    team-games, counting every passer. CPOE is not an input.
+
+    Args:
+        games: One row per game, with franchise columns and ``gameday``.
+        expected_starters: Depth-chart QB1 ids. None only when ``qb_dropbacks``
+            is also None.
+        qb_dropbacks: Who played. Not the starter. None only when
+            ``expected_starters`` is also None.
+        lookback_games: Team-game window for recent passing EPA.
+        prior_strength: Shrinkage strength passed to ``shrink_qb_rating``.
+        replacement_epa: Replacement EPA per dropback.
+
+    Returns:
+        One row per ``game_id`` with ``QB_OUTPUT_COLUMNS``. Model columns are
+        the four rating columns. The rest are diagnostics.
+
+    Raises:
+        ValueError: Exactly one of the QB tables is provided, a required
+            column is missing, ``game_id`` is duplicated, or ``lookback_games``
+            is below 1.
+    """
+    game_columns: tuple[str, ...] = (
+        "game_id",
+        "gameday",
+        "home_team_franchise",
+        "away_team_franchise",
+    )
+    _require_frame_columns(games, game_columns, "games")
+    if games["game_id"].duplicated().any():
+        raise ValueError("games game_id must be unique")
+    if expected_starters is None and qb_dropbacks is None:
+        return _missing_qb_features(games["game_id"])
+    if expected_starters is None or qb_dropbacks is None:
+        raise ValueError(
+            "expected_starters and qb_dropbacks must both be provided or both be omitted"
+        )
+    if lookback_games < 1:
+        raise ValueError("lookback_games must be at least 1")
+    _require_frame_columns(expected_starters, EXPECTED_STARTER_COLUMNS, "expected_starters")
+    _require_frame_columns(qb_dropbacks, QB_DROPBACK_COLUMNS, "qb_dropbacks")
+    if expected_starters["game_id"].duplicated().any():
+        raise ValueError("expected_starters game_id must be unique")
+
+    schedule: pd.DataFrame = games.loc[:, list(game_columns)].copy()
+    schedule["gameday"] = pd.to_datetime(schedule["gameday"])
+    schedule["home_team_franchise"] = _player_id_text(schedule["home_team_franchise"])
+    schedule["away_team_franchise"] = _player_id_text(schedule["away_team_franchise"])
+    starters: pd.DataFrame = expected_starters.loc[:, list(EXPECTED_STARTER_COLUMNS)].copy()
+    starters["home_starter_player_id"] = _player_id_text(starters["home_starter_player_id"])
+    starters["away_starter_player_id"] = _player_id_text(starters["away_starter_player_id"])
+    merged: pd.DataFrame = schedule.merge(starters, on="game_id", how="left")
+    dropbacks: pd.DataFrame = _prepare_dropbacks(qb_dropbacks)
+    home_side = pd.DataFrame(
+        {
+            "game_id": merged["game_id"].to_numpy(),
+            "gameday": merged["gameday"].to_numpy(dtype="datetime64[ns]"),
+            "side": "home",
+            "franchise": merged["home_team_franchise"].to_numpy(),
+            "chart_starter": merged["home_starter_player_id"].to_numpy(),
+        }
+    )
+    away_side = pd.DataFrame(
+        {
+            "game_id": merged["game_id"].to_numpy(),
+            "gameday": merged["gameday"].to_numpy(dtype="datetime64[ns]"),
+            "side": "away",
+            "franchise": merged["away_team_franchise"].to_numpy(),
+            "chart_starter": merged["away_starter_player_id"].to_numpy(),
+        }
+    )
+    sides: pd.DataFrame = pd.concat([home_side, away_side], ignore_index=True)
+    query_dates: np.ndarray = sides["gameday"].to_numpy(dtype="datetime64[ns]")
+    chart: pd.Series = _player_id_text(sides["chart_starter"])
+    previous: pd.Series = _previous_primary_passers(sides["franchise"], query_dates, dropbacks)
+    missing_chart: pd.Series = chart.isna()
+    missing_previous: pd.Series = previous.isna()
+    starter_id: pd.Series = chart.mask(missing_chart, previous)
+    source: pd.Series = pd.Series(pd.NA, index=sides.index, dtype="string")
+    source.loc[~missing_chart] = "depth_chart"
+    source.loc[missing_chart & ~missing_previous] = "previous_passer"
+    changed: np.ndarray = np.full(len(sides), np.nan)
+    both_known: pd.Series = ~missing_chart & ~missing_previous
+    differs: pd.Series = (chart.astype("string") != previous.astype("string")).fillna(False)
+    both_known_flags: np.ndarray = both_known.fillna(False).to_numpy(dtype=bool)
+    differs_flags: np.ndarray = differs.to_numpy(dtype=bool)
+    changed[both_known_flags & differs_flags] = 1.0
+    changed[both_known_flags & ~differs_flags] = 0.0
+    prior: dict[str, np.ndarray] = _prior_player_totals(starter_id, query_dates, dropbacks)
+    ratings: np.ndarray = np.empty(len(sides), dtype=float)
+    for index, starter in enumerate(starter_id.tolist()):
+        if pd.isna(starter):
+            ratings[index] = np.nan
+            continue
+        ratings[index] = shrink_qb_rating(
+            float(prior["dropbacks"][index]),
+            float(prior["epa"][index]),
+            prior_strength=prior_strength,
+            replacement_epa=replacement_epa,
+        )["value"]
+    team_rates: np.ndarray = _recent_team_pass_epa(
+        sides["franchise"],
+        query_dates,
+        dropbacks,
+        lookback_games,
+    )
+    gap: np.ndarray = np.where(
+        np.isfinite(ratings) & np.isfinite(team_rates),
+        ratings - team_rates,
+        np.nan,
+    )
+    sides = sides.assign(
+        starter_player_id=starter_id.to_numpy(),
+        starter_source=source.to_numpy(),
+        qb_changed=changed,
+        qb_rating=ratings,
+        rating_minus_team_pass_epa=gap,
+    )
+    wide = pd.DataFrame({"game_id": schedule["game_id"].to_numpy()})
+    for side_name in ("home", "away"):
+        part: pd.DataFrame = sides.loc[sides["side"] == side_name].set_index("game_id")
+        aligned: pd.DataFrame = part.reindex(wide["game_id"].to_numpy())
+        wide[f"{side_name}_qb_rating"] = aligned["qb_rating"].to_numpy()
+        wide[f"{side_name}_qb_rating_minus_team_pass_epa"] = aligned[
+            "rating_minus_team_pass_epa"
+        ].to_numpy()
+        wide[f"{side_name}_starter_player_id"] = aligned["starter_player_id"].to_numpy()
+        wide[f"{side_name}_starter_source"] = aligned["starter_source"].to_numpy()
+        wide[f"{side_name}_qb_changed"] = aligned["qb_changed"].to_numpy()
+    return wide.loc[:, ["game_id", *QB_OUTPUT_COLUMNS]]
+
+
 def build_pregame_features(
     fct_games: pd.DataFrame,
     fct_team_game_epa: pd.DataFrame,
     lookback_games: int = 10,
     shrink_factor: float = SEASON_SHRINK_FACTOR,
     blend_k: float = SEASON_BLEND_K,
+    expected_starters: pd.DataFrame | None = None,
+    qb_dropbacks: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """
     Build pre-game features for each game using only prior game data.
@@ -794,6 +1241,9 @@ def build_pregame_features(
         lookback_games: Number of recent games to include in rolling features
         shrink_factor: Fraction of the prior-season gap removed. Default matches Elo.
         blend_k: Current-season blend strength. Weight is ``n / (n + blend_k)``.
+        expected_starters: Depth-chart QB1 ids, one row per game. Omit together
+            with ``qb_dropbacks`` to leave the QB columns missing.
+        qb_dropbacks: Passer dropbacks. This is who played, not the starter.
 
     Returns:
         DataFrame with game_id and feature columns
@@ -862,6 +1312,12 @@ def build_pregame_features(
     original one. Recent clean success rate uses the same cross-season
     lookback. A frame with none of a clean source pair leaves those features
     missing. A frame with only one column of a pair raises ``ValueError``.
+
+    Starting-QB columns use ``expected_starters`` and ``qb_dropbacks``.
+    Both omitted leaves those columns missing. Exactly one raises
+    ``ValueError``. The starter id is the depth-chart QB1 when present,
+    otherwise the previous game's primary passer. Ratings use only dropbacks
+    with ``gameday`` strictly before the game. See ``attach_qb_features``.
     """
     _validate_regression_settings(shrink_factor, blend_k)
     # Validate required columns
@@ -1083,7 +1539,15 @@ def build_pregame_features(
         *PASS_RUSH_EPA_COLUMNS,
         *CLEAN_EPA_FEATURE_COLUMNS,
         *CLEAN_SUCCESS_RATE_COLUMNS,
+        *QB_OUTPUT_COLUMNS,
     ]
+    qb_features: pd.DataFrame = attach_qb_features(
+        fct_games,
+        expected_starters,
+        qb_dropbacks,
+        lookback_games=lookback_games,
+    )
+    frame = frame.merge(qb_features, on="game_id", how="left")
     return frame.loc[:, ordered_columns]
 
 
@@ -1137,6 +1601,8 @@ def feature_columns_for(feature_set: str) -> tuple[str, ...]:
     ``h4_clean`` is ``h2_full`` with every EPA input taken from the clean
     mart columns. Win rate and rest stay. ``h4_clean_sr`` adds the recent
     clean success rate for offense and defense.
+    ``h5_qb`` is ``h2_full`` plus the home and away starting-QB ratings and
+    each rating minus that team's recent passing EPA.
 
     Args:
         feature_set: One of ``FEATURE_SET_NAMES``.
