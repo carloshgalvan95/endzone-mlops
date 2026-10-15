@@ -25,7 +25,7 @@ Build a reproducible lakehouse pipeline for NFL pregame predictions (win probabi
 - **CI**: GitHub Actions runs ruff lint + format check, pytest on Python 3.10/3.11, dbt compile against DuckDB, cross-platform matrix (Ubuntu, Windows, macOS). Tests verify column references against real nflverse schema (fixtures in tests/fixtures), schema conforming logic, feature leakage protection, and end-to-end training.
 - **PR Guard**: Branch protection with freshness check, Conventional Commit titles, PR template verification, no secrets/data files, commit identity validation.
 
-**Next**: Feature and model experimentation. Forecasting (batch scoring) comes after that.
+**Next**: H4, clean EPA. The `play = 1` filter is about 6.9% `no_play` (penalty) rows, not special teams. Forecasting (batch scoring) comes after the feature work.
 
 **2024 validation** (`make train-sweep`, 285 games, feature set that included `games_played`). Rounded to 2 decimals. The 2025 test season is held out and is not reported. Phase 1 does not replace this table. `make train-cv` writes the Phase 2 ridge reference comparison under `reports/phase2_ridge/`. The Phase 1 report stays `python -m src.train.train --cv`, which writes `reports/phase1/`. Hypothesis H1 writes `reports/phase2/`. Hypothesis H2 writes `reports/phase2_h2/`. Hypothesis H3 writes `reports/phase2_h3/`.
 
@@ -317,7 +317,15 @@ make mlflow-ui
 
 ### EPA play filter check
 
-`make check-epa-filter` (Windows: `.\scripts\dev.ps1 check-epa-filter`) counts `workspace.nfl_dev_staging.stg_nflverse__pbp` rows with `play = 1` by `play_type`, which is the filter `fct_team_game_epa` uses. It also counts `qb_kneel = 1` and `qb_spike = 1`. Those columns are not on the staging view, so the counts come from `workspace.nfl_raw.play_by_play` unless a future staging view adds them. The command uses the same Databricks client as training and writes `reports/epa_filter_check.md` (gitignored). It does not change dbt models.
+`make check-epa-filter` (Windows: `.\scripts\dev.ps1 check-epa-filter`) counts `workspace.nfl_dev_staging.stg_nflverse__pbp` rows with `play = 1` by `play_type`, which is the filter `fct_team_game_epa` uses. It also counts `qb_kneel = 1` and `qb_spike = 1`. Those columns are not on the staging view, so the counts come from `workspace.nfl_raw.play_by_play` unless a future staging view adds them. The command uses the same Databricks client as training and writes `reports/epa_filter_check.md` (gitignored). The frozen copy is `docs/experiments/reports/epa_filter_check.md`. It does not change dbt models.
+
+| play_type | n_plays | share |
+| --- | --- | --- |
+| pass | 528368 | 53.6% |
+| run | 388724 | 39.5% |
+| no_play | 68233 | 6.9% |
+
+No special-teams play types are in that filter. Only 36 kneels and 70 spikes have `play = 1`. The contamination is the `no_play` (penalty) rows. That is the input to H4, clean EPA.
 
 ### Phase 1 baselines
 
@@ -337,7 +345,16 @@ make mlflow-ui
 
 ### Phase 2 ridge reference
 
-`make train-cv` (Windows: `.\scripts\dev.ps1 train-cv`) is `--phase 2 --hypothesis ridge`. It scores fixed-C logistic regression on `h2_full` (the reference), `logistic_l2` on `h2_full`, `h3_split`, and `h3_replace`, plus the home prior, Elo, and the market. `logistic_l2` is L2 logistic regression. C is chosen inside each training fold by an expanding season split. The scored season is not used to pick C. The chosen C is logged on the MLflow child run and in the fold table. The paired comparison and the 0.003 acceptance rule are the same, against logistic `h2_full`. Runs go to MLflow experiment `nfl_pregame/phase2_ridge` with tags `phase=2` and `hypothesis=ridge-reference`. The comparison is written to `reports/phase2_ridge/` (gitignored). This is setup work: if `logistic_l2` on `h2_full` is not worse (`log_loss_diff` <= 0), it becomes the reference for the next hypothesis, so a later rejection means the columns lacked signal. The method and an empty result section are in `docs/experiments/phase2_ridge_reference.md`. This README does not add measured ridge numbers.
+`make train-cv` (Windows: `.\scripts\dev.ps1 train-cv`) is `--phase 2 --hypothesis ridge`. It scores fixed-C logistic regression on `h2_full` (the reference), `logistic_l2` on `h2_full`, `h3_split`, and `h3_replace`, plus the home prior, Elo, and the market. `logistic_l2` is L2 logistic regression. C is chosen inside each training fold by an expanding season split. The scored season is not used to pick C. The chosen C is logged on the MLflow child run and in the fold table. The paired comparison and the 0.003 acceptance rule are the same, against logistic `h2_full`. Runs go to MLflow experiment `nfl_pregame/phase2_ridge` with tags `phase=2` and `hypothesis=ridge-reference`. The comparison is written to `reports/phase2_ridge/` (gitignored). The frozen copy is `docs/experiments/reports/phase2_ridge_comparison.md`. This is setup work: if `logistic_l2` on `h2_full` is not worse (`log_loss_diff` <= 0), it becomes the reference for the next hypothesis, so a later rejection means the columns lacked signal. The local run did not meet that bar. Method and the full reading are in `docs/experiments/phase2_ridge_reference.md`.
+
+| model | feature_set | n | log_loss | log_loss_diff | ci_low | ci_high |
+| --- | --- | --- | --- | --- | --- | --- |
+| logistic | h2_full | 2191 | 0.6377 | 0.0000 | | |
+| logistic_l2 | h2_full | 2191 | 0.6386 | +0.0009 | -0.0008 | 0.0025 |
+| logistic_l2 | h3_split | 2191 | 0.6387 | +0.0010 | -0.0014 | 0.0032 |
+| logistic_l2 | h3_replace | 2191 | 0.6392 | +0.0015 | -0.0015 | 0.0041 |
+
+Fold-tuned L2 does not help. Plain logistic `h2_full` stays the reference. The L2 fits of `h3_split` and `h3_replace` are also worse, so the H3 rejection is not collinearity noise from an untuned penalty.
 
 The parent run name for this comparison is `phase2-ridge-<timestamp>`.
 
@@ -449,6 +466,7 @@ See `docs/runbook.md` for credential setup, Unity Catalog volume paths, and veri
 
 - [Architecture](docs/architecture.md): Detailed C4 diagrams and component descriptions
 - [Phase 0 input audit](docs/experiments/phase0_input_audit.md): What the current features do, from the code
+- [Experiment snapshots](docs/experiments/reports/README.md): Frozen local reports for decided hypotheses. `reports/` stays gitignored scratch.
 - [ADR-001](docs/adr/ADR-001-databricks.md): Why Databricks + dbt + MLflow
 - [Runbook](docs/runbook.md): Operational procedures and spike status
 - [Attribution](docs/ATTRIBUTION.md): Full data source credits and licenses

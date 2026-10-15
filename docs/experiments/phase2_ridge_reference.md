@@ -60,14 +60,35 @@ Apply this only to `logistic_l2` on `h2_full`, after the local run:
 
 ## Result
 
-Leave this table empty until `make train-cv` has been run locally. Do not fill it from a test fixture.
+Local rolling-origin run, CV 2016-2023, n=2191, reference logistic `h2_full` 0.6377. These rows are that run. They are copied from `docs/experiments/reports/phase2_ridge_comparison.md`. They are not warehouse metrics and they are not taken from a test fixture.
 
 | model | feature_set | n | log_loss | log_loss_diff | ci_low | ci_high | decision |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| | | | | | | | |
+| logistic | h2_full | 2191 | 0.6377 | 0.0000 | | | reference |
+| logistic_l2 | h2_full | 2191 | 0.6386 | 0.0009 | -0.0008 | 0.0025 | rejected |
+| logistic_l2 | h3_split | 2191 | 0.6387 | 0.0010 | -0.0014 | 0.0032 | rejected |
+| logistic_l2 | h3_replace | 2191 | 0.6392 | 0.0015 | -0.0015 | 0.0041 | rejected |
+
+`logistic` `h2_full` is the reference row. Its difference is zero. `logistic_l2` on `h2_full` is worse by 0.0009. The 95% interval is -0.0008 to 0.0025, so it crosses 0 and the gain does not reach 0.003. `logistic_l2` on `h3_split` is worse by 0.0010. `logistic_l2` on `h3_replace` is worse by 0.0015. The home prior, Elo, and the market were scored by the same command. They are baselines, not this setup decision, and this record does not restate them.
 
 ## Decision
 
-Pending. Carlos fills this after the local run.
+Fold-tuned L2 does not help. Plain logistic `h2_full` stays the reference.
 
-`decision` on the comparison table is `accepted`, `rejected`, or `inconclusive`. The setup decision for the next reference is separate, and it is recorded here after the run.
+`log_loss_diff` for `logistic_l2` on `h2_full` is +0.0009, which is worse than 0, so the setup rule does not switch the reference. The 0.003 acceptance rule also rejects that row. Matching the reference, or beating it by less than 0.003, would have been enough to switch. This run did neither.
+
+The same inner C search leaves `h3_split` and `h3_replace` worse than logistic `h2_full` (+0.0010 and +0.0015). H3's rejection is not noise from correlated columns under an untuned penalty. The splits still lack signal once C is chosen inside each training fold.
+
+## EPA filter check, and H4
+
+`make check-epa-filter` counted `play = 1` rows on `workspace.nfl_dev_staging.stg_nflverse__pbp`. The frozen copy is `docs/experiments/reports/epa_filter_check.md`.
+
+| play_type | n_plays | share |
+| --- | --- | --- |
+| pass | 528368 | 53.6% |
+| run | 388724 | 39.5% |
+| no_play | 68233 | 6.9% |
+
+No special-teams play types (`kickoff`, `punt`, `field_goal`, `extra_point`) are in that filter. Kneel and spike counts come from `workspace.nfl_raw.play_by_play`: 36 `qb_kneel = 1` rows and 70 `qb_spike = 1` rows also have `play = 1`.
+
+The contamination is the roughly 6.9% `no_play` (penalty) rows, not special teams. That finding drives H4, clean EPA. H4 is next. It is not implemented in this note.
