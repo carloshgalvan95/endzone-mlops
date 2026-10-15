@@ -7,7 +7,7 @@ Usage:
     python -m src.train.train --model baseline-home
     python -m src.train.train --cv
     python -m src.train.train --cv --phase 2
-    python -m src.train.train --cv --phase 2 --hypothesis h2
+    python -m src.train.train --cv --phase 2 --hypothesis h3
 """
 
 import argparse
@@ -43,6 +43,8 @@ from src.features.pregame import (
     FEATURE_SET_DIFF_ONLY,
     FEATURE_SET_H2_DEF,
     FEATURE_SET_H2_FULL,
+    FEATURE_SET_H3_REPLACE,
+    FEATURE_SET_H3_SPLIT,
     FEATURE_SET_NAMES,
     FEATURE_SET_WITH_GAMES_PLAYED,
     SEASON_BLEND_K,
@@ -79,14 +81,18 @@ PHASE1_EXPERIMENT_NAME: str = "nfl_pregame/phase1_baselines"
 PHASE1_TAG: str = "1"
 PHASE2_EXPERIMENT_NAME: str = "nfl_pregame/phase2_h1"
 PHASE2_H2_EXPERIMENT_NAME: str = "nfl_pregame/phase2_h2"
+PHASE2_H3_EXPERIMENT_NAME: str = "nfl_pregame/phase2_h3"
 PHASE2_TAG: str = "2"
 HYPOTHESIS_H1: str = "h1-diff"
 HYPOTHESIS_H2: str = "h2-season-def-regression"
+HYPOTHESIS_H3: str = "h3-pass-rush-epa"
 HYPOTHESIS_ALIASES: dict[str, str] = {
     "h1": HYPOTHESIS_H1,
     "h1-diff": HYPOTHESIS_H1,
     "h2": HYPOTHESIS_H2,
     "h2-season-def-regression": HYPOTHESIS_H2,
+    "h3": HYPOTHESIS_H3,
+    "h3-pass-rush-epa": HYPOTHESIS_H3,
 }
 CV_SCHEME: str = "rolling_season_2016_2023"
 PHASE1_MARKDOWN_NAME: str = "comparison.md"
@@ -108,10 +114,21 @@ PHASE2_H2_LOGISTIC_FEATURE_SETS: tuple[str, ...] = (
     FEATURE_SET_H2_DEF,
     FEATURE_SET_H2_FULL,
 )
-# Phase 1 stays on the home prior. Phase 2 H1 uses logistic ``current``.
+PHASE2_H3_LOGISTIC_FEATURE_SETS: tuple[str, ...] = (
+    FEATURE_SET_H2_FULL,
+    FEATURE_SET_H3_SPLIT,
+    FEATURE_SET_H3_REPLACE,
+)
+# Phase 1 stays on the home prior. Phase 2 H1 and H2 use logistic ``current``.
+# H3 uses logistic ``h2_full``. The hypothesis map is the phase 2 default.
 DEFAULT_REFERENCE_BY_PHASE: dict[int, tuple[str, str]] = {
     1: (REFERENCE_MODEL_NAME, "none"),
     2: ("logistic", FEATURE_SET_CURRENT),
+}
+DEFAULT_REFERENCE_BY_HYPOTHESIS: dict[str, tuple[str, str]] = {
+    HYPOTHESIS_H1: ("logistic", FEATURE_SET_CURRENT),
+    HYPOTHESIS_H2: ("logistic", FEATURE_SET_CURRENT),
+    HYPOTHESIS_H3: ("logistic", FEATURE_SET_H2_FULL),
 }
 MODEL_DEFAULT_FEATURE_SET: dict[str, str] = {
     REFERENCE_MODEL_NAME: "none",
@@ -131,6 +148,11 @@ PHASE2_NOTE: str = (
 )
 PHASE2_H2_NOTE: str = (
     "Phase 2 hypothesis h2-season-def-regression. "
+    f"{FINAL_VALIDATION_SEASON} and {HELD_OUT_TEST_SEASON} are not scored. "
+    "No model is promoted from this run."
+)
+PHASE2_H3_NOTE: str = (
+    "Phase 2 hypothesis h3-pass-rush-epa. "
     f"{FINAL_VALIDATION_SEASON} and {HELD_OUT_TEST_SEASON} are not scored. "
     "No model is promoted from this run."
 )
@@ -1005,18 +1027,21 @@ def resolve_reference_spec(
     phase: int,
     reference_model: str | None = None,
     reference_feature_set: str | None = None,
+    hypothesis: str | None = None,
 ) -> dict[str, str]:
     """Choose the paired-comparison reference for a CV phase.
 
-    Phase 1 defaults to the home prior. Phase 2 defaults to logistic
-    ``current``. Passing a model or a feature set replaces that default.
-    When only the model is set, its usual feature set is used. Logistic
-    stays on ``current`` unless a feature set is passed.
+    Phase 1 defaults to the home prior. Phase 2 H1 and H2 default to
+    logistic ``current``. Phase 2 H3 defaults to logistic ``h2_full``.
+    Passing a model or a feature set replaces that default. When only the
+    model is set, its usual feature set is used, except logistic on H3,
+    which stays on ``h2_full`` unless a feature set is passed.
 
     Args:
         phase: ``1`` or ``2``.
         reference_model: Model name, or None for the phase default.
         reference_feature_set: Feature set name, or None to derive it.
+        hypothesis: Phase 2 hypothesis name. None keeps H1.
 
     Returns:
         Dict with ``model`` and ``feature_set``.
@@ -1027,11 +1052,18 @@ def resolve_reference_spec(
     if phase not in DEFAULT_REFERENCE_BY_PHASE:
         known_phases: str = ", ".join(str(item) for item in sorted(DEFAULT_REFERENCE_BY_PHASE))
         raise ValueError(f"Unknown phase {phase}. Known phases: {known_phases}.")
-    default_model, default_feature_set = DEFAULT_REFERENCE_BY_PHASE[phase]
+    if phase == 2:
+        resolved_hypothesis: str | None = resolve_hypothesis(phase, hypothesis)
+        if resolved_hypothesis is None:
+            raise ValueError("Phase 2 requires a hypothesis.")
+        default_model, default_feature_set = DEFAULT_REFERENCE_BY_HYPOTHESIS[resolved_hypothesis]
+    else:
+        resolve_hypothesis(phase, hypothesis)
+        default_model, default_feature_set = DEFAULT_REFERENCE_BY_PHASE[phase]
     model_name: str = default_model if reference_model is None else reference_model
     if reference_feature_set is not None:
         feature_set = reference_feature_set
-    elif reference_model is None:
+    elif reference_model is None or model_name == default_model:
         feature_set = default_feature_set
     elif model_name in MODEL_DEFAULT_FEATURE_SET:
         feature_set = MODEL_DEFAULT_FEATURE_SET[model_name]
@@ -1048,16 +1080,16 @@ def resolve_hypothesis(phase: int, hypothesis: str | None = None) -> str | None:
     """Map a CLI hypothesis name to the tag stored on the run.
 
     Phase 1 has no hypothesis. Phase 2 defaults to H1 so the differential
-    report stays reproducible. ``h2`` and ``h2-season-def-regression`` both
-    select the season-defense hypothesis.
+    report stays reproducible. ``h2`` selects the season-defense hypothesis.
+    ``h3`` selects the pass/rush split.
 
     Args:
         phase: ``1`` or ``2``.
         hypothesis: Short or full hypothesis name, or None for the default.
 
     Returns:
-        ``None`` for phase 1, otherwise ``h1-diff`` or
-        ``h2-season-def-regression``.
+        ``None`` for phase 1, otherwise ``h1-diff``,
+        ``h2-season-def-regression``, or ``h3-pass-rush-epa``.
 
     Raises:
         ValueError: Phase 1 was given a hypothesis, or the name is unknown.
@@ -1082,7 +1114,8 @@ def logistic_feature_sets_for(phase: int, hypothesis: str | None = None) -> tupl
 
     Phase 1 scores ``current`` and ``with_games_played``. Phase 2 H1 scores
     ``current``, ``diff``, and ``diff_only``. Phase 2 H2 scores ``current``,
-    ``h2_def``, and ``h2_full``.
+    ``h2_def``, and ``h2_full``. Phase 2 H3 scores ``h2_full``, ``h3_split``,
+    and ``h3_replace``.
 
     Args:
         phase: ``1`` or ``2``.
@@ -1101,6 +1134,8 @@ def logistic_feature_sets_for(phase: int, hypothesis: str | None = None) -> tupl
         resolved: str | None = resolve_hypothesis(phase, hypothesis)
         if resolved == HYPOTHESIS_H2:
             return PHASE2_H2_LOGISTIC_FEATURE_SETS
+        if resolved == HYPOTHESIS_H3:
+            return PHASE2_H3_LOGISTIC_FEATURE_SETS
         return PHASE2_LOGISTIC_FEATURE_SETS
     raise ValueError(f"Unknown phase {phase}. Known phases: 1, 2.")
 
@@ -1140,6 +1175,15 @@ def phase_tracking_settings(phase: int, hypothesis: str | None = None) -> dict[s
                 "note": PHASE2_H2_NOTE,
                 "output_dir": "reports/phase2_h2",
                 "title": "Phase 2 H2 season defensive regression",
+            }
+        if resolved == HYPOTHESIS_H3:
+            return {
+                "experiment_name": PHASE2_H3_EXPERIMENT_NAME,
+                "phase_tag": PHASE2_TAG,
+                "hypothesis": HYPOTHESIS_H3,
+                "note": PHASE2_H3_NOTE,
+                "output_dir": "reports/phase2_h3",
+                "title": "Phase 2 H3 pass and rush EPA",
             }
         return {
             "experiment_name": PHASE2_EXPERIMENT_NAME,
@@ -1358,9 +1402,11 @@ def run_phase1_baselines(
     ``current`` and ``with_games_played`` and pairs every model to the home
     prior. Phase 2 H1 logs logistic ``current``, ``diff``, and ``diff_only``.
     Phase 2 H2 logs logistic ``current``, ``h2_def``, and ``h2_full``.
-    Both phase 2 hypotheses pair every model to logistic ``current`` unless
-    ``reference_model`` and ``reference_feature_set`` say otherwise. The
-    phase 1 call with no extra arguments is unchanged.
+    Phase 2 H3 logs logistic ``h2_full``, ``h3_split``, and ``h3_replace``.
+    H1 and H2 pair every model to logistic ``current``. H3 pairs every
+    model to logistic ``h2_full``. ``reference_model`` and
+    ``reference_feature_set`` override that default. The phase 1 call with
+    no extra arguments is unchanged.
 
     Args:
         games: Completed games, one row per game.
@@ -1374,7 +1420,7 @@ def run_phase1_baselines(
         reference_model: Reference model name. None uses the phase default.
         reference_feature_set: Reference feature set. None uses the phase default.
         phase: ``1`` keeps the phase 1 report. ``2`` is a phase 2 hypothesis.
-        hypothesis: ``h1`` or ``h2``. None on phase 2 keeps H1.
+        hypothesis: ``h1``, ``h2``, or ``h3``. None on phase 2 keeps H1.
 
     Returns:
         Dict with ``results``, ``comparison_table``, ``markdown``, ``config``,
@@ -1390,6 +1436,7 @@ def run_phase1_baselines(
         phase,
         reference_model=reference_model,
         reference_feature_set=reference_feature_set,
+        hypothesis=hypothesis,
     )
     selected_sets: tuple[str, ...] = (
         logistic_feature_sets_for(phase, hypothesis=hypothesis)
@@ -1414,7 +1461,7 @@ def run_phase1_baselines(
         "reference_model": reference_spec["model"],
         "reference_feature_set": reference_spec["feature_set"],
     }
-    if tracking["hypothesis"] == HYPOTHESIS_H2:
+    if tracking["hypothesis"] in {HYPOTHESIS_H2, HYPOTHESIS_H3}:
         shared_params["shrink_factor"] = SEASON_SHRINK_FACTOR
         shared_params["blend_k"] = SEASON_BLEND_K
     results: list[dict[str, Any]] = []
@@ -1731,7 +1778,7 @@ def render_phase1_report(report: dict[str, Any]) -> str:
         "## Folds",
         "",
     ]
-    if report.get("hypothesis") == HYPOTHESIS_H2:
+    if report.get("hypothesis") in {HYPOTHESIS_H2, HYPOTHESIS_H3}:
         regression_note: list[str] = [
             "Season defensive EPA is the same-season prior mean of EPA allowed.",
             "Regressed EPA starts from the previous season's final value,",
@@ -1739,6 +1786,16 @@ def render_phase1_report(report: dict[str, Any]) -> str:
             "then blends in current-season games with weight",
             f"n/(n+{SEASON_BLEND_K:g}). Week 1 of a season with no prior stays missing.",
         ]
+        if report.get("hypothesis") == HYPOTHESIS_H3:
+            regression_note.extend(
+                [
+                    "Pass and rush EPA per play split offense and defense.",
+                    "Recent splits use the lookback window on prior games,",
+                    "including prior seasons. Regressed-season splits use the",
+                    "same shrinkage and blend. Defensive splits are the",
+                    "opponent's offensive pass or rush rate from that game.",
+                ]
+            )
         lookback_index: int = lines.index(f"Lookback games: {report['lookback_games']}.")
         lines[lookback_index + 1 : lookback_index + 1] = regression_note
     if report.get("hypothesis"):
@@ -1832,7 +1889,8 @@ def log_phase1_to_mlflow(
 
     Phase 1 callers can omit the tag arguments. Phase 2 H1 passes
     ``hypothesis`` ``h1-diff``. Phase 2 H2 passes
-    ``h2-season-def-regression``. Both use ``phase_tag`` ``2``.
+    ``h2-season-def-regression``. Phase 2 H3 passes ``h3-pass-rush-epa``.
+    All three use ``phase_tag`` ``2``.
 
     Args:
         report: Result of ``run_phase1_baselines``.
@@ -2026,6 +2084,7 @@ def main(argv: list[str] | None = None) -> None:
             "--phase 1 is the baseline report. "
             "--phase 2 --hypothesis h1 scores diff feature sets. "
             "--phase 2 --hypothesis h2 scores season defense and regressed EPA. "
+            "--phase 2 --hypothesis h3 scores pass and rush splits against h2_full. "
             "Does not score 2024 or 2025."
         ),
     )
@@ -2037,7 +2096,8 @@ def main(argv: list[str] | None = None) -> None:
         default=1,
         help=(
             "1 keeps the phase 1 report (home prior, current, with_games_played). "
-            "2 scores the hypothesis from --hypothesis against logistic current."
+            "2 scores the hypothesis from --hypothesis. H1 and H2 use logistic "
+            "current. H3 uses logistic h2_full."
         ),
     )
 
@@ -2049,7 +2109,8 @@ def main(argv: list[str] | None = None) -> None:
         help=(
             "Phase 2 hypothesis. Default h1 scores diff and diff_only "
             "and writes reports/phase2. h2 scores h2_def and h2_full "
-            "and writes reports/phase2_h2. Phase 1 rejects this flag."
+            "and writes reports/phase2_h2. h3 scores h3_split and h3_replace "
+            "against h2_full and writes reports/phase2_h3. Phase 1 rejects this flag."
         ),
     )
 
@@ -2069,7 +2130,8 @@ def main(argv: list[str] | None = None) -> None:
         default=None,
         help=(
             "Feature set of the reference model. "
-            "Default is none for the home prior and current for logistic."
+            "Default is none for the home prior, current for logistic on H1 and H2, "
+            "and h2_full for logistic on H3."
         ),
     )
 
@@ -2080,7 +2142,8 @@ def main(argv: list[str] | None = None) -> None:
         help=(
             "Directory for the comparison report. "
             "Phase 2 h1 with this default writes reports/phase2. "
-            "Phase 2 h2 with this default writes reports/phase2_h2."
+            "Phase 2 h2 with this default writes reports/phase2_h2. "
+            "Phase 2 h3 with this default writes reports/phase2_h3."
         ),
     )
 

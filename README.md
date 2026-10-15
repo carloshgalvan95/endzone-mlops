@@ -27,7 +27,7 @@ Build a reproducible lakehouse pipeline for NFL pregame predictions (win probabi
 
 **Next**: Feature and model experimentation. Forecasting (batch scoring) comes after that.
 
-**2024 validation** (`make train-sweep`, 285 games, feature set that included `games_played`). Rounded to 2 decimals. The 2025 test season is held out and is not reported. Phase 1 does not replace this table. `make train-cv` writes the Phase 2 H2 comparison under `reports/phase2_h2/`. The Phase 1 report stays `python -m src.train.train --cv`, which writes `reports/phase1/`. Hypothesis H1 writes `reports/phase2/`.
+**2024 validation** (`make train-sweep`, 285 games, feature set that included `games_played`). Rounded to 2 decimals. The 2025 test season is held out and is not reported. Phase 1 does not replace this table. `make train-cv` writes the Phase 2 H3 comparison under `reports/phase2_h3/`. The Phase 1 report stays `python -m src.train.train --cv`, which writes `reports/phase1/`. Hypothesis H1 writes `reports/phase2/`. Hypothesis H2 writes `reports/phase2_h2/`.
 
 | Model | Accuracy | AUC | Brier | Log loss |
 | --- | --- | --- | --- | --- |
@@ -309,7 +309,11 @@ make mlflow-ui
 
 ### Phase 2 H2: season defense and regression
 
-`make train-cv` (Windows: `.\scripts\dev.ps1 train-cv`) is `--phase 2 --hypothesis h2`. It scores logistic regression on `current`, `h2_def`, and `h2_full`, plus the home prior, Elo, and the market. The paired comparison is the same bootstrap against logistic `current`, and the acceptance rule is the same 0.003 log loss gain with the 95% interval entirely below 0. Runs go to MLflow experiment `nfl_pregame/phase2_h2` with tags `phase=2` and `hypothesis=h2-season-def-regression`. The comparison is written to `reports/phase2_h2/` (gitignored). The method and an empty result section are in `docs/experiments/phase2_h2_season_def_regression.md`. This README does not add measured H2 numbers.
+`python -m src.train.train --cv --phase 2 --hypothesis h2 --reference-model logistic --reference-feature-set current --output-dir reports/phase2_h2` scores logistic regression on `current`, `h2_def`, and `h2_full`, plus the home prior, Elo, and the market. The paired comparison is the same bootstrap against logistic `current`, and the acceptance rule is the same 0.003 log loss gain with the 95% interval entirely below 0. Runs go to MLflow experiment `nfl_pregame/phase2_h2` with tags `phase=2` and `hypothesis=h2-season-def-regression`. The comparison is written to `reports/phase2_h2/` (gitignored). The local result is recorded in `docs/experiments/phase2_h2_season_def_regression.md`: `h2_def` was rejected and `h2_full` was accepted. The gain comes from the regressed priors. The upper bound of that interval is close to 0, so the acceptance still has to be confirmed on the 2024 final validation. This README does not repeat that table. Later Phase 2 hypotheses use `h2_full` as the reference. This H2 command stays paired to `current`.
+
+### Phase 2 H3: pass and rush EPA
+
+`make train-cv` (Windows: `.\scripts\dev.ps1 train-cv`) is `--phase 2 --hypothesis h3`. It scores logistic regression on `h2_full`, `h3_split`, and `h3_replace`, plus the home prior, Elo, and the market. The paired comparison is the same bootstrap against logistic `h2_full`, and the acceptance rule is the same 0.003 log loss gain with the 95% interval entirely below 0. Runs go to MLflow experiment `nfl_pregame/phase2_h3` with tags `phase=2` and `hypothesis=h3-pass-rush-epa`. The comparison is written to `reports/phase2_h3/` (gitignored). The method and an empty result section are in `docs/experiments/phase2_h3_pass_rush_epa.md`. This README does not add measured H3 numbers.
 
 **Important .env notes**:
 - `.env` is for environment variables (e.g., Databricks credentials), not the Python virtual environment

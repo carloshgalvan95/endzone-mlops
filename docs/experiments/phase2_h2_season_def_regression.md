@@ -1,6 +1,6 @@
 # Phase 2 H2: season defensive EPA and cross-season regression
 
-Method note. This file does not report warehouse metrics. Reproduce this comparison with `python -m src.train.train --cv --phase 2 --hypothesis h2 --reference-model logistic --reference-feature-set current --output-dir reports/phase2_h2`. It writes `reports/phase2_h2/comparison.md` and `reports/phase2_h2/comparison.csv`. Those files are local outputs. The result section records the local H2 run. Do not copy numbers from a test fixture.
+Method note. This file does not report warehouse metrics. Reproduce this comparison with `python -m src.train.train --cv --phase 2 --hypothesis h2 --reference-model logistic --reference-feature-set current --output-dir reports/phase2_h2`. It writes `reports/phase2_h2/comparison.md` and `reports/phase2_h2/comparison.csv`. Those files are local outputs. The result section records the local H2 run. Do not copy numbers from a test fixture. `make train-cv` runs hypothesis H3 and writes `reports/phase2_h3/`. See `docs/experiments/phase2_h3_pass_rush_epa.md`.
 
 No model is promoted from a phase 2 run. 2024 stays the final validation. 2025 is not scored here.
 
