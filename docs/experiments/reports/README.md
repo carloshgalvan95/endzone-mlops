@@ -1,6 +1,6 @@
 # Frozen experiment snapshots
 
-`reports/` at the repo root is local scratch. It is gitignored. `make audit-features`, `make train-cv`, `make check-epa-filter`, and the other `--cv` commands write there and can be rerun.
+`reports/` at the repo root is local scratch. It is gitignored. `make audit-features`, `make train-cv`, `make check-epa-filter`, and the other `--cv` commands write there and can be rerun. `make train-cv` writes `reports/phase2_h5/`. H5 has no snapshot here until that hypothesis is decided.
 
 `docs/experiments/reports/` is different. Each file here is a frozen copy of one local report, kept as evidence for a decision. Copy a report here only when that hypothesis is decided. Do not edit the numbers afterward. Replace the snapshot only when the hypothesis is rerun and the decision is recorded again.
 

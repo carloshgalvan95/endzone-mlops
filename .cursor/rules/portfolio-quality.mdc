@@ -141,7 +141,7 @@ A PR is Done when:
 - docs/runbook.md: Operations, CE spike checklist, troubleshooting
 - docs/ATTRIBUTION.md: Data source credits (nflverse CC BY 4.0)
 - `.cursor/rules/QUALITY_GUIDELINES.md`: Full SWEBOK + Wilson + TC5062 quality bar
-- `.cursor/rules/ml-experiments.mdc`: phase status. Phase 0 and Phase 1 are done. H1 rejected. H2 accepted, logistic `h2_full` is the reference. H3 rejected. Ridge did not help. H4 clean EPA is rejected. Phases 3 and 4 are planned.
+- `.cursor/rules/ml-experiments.mdc`: phase status. Phase 0 and Phase 1 are done. H1 rejected. H2 accepted, logistic `h2_full` is the reference. H3 rejected. Ridge did not help. H4 clean EPA is rejected. H5 starting QB is running and not scored. Phases 3 and 4 are planned.
 
 ## For AI Assistants
 

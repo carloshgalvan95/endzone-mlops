@@ -102,9 +102,12 @@ endzone-mlops demonstrates a modern lakehouse architecture for NFL analytics, co
 
 **Layers**:
 - `stg_nflverse__games`: Game-level data (schedule, scores, lines)
-- `stg_nflverse__plays`: Play-by-play (future)
-- `fct_pregame_features`: Features as-of kickoff (future)
-- `fct_ingame_states`: Play-level states for in-game model (future)
+- `stg_nflverse__pbp`: Play-by-play, including passer id, dropback, and CPOE
+- `stg_nflverse__depth_charts`: Weekly depth charts from 2001
+- `fct_games`, `fct_team_game_epa`, `fct_upcoming_games`: Schedule and team EPA marts
+- `fct_expected_starter`: Offense QB1 for each completed game. It does not read play-by-play.
+- `fct_qb_dropbacks`: Passer dropbacks and EPA by game. This is history, not the starter.
+- `fct_ingame_states`: Play-level states for an in-game model (future)
 
 #### 3. ML Pipeline (`src/models/`, `src/features/`)
 

@@ -1,6 +1,6 @@
 # Phase 2 H4: clean EPA
 
-Method note. Reproduce this comparison with `python -m src.train.train --cv --phase 2 --hypothesis h4 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h4`. It writes `reports/phase2_h4/comparison.md` and `reports/phase2_h4/comparison.csv`. Those files are local outputs. The result section records the local H4 run. The frozen copy is `docs/experiments/reports/phase2_h4_comparison.md`. Do not copy numbers from a test fixture. `make train-cv` (Windows: `.\scripts\dev.ps1 train-cv`) still runs this hypothesis.
+Method note. Reproduce this comparison with `python -m src.train.train --cv --phase 2 --hypothesis h4 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h4`. It writes `reports/phase2_h4/comparison.md` and `reports/phase2_h4/comparison.csv`. Those files are local outputs. The result section records the local H4 run. The frozen copy is `docs/experiments/reports/phase2_h4_comparison.md`. Do not copy numbers from a test fixture. `make train-cv` (Windows: `.\scripts\dev.ps1 train-cv`) now runs H5. See `docs/experiments/phase2_h5_starting_qb.md`.
 
 No model is promoted from a phase 2 run. 2024 stays the final validation. 2025 is not scored here.
 
@@ -63,18 +63,17 @@ Names look like `home_recent_clean_offensive_epa_per_play`, `away_regressed_seas
 Bronze already has `qb_kneel`, `qb_spike`, and `wp`. Do not run `make ingest` for this hypothesis.
 
 ```bash
-make dbt-build-databricks
-make train-cv
+make dbt-build-databricks && python -m src.train.train --cv --phase 2 --hypothesis h4 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h4
 ```
 
-Windows:
+Windows PowerShell 5.1 has no `&&`:
 
 ```powershell
 .\scripts\dev.ps1 dbt-build-databricks
-.\scripts\dev.ps1 train-cv
+if ($LASTEXITCODE -eq 0) { python -m src.train.train --cv --phase 2 --hypothesis h4 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h4 }
 ```
 
-`make dbt-build-databricks` rebuilds `nfl_dev_staging`, `nfl_dev_marts`, and `nfl_dev_test_results`, including the new staging columns and the clean mart columns. `make train-cv` then reads `fct_games` and `fct_team_game_epa` from `workspace.nfl_dev_marts`. Running `train-cv` before that rebuild leaves the clean columns absent. The features stay missing and the comparison is not this hypothesis.
+`make dbt-build-databricks` runs `dbt deps`, then rebuilds `nfl_dev_staging`, `nfl_dev_marts`, and `nfl_dev_test_results`, including the clean mart columns. The H4 command then reads `fct_games` and `fct_team_game_epa` from `workspace.nfl_dev_marts`. Running it before that rebuild leaves the clean columns absent. Training refuses a feature set whose columns are missing or at least 50% null. `make train-cv` is H5, not this hypothesis.
 
 ## Method
 

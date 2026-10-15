@@ -19,15 +19,15 @@ Build a reproducible lakehouse pipeline for NFL pregame predictions (win probabi
 **As of October 2026 (Day 7 done)**:
 
 - **Databricks Free Edition**: Spike completed and passed. Serverless SQL warehouse validated with dbt-databricks locally and from GitHub Actions. MLflow tracking connectivity confirmed.
-- **Bronze ingest**: Backfill complete (1999-2026, games and play-by-play). Unity Catalog tables: `workspace.nfl_raw.games`, `workspace.nfl_raw.play_by_play` (partitioned by season).
-- **dbt**: 2 staging views (stg_nflverse__games, stg_nflverse__pbp), 3 marts tables (fct_games, fct_team_game_epa, fct_upcoming_games), 2 sources, 2 seeds. dbt build on Databricks: 64/64 nodes passing (57 data tests).
-- **Training pipeline**: `src/train/train.py` with MLflow tracking. Supports a home baseline (constant probability equal to the training home win rate, hard home label when that rate is above one half), logistic regression (impute then standard-scale), and gradient boosting models. The default feature set is rolling EPA, win rate, rest days, and season offensive EPA (10-game lookback). `--feature-set diff` adds home-minus-away versions of those columns. `--feature-set diff_only` keeps only the differences. `--feature-set h2_def` adds season-to-date defensive EPA allowed. `--feature-set h2_full` also adds regressed season and recent EPA. `--feature-set h3_split` adds pass and rush EPA. `--feature-set h3_replace` swaps the combined recent and regressed-season EPA for those splits. `--model logistic_l2` is L2 logistic regression whose C is tuned inside the training seasons and does not use the scored season to pick C. `home_games_played` and `away_games_played` are still computed and available as `--feature-set with_games_played`. Time-based split (train through 2023, validate 2024, test 2025). Logs params, metrics (log loss, Brier, accuracy, AUC), feature list, data window, git SHA. Can run against Databricks or local fixtures. Includes SimpleImputer for missing history (EPA imputed to 0, win_rate to 0.5). Tests include leakage protection and January playoff season handling. Local tracking uses `sqlite:///mlflow.db` in the repo root, with run artifacts under `mlartifacts/`.
+- **Bronze ingest**: Games and play-by-play backfill is complete (1999-2026). Unity Catalog tables: `workspace.nfl_raw.games`, `workspace.nfl_raw.play_by_play` (partitioned by season). H5 adds `workspace.nfl_raw.depth_charts` (weekly charts from 2001; 1999 and 2000 were not published). Load that table before the H5 warehouse build. It is not part of the earlier games and play-by-play backfill.
+- **dbt**: 3 staging views (`stg_nflverse__games`, `stg_nflverse__pbp`, `stg_nflverse__depth_charts`), 5 marts (`fct_games`, `fct_team_game_epa`, `fct_upcoming_games`, `fct_expected_starter`, `fct_qb_dropbacks`), 3 sources, 2 seeds. The recorded Databricks build before the depth-chart models was 64/64 nodes (57 data tests). CI compiles the current graph on DuckDB. A warehouse rebuild that includes the new models has not been recorded yet.
+- **Training pipeline**: `src/train/train.py` with MLflow tracking. Supports a home baseline (constant probability equal to the training home win rate, hard home label when that rate is above one half), logistic regression (impute then standard-scale), and gradient boosting models. The default feature set is rolling EPA, win rate, rest days, and season offensive EPA (10-game lookback). `--feature-set diff` adds home-minus-away versions of those columns. `--feature-set diff_only` keeps only the differences. `--feature-set h2_def` adds season-to-date defensive EPA allowed. `--feature-set h2_full` also adds regressed season and recent EPA. `--feature-set h3_split` adds pass and rush EPA. `--feature-set h3_replace` swaps the combined recent and regressed-season EPA for those splits. `--feature-set h5_qb` adds the home and away starting-QB ratings and each rating minus that team's recent passing EPA. `--model logistic_l2` is L2 logistic regression whose C is tuned inside the training seasons and does not use the scored season to pick C. `home_games_played` and `away_games_played` are still computed and available as `--feature-set with_games_played`. Time-based split (train through 2023, validate 2024, test 2025). Logs params, metrics (log loss, Brier, accuracy, AUC), feature list, data window, git SHA. Can run against Databricks or local fixtures. Includes SimpleImputer for missing history (EPA imputed to 0, win_rate to 0.5). Tests include leakage protection and January playoff season handling. Local tracking uses `sqlite:///mlflow.db` in the repo root, with run artifacts under `mlartifacts/`.
 - **CI**: GitHub Actions runs ruff lint + format check, pytest on Python 3.10/3.11, dbt compile against DuckDB, cross-platform matrix (Ubuntu, Windows, macOS). Tests verify column references against real nflverse schema (fixtures in tests/fixtures), schema conforming logic, feature leakage protection, and end-to-end training.
 - **PR Guard**: Branch protection with freshness check, Conventional Commit titles, PR template verification, no secrets/data files, commit identity validation.
 
-**Next**: H4, clean EPA, is rejected. `h4_clean` is 0.6398 and `h4_clean_sr` is 0.6379 against logistic `h2_full` 0.6377 (n=2191). Removing `no_play`, kneels, spikes, and garbage time adds no signal. The reference stays logistic `h2_full`. Forecasting (batch scoring) comes after the Phase 2 feature search.
+**Next**: H5, a pregame starting-QB rating, is running and not scored. H4, clean EPA, is rejected. `h4_clean` is 0.6398 and `h4_clean_sr` is 0.6379 against logistic `h2_full` 0.6377 (n=2191). Removing `no_play`, kneels, spikes, and garbage time adds no signal. The reference stays logistic `h2_full`. Forecasting (batch scoring) comes after the Phase 2 feature search.
 
-**2024 validation** (`make train-sweep`, 285 games, feature set that included `games_played`). Rounded to 2 decimals. The 2025 test season is held out and is not reported. Phase 1 does not replace this table. `make train-cv` writes the Phase 2 H4 comparison under `reports/phase2_h4/`. The Phase 1 report stays `python -m src.train.train --cv`, which writes `reports/phase1/`. Hypothesis H1 writes `reports/phase2/`. Hypothesis H2 writes `reports/phase2_h2/`. Hypothesis H3 writes `reports/phase2_h3/`. The ridge comparison writes `reports/phase2_ridge/` from the explicit `--hypothesis ridge` command.
+**2024 validation** (`make train-sweep`, 285 games, feature set that included `games_played`). Rounded to 2 decimals. The 2025 test season is held out and is not reported. Phase 1 does not replace this table. `make train-cv` writes the Phase 2 H5 comparison under `reports/phase2_h5/`. The Phase 1 report stays `python -m src.train.train --cv`, which writes `reports/phase1/`. Hypothesis H1 writes `reports/phase2/`. Hypothesis H2 writes `reports/phase2_h2/`. Hypothesis H3 writes `reports/phase2_h3/`. Hypothesis H4 writes `reports/phase2_h4/` from the explicit `--hypothesis h4` command. The ridge comparison writes `reports/phase2_ridge/` from the explicit `--hypothesis ridge` command.
 
 | Model | Accuracy | AUC | Brier | Log loss |
 | --- | --- | --- | --- | --- |
@@ -84,10 +84,10 @@ Catalog: `workspace`.
 
 | Schema | What lands there |
 | --- | --- |
-| `nfl_raw` | Bronze. `games` and `play_by_play`. Not built by dbt. |
+| `nfl_raw` | Bronze. `games`, `play_by_play`, and `depth_charts`. Not built by dbt. |
 | `nfl_dev` | dbt target schema (`dbt/profiles.yml.example`). Seeds have no custom schema, so `team_franchise_map` and `known_pbp_gaps` stay here. |
-| `nfl_dev_staging` | Staging views `stg_nflverse__games` and `stg_nflverse__pbp`. |
-| `nfl_dev_marts` | Marts `fct_games`, `fct_team_game_epa`, `fct_upcoming_games`. Training reads these. |
+| `nfl_dev_staging` | Staging views `stg_nflverse__games`, `stg_nflverse__pbp`, and `stg_nflverse__depth_charts`. |
+| `nfl_dev_marts` | Marts `fct_games`, `fct_team_game_epa`, `fct_upcoming_games`, `fct_expected_starter`, and `fct_qb_dropbacks`. Training reads these. |
 | `nfl_dev_test_results` | Stored dbt test failures (`+store_failures`, `+schema: test_results`). |
 
 `dbt_project.yml` sets `+schema: staging`, `+schema: marts`, and `+schema: test_results`. This repo has no `generate_schema_name` macro, so dbt's default macro appends the custom schema to the target: `{target}_{custom}`. The target is `nfl_dev`, which is why the built schemas end in `_staging`, `_marts`, and `_test_results`. Do not query staging or marts from unsuffixed `nfl_dev`.
@@ -364,12 +364,12 @@ The parent run name for this comparison is `phase2-ridge-<timestamp>`.
 
 ### Phase 2 H4: clean EPA
 
-`make train-cv` (Windows: `.\scripts\dev.ps1 train-cv`) is `--phase 2 --hypothesis h4`. It scores logistic regression on `h2_full` (the reference), `h4_clean`, and `h4_clean_sr`, plus the home prior, Elo, and the market. `h4_clean` is `h2_full` with every EPA input taken from pass and run plays only, excluding kneels, spikes, `no_play`, and garbage time (`wp` below 0.05 or above 0.95). A missing `wp` stays in. `h4_clean_sr` adds the recent clean success rate. Shrinkage (1/3), blend (`n / (n + 4)`), the lookback, and the garbage-time cutoffs are fixed. They are not tuned on this run. The paired comparison and the 0.003 acceptance rule are the same, against logistic `h2_full`. Runs go to MLflow experiment `nfl_pregame/phase2_h4` with tags `phase=2` and `hypothesis=h4-clean-epa`. The comparison is written to `reports/phase2_h4/` (gitignored). The frozen copy is `docs/experiments/reports/phase2_h4_comparison.md`. The method is in `docs/experiments/phase2_h4_clean_epa.md`.
+`python -m src.train.train --cv --phase 2 --hypothesis h4 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h4` scores logistic regression on `h2_full` (the reference), `h4_clean`, and `h4_clean_sr`, plus the home prior, Elo, and the market. `make train-cv` now runs H5. `h4_clean` is `h2_full` with every EPA input taken from pass and run plays only, excluding kneels, spikes, `no_play`, and garbage time (`wp` below 0.05 or above 0.95). A missing `wp` stays in. `h4_clean_sr` adds the recent clean success rate. Shrinkage (1/3), blend (`n / (n + 4)`), the lookback, and the garbage-time cutoffs are fixed. They are not tuned on this run. The paired comparison and the 0.003 acceptance rule are the same, against logistic `h2_full`. Runs go to MLflow experiment `nfl_pregame/phase2_h4` with tags `phase=2` and `hypothesis=h4-clean-epa`. The comparison is written to `reports/phase2_h4/` (gitignored). The frozen copy is `docs/experiments/reports/phase2_h4_comparison.md`. The method is in `docs/experiments/phase2_h4_clean_epa.md`.
 
 `qb_kneel`, `qb_spike`, and `wp` are already on `workspace.nfl_raw.play_by_play`. `wp` is already staged as `win_probability`. Do not run `make ingest` for this hypothesis. `make dbt-build-databricks` runs `dbt deps` and then `dbt build --target databricks`. Chain it with training so a failed build does not score:
 
 ```bash
-make dbt-build-databricks && make train-cv
+make dbt-build-databricks && python -m src.train.train --cv --phase 2 --hypothesis h4 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h4
 ```
 
 Before CV, each requested feature column has to exist on the feature frame and stay under 50% null (`--max-null-fraction`, default 0.5). A failure names the feature set and the columns and says to run `make dbt-build-databricks`.
@@ -386,9 +386,23 @@ A first local run before the dbt rebuild printed the same log loss 0.6509 for bo
 
 The parent run name for this comparison is `phase2-h4-<timestamp>`.
 
+### Phase 2 H5: starting quarterback
+
+`make train-cv` (Windows: `.\scripts\dev.ps1 train-cv`) is `--phase 2 --hypothesis h5`. It scores logistic regression on `h2_full` (the reference) and `h5_qb`, plus the home prior, Elo, and the market. `h5_qb` is `h2_full` plus the home and away starting-QB ratings and each rating minus that team's recent passing EPA. The starter is the offense QB1 on the weekly depth chart. A missing chart uses the previous game's primary passer. The rating is prior EPA per dropback, shrunk toward 0 with weight `n / (n + 100)`, using only earlier gamedays, across teams and seasons. CPOE is stored and is not in the rating. The QB-change subset in the report is descriptive and is not an acceptance decision. Runs go to MLflow experiment `nfl_pregame/phase2_h5` with tags `phase=2` and `hypothesis=h5-starting-qb`. The comparison is written to `reports/phase2_h5/` (gitignored). The method is in `docs/experiments/phase2_h5_starting_qb.md`. The result is pending, so there is no frozen snapshot.
+
+On a catalog that already has games and play-by-play:
+
+```bash
+python -m src.ingest.load_raw_nflverse --dataset depth_charts && make dbt-build-databricks && make train-cv
+```
+
+A fresh clone uses `make ingest && make dbt-build-databricks && make train-cv`. `make dbt-build-databricks` runs `dbt deps` first.
+
+The parent run name for this comparison is `phase2-h5-<timestamp>`.
+
 ### Reading CV runs in the MLflow UI
 
-Every `--cv` invocation, including phase 1 and each phase 2 hypothesis, logs one parent run and one nested child per scored model. The parent name is `phase1-<timestamp>`, `phase2-h1-<timestamp>`, `phase2-h2-<timestamp>`, `phase2-h3-<timestamp>`, `phase2-h4-<timestamp>`, or `phase2-ridge-<timestamp>`. Open the parent to read `comparison.md` and `comparison.csv`. Its tags include `phase`, `hypothesis` when the phase has one, `cv_scheme`, `git_commit`, `reference_model`, `reference_feature_set`, `best_feature_set`, and `data_digest`. The dataset input is named `nfl_pregame_cv`. Its source text says the rows are `fct_games` joined to pregame features for seasons through the CV end season. `data_n_rows` and `data_n_columns` are params on the parent and on each child. The same `data_digest` on the parent and every child means those runs compared the same matrix.
+Every `--cv` invocation, including phase 1 and each phase 2 hypothesis, logs one parent run and one nested child per scored model. The parent name is `phase1-<timestamp>`, `phase2-h1-<timestamp>`, `phase2-h2-<timestamp>`, `phase2-h3-<timestamp>`, `phase2-h4-<timestamp>`, `phase2-h5-<timestamp>`, or `phase2-ridge-<timestamp>`. Open the parent to read `comparison.md` and `comparison.csv`. Its tags include `phase`, `hypothesis` when the phase has one, `cv_scheme`, `git_commit`, `reference_model`, `reference_feature_set`, `best_feature_set`, and `data_digest`. The dataset input is named `nfl_pregame_cv`. Its source text says the rows are `fct_games` joined to pregame features for seasons through the CV end season. `data_n_rows` and `data_n_columns` are params on the parent and on each child. The same `data_digest` on the parent and every child means those runs compared the same matrix.
 
 Each child logs `log_loss_diff`, `log_loss_diff_ci_low`, and `log_loss_diff_ci_high` against the reference, plus a `decision` tag:
 
@@ -420,7 +434,7 @@ macOS / Linux (bash):
 set -a; source .env; set +a
 
 # Ingest nflverse data to Unity Catalog
-make ingest       # Load games + play-by-play
+make ingest       # Load games, play-by-play, and depth charts
 
 # Build dbt models on Databricks
 make dbt-build-databricks
@@ -471,10 +485,10 @@ See `docs/runbook.md` for credential setup, Unity Catalog volume paths, and veri
 
 ### v0.1 (Day 14 Target)
 - [x] Repository scaffold
-- [x] Bronze ingest to Unity Catalog Delta tables (games, play_by_play, 1999-2026 backfill complete)
-- [x] Staging dbt models from nflverse (2 views)
-- [x] Marts dbt models (fct_games, fct_team_game_epa, fct_upcoming_games)
-- [x] dbt build on Databricks: 64/64 nodes passing (57 data tests)
+- [x] Bronze ingest to Unity Catalog Delta tables (games, play_by_play, 1999-2026 backfill complete). Depth charts are a separate ingest for H5.
+- [x] Staging dbt models from nflverse (`stg_nflverse__games`, `stg_nflverse__pbp`, `stg_nflverse__depth_charts`)
+- [x] Marts dbt models (`fct_games`, `fct_team_game_epa`, `fct_upcoming_games`, `fct_expected_starter`, `fct_qb_dropbacks`)
+- [x] dbt build on Databricks before the depth-chart models: 64/64 nodes passing (57 data tests). Rebuild before H5.
 - [x] CI with GitHub Actions (lint, tests, cross-platform, PR guard)
 - [x] MLflow experiment tracking (train.py with baseline, logistic, gradient boosting)
 - [x] Pregame feature engineering (rolling EPA, win rates, rest days; games played stays available as a legacy set)

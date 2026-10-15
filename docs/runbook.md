@@ -429,7 +429,7 @@ The ingestion script `src.ingest.load_raw_nflverse` supports two datasets and mu
 export MSYS_NO_PATHCONV=1  # Needed for Git Bash on Windows
 set -a; source .env; set +a
 
-# Full backfill (1999-2026, both datasets)
+# Full backfill (games and play-by-play 1999-2026, depth charts from 2001)
 make ingest
 # Or: python -m src.ingest.load_raw_nflverse --dataset all
 
@@ -441,8 +441,11 @@ make ingest-current
 python -m src.ingest.load_raw_nflverse --seasons 2020-2024 --dataset all
 
 # Build dbt models on Databricks. This runs dbt deps, then dbt build.
-# Chain training with && so a failed build does not score.
-make dbt-build-databricks && make train-cv
+# make train-cv is H5 and needs depth charts. Chain with && so a failed
+# ingest or build does not score.
+python -m src.ingest.load_raw_nflverse --dataset depth_charts && make dbt-build-databricks && make train-cv
+# Fresh clone, games and play-by-play included:
+# make ingest && make dbt-build-databricks && make train-cv
 # Or: cd dbt && dbt deps --profiles-dir . && dbt build --profiles-dir . --target databricks
 ```
 
@@ -455,7 +458,7 @@ export MSYS_NO_PATHCONV=1
 # Load environment variables from .env
 set -a; source .env; set +a
 
-# Full backfill (1999-2026, both datasets)
+# Full backfill (games and play-by-play 1999-2026, depth charts from 2001)
 make ingest
 
 # Weekly refresh (current season only)
@@ -465,8 +468,9 @@ make ingest-current
 python -m src.ingest.load_raw_nflverse --seasons 2020-2024 --dataset all
 
 # Build dbt models on Databricks. This runs dbt deps, then dbt build.
-# Chain training with && so a failed build does not score.
-make dbt-build-databricks && make train-cv
+# make train-cv is H5 and needs depth charts. Chain with && so a failed
+# ingest or build does not score.
+python -m src.ingest.load_raw_nflverse --dataset depth_charts && make dbt-build-databricks && make train-cv
 ```
 
 #### Windows PowerShell
@@ -478,7 +482,7 @@ make dbt-build-databricks && make train-cv
 # $env:DATABRICKS_HTTP_PATH = "/sql/1.0/warehouses/xxxxx"
 # $env:DATABRICKS_TOKEN = "dapi..."
 
-# Full backfill (1999-2026, both datasets)
+# Full backfill (games and play-by-play 1999-2026, depth charts from 2001)
 .\scripts\dev.ps1 ingest
 
 # Weekly refresh (current season only)
@@ -489,8 +493,10 @@ python -m src.ingest.load_raw_nflverse --seasons 2020-2024 --dataset all
 .\scripts\dev.ps1 ingest
 
 # Build dbt models on Databricks. This runs dbt deps, then dbt build.
-# Chain training so a failed build does not score.
-.\scripts\dev.ps1 dbt-build-databricks; if ($LASTEXITCODE -eq 0) { .\scripts\dev.ps1 train-cv }
+# make train-cv is H5 and needs depth charts. PowerShell 5.1 has no &&.
+python -m src.ingest.load_raw_nflverse --dataset depth_charts
+if ($LASTEXITCODE -eq 0) { .\scripts\dev.ps1 dbt-build-databricks }
+if ($LASTEXITCODE -eq 0) { .\scripts\dev.ps1 train-cv }
 ```
 
 ### Unity Catalog schema map
@@ -500,11 +506,11 @@ Catalog `workspace`. The dbt Databricks target schema is `nfl_dev` (`dbt/profile
 | Custom schema in dbt | Warehouse schema | Objects |
 | --- | --- | --- |
 | (none, seeds) | `nfl_dev` | `team_franchise_map`, `known_pbp_gaps` |
-| `staging` | `nfl_dev_staging` | `stg_nflverse__games`, `stg_nflverse__pbp` |
-| `marts` | `nfl_dev_marts` | `fct_games`, `fct_team_game_epa`, `fct_upcoming_games` |
+| `staging` | `nfl_dev_staging` | `stg_nflverse__games`, `stg_nflverse__pbp`, `stg_nflverse__depth_charts` |
+| `marts` | `nfl_dev_marts` | `fct_games`, `fct_team_game_epa`, `fct_upcoming_games`, `fct_expected_starter`, `fct_qb_dropbacks` |
 | `test_results` | `nfl_dev_test_results` | stored dbt test failures |
 
-Bronze is not a dbt schema. Ingest writes `workspace.nfl_raw.games` and `workspace.nfl_raw.play_by_play`.
+Bronze is not a dbt schema. Ingest writes `workspace.nfl_raw.games`, `workspace.nfl_raw.play_by_play`, and `workspace.nfl_raw.depth_charts`. Depth charts start in 2001. 1999 and 2000 were not published.
 
 Do not select staging or marts from `workspace.nfl_dev`. That name is only the dbt target and the seed schema.
 
@@ -707,7 +713,7 @@ with mlflow.start_run():
 - **Check**: Valid YAML? Correct indentation? No tabs? `dbt/profiles.yml` is gitignored, so a pull does not update it. Compare it to `dbt/profiles.yml.example`. The warehouse build target must be `databricks`, and that output's catalog must be `workspace`.
 
 **Problem**: `dbt build` fails on a fresh clone with a missing package
-- **Solution**: Run `dbt deps --profiles-dir .` first. `make dbt-build-databricks` and `.\scripts\dev.ps1 dbt-build-databricks` do that, then build. Chain the warehouse build with training: `make dbt-build-databricks && make train-cv`.
+- **Solution**: Run `dbt deps --profiles-dir .` first. `make dbt-build-databricks` and `.\scripts\dev.ps1 dbt-build-databricks` do that, then build. `make train-cv` is H5. On a catalog that already has games and play-by-play: `python -m src.ingest.load_raw_nflverse --dataset depth_charts && make dbt-build-databricks && make train-cv`. A fresh clone uses `make ingest && make dbt-build-databricks && make train-cv`.
 
 **Problem**: pydantic v1 warnings while running dbt
 - **Check**: The local venv is Python 3.11. Python 3.14 triggers those warnings.
