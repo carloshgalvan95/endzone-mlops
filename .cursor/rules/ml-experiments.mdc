@@ -50,4 +50,4 @@ Every `--cv` command uses rolling-origin seasons 2016-2023. Train on `season < S
 
 `reports/` at the repo root is gitignored scratch. Do not commit it.
 
-`docs/experiments/reports/` holds frozen snapshots. Add or replace one only when that hypothesis is decided. Do not hand-edit the numbers. Phase 0 and Phase 1 snapshots are not there yet. Link each experiment note to its snapshot. The index is `docs/experiments/reports/README.md`.
+`docs/experiments/reports/` holds frozen snapshots. Add or replace one only when that hypothesis is decided. Do not hand-edit the numbers. Link each experiment note to its snapshot. The index is `docs/experiments/reports/README.md`.
