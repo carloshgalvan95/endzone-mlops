@@ -21,6 +21,7 @@ from src.features.pregame import (
     FEATURE_SET_H3_SPLIT,
     FEATURE_SET_H4_CLEAN,
     FEATURE_SET_H4_CLEAN_SR,
+    FEATURE_SET_H5_QB,
     FEATURE_SET_NAMES,
     FEATURE_SET_WITH_GAMES_PLAYED,
     GAMES_PLAYED_COLUMNS,
@@ -35,7 +36,9 @@ from src.features.pregame import (
     PREGAME_FEATURE_COLUMNS_H3_SPLIT,
     PREGAME_FEATURE_COLUMNS_H4_CLEAN,
     PREGAME_FEATURE_COLUMNS_H4_CLEAN_SR,
+    PREGAME_FEATURE_COLUMNS_H5_QB,
     PREGAME_FEATURE_COLUMNS_WITH_GAMES_PLAYED,
+    QB_RATING_COLUMNS,
     REGRESSED_EPA_COLUMNS,
     SEASON_BLEND_K,
     SEASON_DEFENSIVE_EPA_COLUMNS,
@@ -291,6 +294,7 @@ class TestPrepareTrainingData:
             "h3_replace",
             "h4_clean",
             "h4_clean_sr",
+            "h5_qb",
         )
         assert feature_columns_for("current") == PREGAME_FEATURE_COLUMNS
         assert feature_columns_for("with_games_played") == PREGAME_FEATURE_COLUMNS_WITH_GAMES_PLAYED
@@ -412,6 +416,15 @@ class TestPrepareTrainingData:
             PREGAME_FEATURE_COLUMNS_H4_CLEAN
         )
         assert "home_games_played" not in PREGAME_FEATURE_COLUMNS_H4_CLEAN_SR
+        assert feature_columns_for(FEATURE_SET_H5_QB) == PREGAME_FEATURE_COLUMNS_H5_QB
+        assert PREGAME_FEATURE_COLUMNS_H5_QB[: len(PREGAME_FEATURE_COLUMNS_H2_FULL)] == (
+            PREGAME_FEATURE_COLUMNS_H2_FULL
+        )
+        assert PREGAME_FEATURE_COLUMNS_H5_QB[len(PREGAME_FEATURE_COLUMNS_H2_FULL) :] == (
+            QB_RATING_COLUMNS
+        )
+        assert "home_qb_rating" in PREGAME_FEATURE_COLUMNS_H5_QB
+        assert "home_starter_player_id" not in PREGAME_FEATURE_COLUMNS_H5_QB
 
     def test_unknown_feature_set_is_rejected(
         self,

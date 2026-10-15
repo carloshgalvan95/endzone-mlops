@@ -24,13 +24,17 @@ from src.features.pregame import (
     PREGAME_FEATURE_COLUMNS,
     PREGAME_FEATURE_COLUMNS_H2_FULL,
     PREGAME_FEATURE_COLUMNS_H4_CLEAN,
+    QB_OUTPUT_COLUMNS,
+    QB_RATING_COLUMNS,
     REGRESSED_EPA_COLUMNS,
     SEASON_BLEND_K,
     SEASON_DEFENSIVE_EPA_COLUMNS,
     SEASON_SHRINK_FACTOR,
+    attach_qb_features,
     build_pregame_features,
     elo_home_probabilities,
     regress_epa_feature,
+    shrink_qb_rating,
 )
 
 CHECKED_FEATURE_COLUMNS: tuple[str, ...] = (
@@ -41,6 +45,7 @@ CHECKED_FEATURE_COLUMNS: tuple[str, ...] = (
     + PASS_RUSH_EPA_COLUMNS
     + CLEAN_EPA_FEATURE_COLUMNS
     + CLEAN_SUCCESS_RATE_COLUMNS
+    + QB_OUTPUT_COLUMNS
 )
 
 LOOKBACK_GAMES: int = 2
@@ -1227,3 +1232,276 @@ class TestEloLeakage:
             elo_home_probabilities(_elo_games(), scale=0)
         with pytest.raises(ValueError, match="season_reversion"):
             elo_home_probabilities(_elo_games(), season_reversion=1.5)
+
+
+def _blank_team_epa(games: pd.DataFrame) -> pd.DataFrame:
+    """Team-game EPA rows the builder requires. Values are not the QB signal."""
+    rows: list[dict[str, object]] = []
+    for _, game in games.iterrows():
+        for team in (game["home_team_franchise"], game["away_team_franchise"]):
+            rows.append(
+                {
+                    "game_id": game["game_id"],
+                    "season": game["season"],
+                    "gameday": game["gameday"],
+                    "team_franchise": team,
+                    "avg_offensive_epa": 0.0,
+                    "avg_defensive_epa_allowed": 0.0,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def _qb_history() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Depth-chart starters plus dropbacks that try to leak the same game."""
+    games = pd.DataFrame(
+        {
+            "game_id": ["P0", "P1", "SAME1", "SAME2", "FALL"],
+            "season": [2023, 2023, 2024, 2024, 2024],
+            "gameday": pd.to_datetime(
+                ["2023-09-10", "2023-09-17", "2024-09-08", "2024-09-08", "2024-09-15"]
+            ),
+            "home_team_franchise": ["A", "A", "A", "E", "A"],
+            "away_team_franchise": ["B", "B", "C", "F", "B"],
+            "home_won": [1, 0, 1, 0, 1],
+            "home_rest": [7, 7, 7, 7, 7],
+            "away_rest": [7, 7, 7, 7, 7],
+        }
+    )
+    starters = pd.DataFrame(
+        {
+            "game_id": ["P0", "P1", "SAME1", "SAME2", "FALL"],
+            "home_starter_player_id": ["QB-A", "QB-A", "QB-A", "QB-A", None],
+            "away_starter_player_id": ["QB-B", "QB-NEW", "QB-C", "QB-F", "QB-B"],
+        }
+    )
+    dropbacks = pd.DataFrame(
+        {
+            "game_id": ["P0", "P0", "P0", "P1", "P1", "SAME1", "SAME2", "FALL", "FALL"],
+            "gameday": pd.to_datetime(
+                [
+                    "2023-09-10",
+                    "2023-09-10",
+                    "2023-09-10",
+                    "2023-09-17",
+                    "2023-09-17",
+                    "2024-09-08",
+                    "2024-09-08",
+                    "2024-09-15",
+                    "2024-09-15",
+                ]
+            ),
+            "team_franchise": ["A", "A", "B", "A", "B", "A", "E", "A", "B"],
+            "passer_player_id": [
+                "QB-A",
+                "QB-DECOY",
+                "QB-B",
+                "QB-TODAY",
+                "QB-B",
+                "QB-A",
+                "QB-A",
+                "QB-TODAY",
+                "QB-B",
+            ],
+            "dropbacks": [100, 1, 10, 40, 20, 100, 100, 50, 10],
+            "dropback_epa": [50.0, 100.0, 0.0, 400.0, 20.0, 0.0, 0.0, 500.0, 0.0],
+        }
+    )
+    return games, _blank_team_epa(games), starters, dropbacks
+
+
+def _assert_qb_value(actual: object, expected: object, label: str) -> None:
+    """Compare a QB cell. Strings stay strings. NaN matches NaN."""
+    if isinstance(expected, str):
+        assert actual == expected, label
+        return
+    if pd.isna(expected):
+        assert pd.isna(actual), label
+        return
+    assert actual == pytest.approx(expected), label
+
+
+class TestStartingQb:
+    """Pregame starter ratings ignore who threw in the game being scored."""
+
+    def test_shrink_is_half_weight_at_one_hundred_dropbacks(self) -> None:
+        """100 prior dropbacks and 50 EPA shrink halfway from 0.5 to 0."""
+        rated = shrink_qb_rating(100, 50)
+        assert rated["weight"] == pytest.approx(0.5)
+        assert rated["raw_epa_per_dropback"] == pytest.approx(0.5)
+        assert rated["value"] == pytest.approx(0.25)
+        cold = shrink_qb_rating(0, 99)
+        assert cold["value"] == pytest.approx(0.0)
+        assert cold["weight"] == pytest.approx(0.0)
+        assert pd.isna(cold["raw_epa_per_dropback"])
+        with pytest.raises(ValueError, match="prior_strength"):
+            shrink_qb_rating(10, 1, prior_strength=0)
+
+    def test_starter_ignores_same_game_passer_and_uses_prior_dropbacks_only(self) -> None:
+        """Chart QB-A is the starter even when someone else throws. Same-day EPA stays out."""
+        games, epa, starters, dropbacks = _qb_history()
+        features = build_pregame_features(
+            games,
+            epa,
+            lookback_games=10,
+            expected_starters=starters,
+            qb_dropbacks=dropbacks,
+        )
+        opener = _feature_row(features, "P0")
+        _assert_qb_value(opener["home_starter_player_id"], "QB-A", "P0 starter")
+        _assert_qb_value(opener["home_starter_source"], "depth_chart", "P0 source")
+        _assert_qb_value(opener["home_qb_changed"], np.nan, "P0 change")
+        _assert_qb_value(opener["home_qb_rating"], 0.0, "P0 rating")
+        _assert_qb_value(opener["home_qb_rating_minus_team_pass_epa"], np.nan, "P0 gap")
+
+        second = _feature_row(features, "P1")
+        _assert_qb_value(second["home_starter_player_id"], "QB-A", "P1 starter")
+        _assert_qb_value(second["home_qb_changed"], 0.0, "P1 change")
+        _assert_qb_value(second["home_qb_rating"], 0.25, "P1 rating")
+        team_rate = 150.0 / 101.0
+        _assert_qb_value(
+            second["home_qb_rating_minus_team_pass_epa"],
+            0.25 - team_rate,
+            "P1 gap",
+        )
+        _assert_qb_value(second["away_starter_player_id"], "QB-NEW", "P1 away starter")
+        _assert_qb_value(second["away_qb_changed"], 1.0, "P1 away change")
+        _assert_qb_value(second["away_qb_rating"], 0.0, "P1 away rating")
+        _assert_qb_value(second["away_qb_rating_minus_team_pass_epa"], 0.0, "P1 away gap")
+
+        same_home = _feature_row(features, "SAME1")
+        same_other_team = _feature_row(features, "SAME2")
+        _assert_qb_value(same_home["home_qb_rating"], 0.25, "same-day home")
+        _assert_qb_value(same_other_team["home_qb_rating"], 0.25, "cross team and season")
+        _assert_qb_value(same_other_team["home_starter_player_id"], "QB-A", "moved QB")
+
+        fallback = _feature_row(features, "FALL")
+        _assert_qb_value(fallback["home_starter_player_id"], "QB-A", "fallback starter")
+        _assert_qb_value(fallback["home_starter_source"], "previous_passer", "fallback source")
+        _assert_qb_value(fallback["home_qb_changed"], np.nan, "fallback change")
+        _assert_qb_value(fallback["home_qb_rating"], 0.125, "fallback rating")
+
+    def test_later_and_same_day_dropbacks_do_not_change_the_rating(self) -> None:
+        """Poisoning this game and every later game leaves the QB columns put."""
+        games, epa, starters, dropbacks = _qb_history()
+        baseline = build_pregame_features(
+            games,
+            epa,
+            lookback_games=10,
+            expected_starters=starters,
+            qb_dropbacks=dropbacks,
+        )
+        for _, game in games.iterrows():
+            poisoned = dropbacks.copy()
+            on_or_after = poisoned["gameday"] >= game["gameday"]
+            poisoned.loc[on_or_after, "dropback_epa"] = 9999.0
+            poisoned.loc[on_or_after, "passer_player_id"] = "QB-LEAK"
+            poisoned.loc[on_or_after, "dropbacks"] = 80
+            updated = build_pregame_features(
+                games,
+                epa,
+                lookback_games=10,
+                expected_starters=starters,
+                qb_dropbacks=poisoned,
+            )
+            base_row = _feature_row(baseline, game["game_id"])
+            new_row = _feature_row(updated, game["game_id"])
+            for column in QB_OUTPUT_COLUMNS:
+                _assert_qb_value(new_row[column], base_row[column], f"{game['game_id']}.{column}")
+
+            earlier_dropbacks = dropbacks.loc[dropbacks["gameday"] < game["gameday"]]
+            earlier_games = games.loc[games["gameday"] <= game["gameday"]]
+            truncated_starters = starters.loc[starters["game_id"].isin(earlier_games["game_id"])]
+            truncated = build_pregame_features(
+                earlier_games,
+                epa.loc[epa["game_id"].isin(earlier_games["game_id"])],
+                lookback_games=10,
+                expected_starters=truncated_starters,
+                qb_dropbacks=earlier_dropbacks,
+            )
+            truncated_row = _feature_row(truncated, game["game_id"])
+            for column in QB_RATING_COLUMNS:
+                _assert_qb_value(
+                    truncated_row[column],
+                    base_row[column],
+                    f"truncated {game['game_id']}.{column}",
+                )
+
+    def test_team_pass_epa_uses_the_lookback_and_not_the_current_game(self) -> None:
+        """Lookback 1 is the previous team-game. The current dropbacks stay out."""
+        games = pd.DataFrame(
+            {
+                "game_id": ["G1", "G2", "G3"],
+                "gameday": pd.to_datetime(["2024-09-01", "2024-09-08", "2024-09-15"]),
+                "home_team_franchise": ["A", "A", "A"],
+                "away_team_franchise": ["B", "B", "B"],
+            }
+        )
+        starters = pd.DataFrame(
+            {
+                "game_id": ["G1", "G2", "G3"],
+                "home_starter_player_id": ["QB-X", "QB-X", "QB-ROOKIE"],
+                "away_starter_player_id": ["QB-Y", "QB-Y", "QB-Y"],
+            }
+        )
+        dropbacks = pd.DataFrame(
+            {
+                "game_id": ["G1", "G2", "G3"],
+                "gameday": games["gameday"],
+                "team_franchise": ["A", "A", "A"],
+                "passer_player_id": ["QB-X", "QB-X", "QB-X"],
+                "dropbacks": [10, 10, 10],
+                "dropback_epa": [10.0, 0.0, 100.0],
+            }
+        )
+        short = attach_qb_features(games, starters, dropbacks, lookback_games=1)
+        long = attach_qb_features(games, starters, dropbacks, lookback_games=2)
+        short_row = _feature_row(short, "G3")
+        long_row = _feature_row(long, "G3")
+        _assert_qb_value(short_row["home_qb_rating"], 0.0, "rookie rating")
+        _assert_qb_value(short_row["home_qb_rating_minus_team_pass_epa"], 0.0, "lookback 1")
+        _assert_qb_value(long_row["home_qb_rating_minus_team_pass_epa"], -0.5, "lookback 2")
+
+    def test_tie_keeps_the_lower_passer_id(self) -> None:
+        """Equal dropbacks pick the passer id that sorts first."""
+        games = pd.DataFrame(
+            {
+                "game_id": ["G1", "G2"],
+                "gameday": pd.to_datetime(["2024-09-01", "2024-09-08"]),
+                "home_team_franchise": ["A", "A"],
+                "away_team_franchise": ["B", "B"],
+            }
+        )
+        starters = pd.DataFrame(
+            {
+                "game_id": ["G1", "G2"],
+                "home_starter_player_id": [None, "QB-A"],
+                "away_starter_player_id": ["QB-Y", "QB-Y"],
+            }
+        )
+        dropbacks = pd.DataFrame(
+            {
+                "game_id": ["G1", "G1", "G2"],
+                "gameday": pd.to_datetime(["2024-09-01", "2024-09-01", "2024-09-08"]),
+                "team_franchise": ["A", "A", "A"],
+                "passer_player_id": ["QB-B", "QB-A", "QB-A"],
+                "dropbacks": [10, 10, 5],
+                "dropback_epa": [1.0, 3.0, 0.0],
+            }
+        )
+        features = attach_qb_features(games, starters, dropbacks, lookback_games=1)
+        row = _feature_row(features, "G2")
+        _assert_qb_value(row["home_qb_changed"], 0.0, "tie break matches the chart")
+        _assert_qb_value(row["home_starter_source"], "depth_chart", "chart wins when present")
+
+    def test_partial_qb_inputs_are_refused_and_omitted_inputs_stay_missing(self) -> None:
+        """Both tables are required together. Neither table leaves the columns missing."""
+        games, epa, starters, dropbacks = _qb_history()
+        with pytest.raises(ValueError, match="both be provided or both be omitted"):
+            build_pregame_features(games, epa, expected_starters=starters)
+        with pytest.raises(ValueError, match="both be provided or both be omitted"):
+            attach_qb_features(games, None, dropbacks)
+        missing = build_pregame_features(games, epa)
+        row = _feature_row(missing, "P0")
+        for column in QB_OUTPUT_COLUMNS:
+            assert pd.isna(row[column]), column
