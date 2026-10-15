@@ -18,7 +18,7 @@ alwaysApply: true
 - `tests`: pytest. CI fixtures stand in for the warehouse.
 - `docs`: architecture, ADR-001, runbook, ATTRIBUTION.
 
-Catalog `workspace`. Staging schema `nfl_dev`. Marts schema `nfl_dev_marts` (dbt appends the custom `marts` schema; this repo has no `generate_schema_name` macro).
+Catalog `workspace`. Bronze schema `nfl_raw` (`games`, `play_by_play`). dbt target schema is `nfl_dev` (`dbt/profiles.yml.example`). This repo has no `generate_schema_name` macro, so dbt's default macro appends each custom schema: `staging` becomes `nfl_dev_staging`, `marts` becomes `nfl_dev_marts`, and `test_results` becomes `nfl_dev_test_results`. Seeds have no custom schema, so they stay in `nfl_dev`. Do not query staging or marts from unsuffixed `nfl_dev`. Env overrides: `DATABRICKS_CATALOG`, `DATABRICKS_STAGING_SCHEMA`, `DATABRICKS_RAW_SCHEMA`, `DATABRICKS_MARTS_SCHEMA`.
 
 Split: train seasons through 2023, validation 2024, test 2025. Leakage rule: features for a game use only games with `gameday` strictly before that game.
 

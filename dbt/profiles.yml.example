@@ -19,7 +19,7 @@ endzone_mlops:
       http_path: "{{ env_var('DATABRICKS_HTTP_PATH') }}"
       token: "{{ env_var('DATABRICKS_TOKEN') }}"
       catalog: workspace  # Unity Catalog (default workspace catalog in Free Edition)
-      schema: nfl_dev     # Schema within the catalog
+      schema: nfl_dev     # Target schema. Custom schemas are appended: nfl_dev_staging, nfl_dev_marts, nfl_dev_test_results. Seeds stay in nfl_dev.
       threads: 4
 
     # Snowflake (Plan B if Databricks spike fails)

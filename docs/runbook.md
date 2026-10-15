@@ -486,6 +486,23 @@ python -m src.ingest.load_raw_nflverse --seasons 2020-2024 --dataset all
 .\scripts\dev.ps1 dbt-build-databricks
 ```
 
+### Unity Catalog schema map
+
+Catalog `workspace`. The dbt Databricks target schema is `nfl_dev` (`dbt/profiles.yml.example`). This repo has no `generate_schema_name` macro, so dbt's default macro appends each custom schema from `dbt_project.yml`:
+
+| Custom schema in dbt | Warehouse schema | Objects |
+| --- | --- | --- |
+| (none, seeds) | `nfl_dev` | `team_franchise_map`, `known_pbp_gaps` |
+| `staging` | `nfl_dev_staging` | `stg_nflverse__games`, `stg_nflverse__pbp` |
+| `marts` | `nfl_dev_marts` | `fct_games`, `fct_team_game_epa`, `fct_upcoming_games` |
+| `test_results` | `nfl_dev_test_results` | stored dbt test failures |
+
+Bronze is not a dbt schema. Ingest writes `workspace.nfl_raw.games` and `workspace.nfl_raw.play_by_play`.
+
+Do not select staging or marts from `workspace.nfl_dev`. That name is only the dbt target and the seed schema.
+
+Python overrides, all optional: `DATABRICKS_CATALOG`, `DATABRICKS_STAGING_SCHEMA`, `DATABRICKS_RAW_SCHEMA`, `DATABRICKS_MARTS_SCHEMA`.
+
 ### Verification
 
 After running the ingestion and dbt build, verify the data in Databricks SQL Editor:
@@ -669,7 +686,7 @@ with mlflow.start_run():
 - **Solution**: Experiment path must start with `/Users/<email>/` in Free Edition. Unity Catalog enabled by default.
 
 **Problem**: "Unity Catalog permission denied"
-- **Solution**: Free Edition uses Unity Catalog with workspace catalog. Ensure dbt profile specifies `catalog` (e.g., `workspace`) and `schema` (e.g., `default`).
+- **Solution**: Free Edition uses Unity Catalog with the `workspace` catalog. The dbt profile `schema` is the target `nfl_dev`. Staging, marts, and test results are the suffixed schemas in the map above, not `default`.
 
 ### dbt
 
