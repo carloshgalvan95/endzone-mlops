@@ -14,7 +14,7 @@ help:
 	@echo "  dbt-compile         - Compile dbt models"
 	@echo "  dbt-run             - Run dbt models (creates tables)"
 	@echo "  dbt-test            - Run dbt tests"
-	@echo "  ingest              - Load nflverse data (all seasons 1999-2026, games and pbp)"
+	@echo "  ingest              - Load nflverse games, play-by-play, and depth charts"
 	@echo "  ingest-current      - Refresh current season only (for weekly update)"
 	@echo "  dbt-build-databricks - dbt deps, then build models on the Databricks target"
 	@echo "  train               - Train NFL pregame prediction models with MLflow"

@@ -17,7 +17,7 @@ function Show-Help {
     Write-Host "  dbt-compile         - Compile dbt models"
     Write-Host "  dbt-run             - Run dbt models (creates tables)"
     Write-Host "  dbt-test            - Run dbt tests"
-    Write-Host "  ingest              - Load all seasons (1999-2026, games and pbp)"
+    Write-Host "  ingest              - Load all seasons (games, pbp, depth charts from 2001)"
     Write-Host "  ingest-current      - Refresh current season only (for weekly update)"
     Write-Host "  dbt-build-databricks - dbt deps, then build models on the Databricks target"
     Write-Host "  train               - Train NFL pregame prediction models with MLflow"
