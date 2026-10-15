@@ -12,6 +12,7 @@ Features computed:
 - Season-to-date defensive EPA allowed (h2 sets only)
 - Cross-season regression of season and recent EPA (h2_full only)
 - Recent and regressed-season pass and rush EPA per play (h3 sets only)
+- Clean EPA, same windows as h2_full, plus a recent clean success rate (h4 sets)
 - A simple Elo rating and a no-vig market probability
 """
 
@@ -34,6 +35,8 @@ FEATURE_SET_H2_DEF: str = "h2_def"
 FEATURE_SET_H2_FULL: str = "h2_full"
 FEATURE_SET_H3_SPLIT: str = "h3_split"
 FEATURE_SET_H3_REPLACE: str = "h3_replace"
+FEATURE_SET_H4_CLEAN: str = "h4_clean"
+FEATURE_SET_H4_CLEAN_SR: str = "h4_clean_sr"
 
 # Level columns, in the pre-phase-1 order. Differentials are appended after
 # these so ``current`` and ``with_games_played`` stay the same matrices.
@@ -193,6 +196,75 @@ PREGAME_FEATURE_COLUMNS_H3_REPLACE: tuple[str, ...] = (
     + PASS_RUSH_EPA_COLUMNS
 )
 
+# Win rate and rest stay on h4. Every other h2_full column is an EPA input.
+H2_CONTEXT_COLUMNS: tuple[str, ...] = (
+    "home_recent_win_rate",
+    "away_recent_win_rate",
+    "home_rest_days",
+    "away_rest_days",
+)
+
+# Mart columns for the clean filter. Missing as a pair leaves the h4
+# features missing. One column without the other is refused.
+CLEAN_OFFENSIVE_EPA_COLUMN: str = "avg_clean_offensive_epa"
+CLEAN_DEFENSIVE_EPA_COLUMN: str = "avg_clean_defensive_epa_allowed"
+CLEAN_OFFENSIVE_SUCCESS_COLUMN: str = "clean_success_rate"
+CLEAN_DEFENSIVE_SUCCESS_COLUMN: str = "clean_defensive_success_rate"
+CLEAN_EPA_SOURCE_COLUMNS: tuple[str, ...] = (
+    CLEAN_OFFENSIVE_EPA_COLUMN,
+    CLEAN_DEFENSIVE_EPA_COLUMN,
+)
+CLEAN_SUCCESS_SOURCE_COLUMNS: tuple[str, ...] = (
+    CLEAN_OFFENSIVE_SUCCESS_COLUMN,
+    CLEAN_DEFENSIVE_SUCCESS_COLUMN,
+)
+
+# Recent clean success rate. Same cross-season lookback as recent EPA.
+CLEAN_SUCCESS_RATE_COLUMNS: tuple[str, ...] = (
+    "home_recent_clean_offensive_success_rate",
+    "home_recent_clean_defensive_success_rate",
+    "away_recent_clean_offensive_success_rate",
+    "away_recent_clean_defensive_success_rate",
+)
+
+
+def _clean_epa_feature_name(column: str) -> str:
+    """Insert ``clean_`` before offensive or defensive in an EPA feature name."""
+    for role in ("offensive", "defensive"):
+        token: str = f"_{role}_"
+        if token in column:
+            return column.replace(token, f"_clean_{role}_", 1)
+    raise ValueError(f"{column} is not an offensive or defensive EPA column")
+
+
+def _h4_columns_from_h2(columns: tuple[str, ...]) -> tuple[str, ...]:
+    """Keep context columns and point every EPA column at the clean source."""
+    renamed: list[str] = []
+    for column in columns:
+        if column in H2_CONTEXT_COLUMNS:
+            renamed.append(column)
+        else:
+            renamed.append(_clean_epa_feature_name(column))
+    return tuple(renamed)
+
+
+# ``h2_full`` with every EPA input computed from the clean mart columns.
+# Windows, shrinkage, and the blend weight are the same as ``h2_full``.
+PREGAME_FEATURE_COLUMNS_H4_CLEAN: tuple[str, ...] = _h4_columns_from_h2(
+    PREGAME_FEATURE_COLUMNS_H2_FULL
+)
+
+# ``h4_clean`` plus the recent clean success rate, offense and defense.
+PREGAME_FEATURE_COLUMNS_H4_CLEAN_SR: tuple[str, ...] = (
+    PREGAME_FEATURE_COLUMNS_H4_CLEAN + CLEAN_SUCCESS_RATE_COLUMNS
+)
+
+# Clean EPA columns the builder emits, in output order. The h4 sets select
+# a subset and put win rate and rest back in the ``h2_full`` positions.
+CLEAN_EPA_FEATURE_COLUMNS: tuple[str, ...] = _h4_columns_from_h2(
+    tuple(column for column in PREGAME_FEATURE_COLUMNS_H2_FULL if column not in H2_CONTEXT_COLUMNS)
+)
+
 FEATURE_SET_NAMES: tuple[str, ...] = (
     FEATURE_SET_CURRENT,
     FEATURE_SET_WITH_GAMES_PLAYED,
@@ -202,6 +274,8 @@ FEATURE_SET_NAMES: tuple[str, ...] = (
     FEATURE_SET_H2_FULL,
     FEATURE_SET_H3_SPLIT,
     FEATURE_SET_H3_REPLACE,
+    FEATURE_SET_H4_CLEAN,
+    FEATURE_SET_H4_CLEAN_SR,
 )
 
 FEATURE_SET_COLUMNS: dict[str, tuple[str, ...]] = {
@@ -213,6 +287,8 @@ FEATURE_SET_COLUMNS: dict[str, tuple[str, ...]] = {
     FEATURE_SET_H2_FULL: PREGAME_FEATURE_COLUMNS_H2_FULL,
     FEATURE_SET_H3_SPLIT: PREGAME_FEATURE_COLUMNS_H3_SPLIT,
     FEATURE_SET_H3_REPLACE: PREGAME_FEATURE_COLUMNS_H3_REPLACE,
+    FEATURE_SET_H4_CLEAN: PREGAME_FEATURE_COLUMNS_H4_CLEAN,
+    FEATURE_SET_H4_CLEAN_SR: PREGAME_FEATURE_COLUMNS_H4_CLEAN_SR,
 }
 
 # FiveThirtyEight-style Elo. Home advantage is added only when a game is
@@ -257,6 +333,32 @@ def _mean_or_nan(values: pd.Series) -> float:
     if len(values) == 0:
         return float("nan")
     return float(values.mean())
+
+
+def _column_mean(rows: pd.DataFrame, column: str) -> float:
+    """Mean of one column, or NaN when the column or the rows are missing."""
+    if len(rows) == 0 or column not in rows.columns:
+        return float("nan")
+    return _mean_or_nan(rows[column])
+
+
+def _refuse_partial_source(frame: pd.DataFrame, columns: tuple[str, ...], label: str) -> None:
+    """Allow a source pair to be all present or all absent.
+
+    Args:
+        frame: Team-game table.
+        columns: Columns that have to arrive together.
+        label: Short name used in the error.
+
+    Raises:
+        ValueError: Some of ``columns`` are present and some are not.
+    """
+    present: list[str] = [column for column in columns if column in frame.columns]
+    if len(present) in (0, len(columns)):
+        return
+    missing: list[str] = [column for column in columns if column not in frame.columns]
+    missing_list: str = ", ".join(missing)
+    raise ValueError(f"fct_team_game_epa missing {label} columns: {missing_list}")
 
 
 def _validate_regression_settings(shrink_factor: float, blend_k: float) -> None:
@@ -365,12 +467,16 @@ def _team_epa_snapshot(
     team_prior: pd.DataFrame,
     season: int,
     lookback_games: int,
+    offensive_column: str = "avg_offensive_epa",
+    defensive_column: str = "avg_defensive_epa_allowed",
 ) -> TeamEpaSnapshot:
     """Season and within-season recent EPA from rows already limited to prior games.
 
     ``team_prior`` must contain only games with ``gameday`` strictly before
     the game being featurized, and it must be in gameday order. The prior
     season is ``season - 1`` only. An earlier season is not carried forward.
+    A missing source column yields NaN means. The game count is still the
+    number of prior team-games in the season.
     """
     current_rows: pd.DataFrame = team_prior.loc[team_prior["season"] == season]
     prior_rows: pd.DataFrame = team_prior.loc[team_prior["season"] == season - 1]
@@ -378,32 +484,39 @@ def _team_epa_snapshot(
     prior_recent: pd.DataFrame = prior_rows.tail(lookback_games)
     return TeamEpaSnapshot(
         current_season_n=int(len(current_rows)),
-        current_season_offensive=_mean_or_nan(current_rows["avg_offensive_epa"]),
-        current_season_defensive=_mean_or_nan(current_rows["avg_defensive_epa_allowed"]),
-        current_recent_offensive=_mean_or_nan(current_recent["avg_offensive_epa"]),
-        current_recent_defensive=_mean_or_nan(current_recent["avg_defensive_epa_allowed"]),
-        prior_season_offensive=_mean_or_nan(prior_rows["avg_offensive_epa"]),
-        prior_season_defensive=_mean_or_nan(prior_rows["avg_defensive_epa_allowed"]),
-        prior_recent_offensive=_mean_or_nan(prior_recent["avg_offensive_epa"]),
-        prior_recent_defensive=_mean_or_nan(prior_recent["avg_defensive_epa_allowed"]),
+        current_season_offensive=_column_mean(current_rows, offensive_column),
+        current_season_defensive=_column_mean(current_rows, defensive_column),
+        current_recent_offensive=_column_mean(current_recent, offensive_column),
+        current_recent_defensive=_column_mean(current_recent, defensive_column),
+        prior_season_offensive=_column_mean(prior_rows, offensive_column),
+        prior_season_defensive=_column_mean(prior_rows, defensive_column),
+        prior_recent_offensive=_column_mean(prior_recent, offensive_column),
+        prior_recent_defensive=_column_mean(prior_recent, defensive_column),
     )
 
 
-def _prior_season_league_means(prior_games: pd.DataFrame, prior_season: int) -> dict[str, float]:
+def _prior_season_league_means(
+    prior_games: pd.DataFrame,
+    prior_season: int,
+    offensive_column: str = "avg_offensive_epa",
+    defensive_column: str = "avg_defensive_epa_allowed",
+) -> dict[str, float]:
     """League means for one season, from team-games already limited to earlier dates.
 
     Args:
         prior_games: Every franchise, ``gameday`` strictly before the game.
         prior_season: Season whose completed games form the shrink target.
+        offensive_column: Team-game offensive EPA column to average.
+        defensive_column: Team-game EPA-allowed column to average.
 
     Returns:
         Dict with ``offensive`` and ``defensive`` means. Either is NaN when
-        that season has no earlier team-games.
+        that season has no earlier team-games or the column is absent.
     """
     season_rows: pd.DataFrame = prior_games.loc[prior_games["season"] == prior_season]
     return {
-        "offensive": _mean_or_nan(season_rows["avg_offensive_epa"]),
-        "defensive": _mean_or_nan(season_rows["avg_defensive_epa_allowed"]),
+        "offensive": _column_mean(season_rows, offensive_column),
+        "defensive": _column_mean(season_rows, defensive_column),
     }
 
 
@@ -413,29 +526,34 @@ def _regressed_epa_for_side(
     league_means: dict[str, float],
     shrink_factor: float,
     blend_k: float,
+    infix: str = "",
 ) -> dict[str, float]:
-    """Regressed recent and season EPA columns for ``home`` or ``away``."""
+    """Regressed recent and season EPA columns for ``home`` or ``away``.
+
+    ``infix`` is ``""`` for the original columns and ``"clean_"`` for the
+    clean-EPA columns. Shrinkage and the blend weight do not change.
+    """
     specs: tuple[tuple[str, float, float, float], ...] = (
         (
-            "regressed_recent_offensive_epa_per_play",
+            f"regressed_recent_{infix}offensive_epa_per_play",
             snapshot.current_recent_offensive,
             snapshot.prior_recent_offensive,
             league_means["offensive"],
         ),
         (
-            "regressed_recent_defensive_epa_per_play",
+            f"regressed_recent_{infix}defensive_epa_per_play",
             snapshot.current_recent_defensive,
             snapshot.prior_recent_defensive,
             league_means["defensive"],
         ),
         (
-            "regressed_season_offensive_epa_per_play",
+            f"regressed_season_{infix}offensive_epa_per_play",
             snapshot.current_season_offensive,
             snapshot.prior_season_offensive,
             league_means["offensive"],
         ),
         (
-            "regressed_season_defensive_epa_per_play",
+            f"regressed_season_{infix}defensive_epa_per_play",
             snapshot.current_season_defensive,
             snapshot.prior_season_defensive,
             league_means["defensive"],
@@ -453,6 +571,69 @@ def _regressed_epa_for_side(
         )
         columns[f"{side}_{suffix}"] = regressed["value"]
     return columns
+
+
+def _epa_feature_block(
+    side: str,
+    prior: pd.DataFrame,
+    season: int,
+    lookback_games: int,
+    league_means: dict[str, float],
+    shrink_factor: float,
+    blend_k: float,
+    offensive_column: str,
+    defensive_column: str,
+    infix: str = "",
+) -> dict[str, float]:
+    """Recent, season, and regressed EPA for one side from one column pair.
+
+    Recent means use the cross-season lookback. Season and regressed-recent
+    means stay inside one season. ``infix`` is ``""`` or ``"clean_"``.
+    """
+    rolling: pd.DataFrame = prior.tail(lookback_games)
+    snapshot: TeamEpaSnapshot = _team_epa_snapshot(
+        prior,
+        season,
+        lookback_games,
+        offensive_column=offensive_column,
+        defensive_column=defensive_column,
+    )
+    regressed: dict[str, float] = _regressed_epa_for_side(
+        side,
+        snapshot,
+        league_means,
+        shrink_factor,
+        blend_k,
+        infix=infix,
+    )
+    return {
+        f"{side}_recent_{infix}offensive_epa_per_play": _column_mean(rolling, offensive_column),
+        f"{side}_recent_{infix}defensive_epa_per_play": _column_mean(rolling, defensive_column),
+        f"{side}_season_{infix}offensive_epa_per_play": snapshot.current_season_offensive,
+        f"{side}_season_{infix}defensive_epa_per_play": snapshot.current_season_defensive,
+        **regressed,
+    }
+
+
+def _recent_clean_success(
+    side: str,
+    prior: pd.DataFrame,
+    lookback_games: int,
+) -> dict[str, float]:
+    """Cross-season lookback means of clean success rate for one side.
+
+    A missing source column stays missing. The current game is not in
+    ``prior``.
+    """
+    window: pd.DataFrame = prior.tail(lookback_games)
+    return {
+        f"{side}_recent_clean_offensive_success_rate": _column_mean(
+            window, CLEAN_OFFENSIVE_SUCCESS_COLUMN
+        ),
+        f"{side}_recent_clean_defensive_success_rate": _column_mean(
+            window, CLEAN_DEFENSIVE_SUCCESS_COLUMN
+        ),
+    }
 
 
 # Mart columns. pass_epa and rush_epa are offensive sums. Play counts are
@@ -673,6 +854,14 @@ def build_pregame_features(
     that game, because the mart stores pass and rush EPA on the offense row.
     A team-game frame with none of those source columns leaves the splits
     missing. A frame with only some of them raises ``ValueError``.
+
+    Clean EPA uses ``avg_clean_offensive_epa`` and
+    ``avg_clean_defensive_epa_allowed``. Recent, season, and regressed
+    columns use the same windows, ``shrink_factor``, and ``blend_k`` as the
+    original EPA columns. The league mean is the clean column, not the
+    original one. Recent clean success rate uses the same cross-season
+    lookback. A frame with none of a clean source pair leaves those features
+    missing. A frame with only one column of a pair raises ``ValueError``.
     """
     _validate_regression_settings(shrink_factor, blend_k)
     # Validate required columns
@@ -712,6 +901,8 @@ def build_pregame_features(
     fct_games = fct_games.sort_values("gameday").reset_index(drop=True)
     fct_team_game_epa = fct_team_game_epa.sort_values("gameday").reset_index(drop=True)
     fct_team_game_epa = _attach_pass_rush_rates(fct_team_game_epa)
+    _refuse_partial_source(fct_team_game_epa, CLEAN_EPA_SOURCE_COLUMNS, "clean EPA")
+    _refuse_partial_source(fct_team_game_epa, CLEAN_SUCCESS_SOURCE_COLUMNS, "clean success")
 
     features_list = []
 
@@ -727,28 +918,6 @@ def build_pregame_features(
         # Home team prior games
         home_prior = prior_games[prior_games["team_franchise"] == home_team].copy()
         away_prior = prior_games[prior_games["team_franchise"] == away_team].copy()
-
-        # Compute rolling features (last N games)
-        home_rolling = home_prior.tail(lookback_games)
-        away_rolling = away_prior.tail(lookback_games)
-
-        # Rolling EPA features (use NaN if no prior games, not 0)
-        home_recent_off_epa = (
-            home_rolling["avg_offensive_epa"].mean() if len(home_rolling) > 0 else float("nan")
-        )
-        home_recent_def_epa = (
-            home_rolling["avg_defensive_epa_allowed"].mean()
-            if len(home_rolling) > 0
-            else float("nan")
-        )
-        away_recent_off_epa = (
-            away_rolling["avg_offensive_epa"].mean() if len(away_rolling) > 0 else float("nan")
-        )
-        away_recent_def_epa = (
-            away_rolling["avg_defensive_epa_allowed"].mean()
-            if len(away_rolling) > 0
-            else float("nan")
-        )
 
         # Rolling win rate (from fct_games via team_franchise)
         home_recent_games = fct_games[
@@ -793,14 +962,64 @@ def build_pregame_features(
         # Season-to-date EPA (expanding window)
         # Use season column, not gameday.year (January playoffs belong to prior season)
         game_season = int(game["season"])
-        home_snapshot: TeamEpaSnapshot = _team_epa_snapshot(home_prior, game_season, lookback_games)
-        away_snapshot: TeamEpaSnapshot = _team_epa_snapshot(away_prior, game_season, lookback_games)
         league_means: dict[str, float] = _prior_season_league_means(prior_games, game_season - 1)
-        home_regressed: dict[str, float] = _regressed_epa_for_side(
-            "home", home_snapshot, league_means, shrink_factor, blend_k
+        clean_league_means: dict[str, float] = _prior_season_league_means(
+            prior_games,
+            game_season - 1,
+            offensive_column=CLEAN_OFFENSIVE_EPA_COLUMN,
+            defensive_column=CLEAN_DEFENSIVE_EPA_COLUMN,
         )
-        away_regressed: dict[str, float] = _regressed_epa_for_side(
-            "away", away_snapshot, league_means, shrink_factor, blend_k
+        home_epa: dict[str, float] = _epa_feature_block(
+            "home",
+            home_prior,
+            game_season,
+            lookback_games,
+            league_means,
+            shrink_factor,
+            blend_k,
+            "avg_offensive_epa",
+            "avg_defensive_epa_allowed",
+        )
+        away_epa: dict[str, float] = _epa_feature_block(
+            "away",
+            away_prior,
+            game_season,
+            lookback_games,
+            league_means,
+            shrink_factor,
+            blend_k,
+            "avg_offensive_epa",
+            "avg_defensive_epa_allowed",
+        )
+        home_clean: dict[str, float] = _epa_feature_block(
+            "home",
+            home_prior,
+            game_season,
+            lookback_games,
+            clean_league_means,
+            shrink_factor,
+            blend_k,
+            CLEAN_OFFENSIVE_EPA_COLUMN,
+            CLEAN_DEFENSIVE_EPA_COLUMN,
+            infix="clean_",
+        )
+        away_clean: dict[str, float] = _epa_feature_block(
+            "away",
+            away_prior,
+            game_season,
+            lookback_games,
+            clean_league_means,
+            shrink_factor,
+            blend_k,
+            CLEAN_OFFENSIVE_EPA_COLUMN,
+            CLEAN_DEFENSIVE_EPA_COLUMN,
+            infix="clean_",
+        )
+        home_clean_success: dict[str, float] = _recent_clean_success(
+            "home", home_prior, lookback_games
+        )
+        away_clean_success: dict[str, float] = _recent_clean_success(
+            "away", away_prior, lookback_games
         )
         pass_rush_league: dict[str, float] = _prior_season_pass_rush_means(
             prior_games, game_season - 1
@@ -828,9 +1047,6 @@ def build_pregame_features(
             blend_k,
         )
 
-        home_season_off_epa = home_snapshot.current_season_offensive
-        away_season_off_epa = away_snapshot.current_season_offensive
-
         # Rest days (from fct_games.home_rest/away_rest)
         home_rest_days = game["home_rest"] if pd.notna(game["home_rest"]) else 7
         away_rest_days = game["away_rest"] if pd.notna(game["away_rest"]) else 7
@@ -838,22 +1054,18 @@ def build_pregame_features(
         features_list.append(
             {
                 "game_id": game_id,
-                "home_recent_offensive_epa_per_play": home_recent_off_epa,
-                "home_recent_defensive_epa_per_play": home_recent_def_epa,
-                "away_recent_offensive_epa_per_play": away_recent_off_epa,
-                "away_recent_defensive_epa_per_play": away_recent_def_epa,
                 "home_recent_win_rate": home_recent_win_rate,
                 "away_recent_win_rate": away_recent_win_rate,
                 "home_rest_days": home_rest_days,
                 "away_rest_days": away_rest_days,
-                "home_season_offensive_epa_per_play": home_season_off_epa,
-                "away_season_offensive_epa_per_play": away_season_off_epa,
-                "home_season_defensive_epa_per_play": home_snapshot.current_season_defensive,
-                "away_season_defensive_epa_per_play": away_snapshot.current_season_defensive,
                 "home_games_played": len(home_prior),
                 "away_games_played": len(away_prior),
-                **home_regressed,
-                **away_regressed,
+                **home_epa,
+                **away_epa,
+                **home_clean,
+                **away_clean,
+                **home_clean_success,
+                **away_clean_success,
                 **home_pass_rush_recent,
                 **away_pass_rush_recent,
                 **home_pass_rush_season,
@@ -869,6 +1081,8 @@ def build_pregame_features(
         *SEASON_DEFENSIVE_EPA_COLUMNS,
         *REGRESSED_EPA_COLUMNS,
         *PASS_RUSH_EPA_COLUMNS,
+        *CLEAN_EPA_FEATURE_COLUMNS,
+        *CLEAN_SUCCESS_RATE_COLUMNS,
     ]
     return frame.loc[:, ordered_columns]
 
@@ -920,6 +1134,9 @@ def feature_columns_for(feature_set: str) -> tuple[str, ...]:
     ``h3_split`` is ``h2_full`` plus recent and regressed-season pass/rush EPA.
     ``h3_replace`` drops the combined recent and regressed-season EPA that
     those splits replace and keeps the rest of ``h2_full``.
+    ``h4_clean`` is ``h2_full`` with every EPA input taken from the clean
+    mart columns. Win rate and rest stay. ``h4_clean_sr`` adds the recent
+    clean success rate for offense and defense.
 
     Args:
         feature_set: One of ``FEATURE_SET_NAMES``.

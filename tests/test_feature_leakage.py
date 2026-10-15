@@ -9,6 +9,8 @@ import pandas as pd
 import pytest
 
 from src.features.pregame import (
+    CLEAN_EPA_FEATURE_COLUMNS,
+    CLEAN_SUCCESS_RATE_COLUMNS,
     DIFF_FEATURE_COLUMNS,
     DIFFERENTIAL_FEATURES,
     ELO_HOME_ADVANTAGE,
@@ -20,6 +22,8 @@ from src.features.pregame import (
     PASS_RUSH_EPA_COLUMNS,
     PREGAME_COMPUTED_COLUMNS,
     PREGAME_FEATURE_COLUMNS,
+    PREGAME_FEATURE_COLUMNS_H2_FULL,
+    PREGAME_FEATURE_COLUMNS_H4_CLEAN,
     REGRESSED_EPA_COLUMNS,
     SEASON_BLEND_K,
     SEASON_DEFENSIVE_EPA_COLUMNS,
@@ -35,6 +39,8 @@ CHECKED_FEATURE_COLUMNS: tuple[str, ...] = (
     + SEASON_DEFENSIVE_EPA_COLUMNS
     + REGRESSED_EPA_COLUMNS
     + PASS_RUSH_EPA_COLUMNS
+    + CLEAN_EPA_FEATURE_COLUMNS
+    + CLEAN_SUCCESS_RATE_COLUMNS
 )
 
 LOOKBACK_GAMES: int = 2
@@ -880,6 +886,196 @@ class TestPassRushLeakage:
         partial = epa.drop(columns=["pass_plays"])
         with pytest.raises(ValueError, match="missing pass/rush columns"):
             build_pregame_features(games, partial, lookback_games=10)
+
+
+def _clean_epa_games() -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Two prior games, a same-day opener, and a week 2 that must not leak.
+
+    Clean rates differ from the original EPA rates so a mix-up fails.
+    """
+    games = pd.DataFrame(
+        {
+            "game_id": ["P1", "P2", "W1", "SAME", "W2"],
+            "season": [2023, 2023, 2024, 2024, 2024],
+            "gameday": pd.to_datetime(
+                ["2023-09-10", "2023-09-17", "2024-09-08", "2024-09-08", "2024-09-15"]
+            ),
+            "home_team_franchise": ["A", "A", "A", "A", "A"],
+            "away_team_franchise": ["B", "C", "B", "D", "B"],
+            "home_score": [20, 17, 24, 21, 14],
+            "away_score": [10, 14, 7, 10, 17],
+            "home_won": [1, 1, 1, 1, 0],
+            "home_rest": [7, 7, 7, 7, 7],
+            "away_rest": [7, 7, 7, 7, 7],
+        }
+    )
+    rates: dict[tuple[str, str], tuple[float, float, float, float, float, float]] = {
+        ("P1", "A"): (0.05, 0.01, 0.50, -0.20, 0.80, 0.25),
+        ("P1", "B"): (0.00, 0.00, 0.10, 0.30, 0.20, 0.70),
+        ("P2", "A"): (0.15, 0.02, 0.30, 0.00, 0.40, 0.50),
+        ("P2", "C"): (0.00, 0.00, 0.00, 0.10, 0.60, 0.10),
+        ("W1", "A"): (9.00, 9.00, 9.00, 9.00, 0.10, 0.10),
+        ("W1", "B"): (7.00, 7.00, 7.00, 7.00, 0.10, 0.10),
+        ("SAME", "A"): (8.00, 8.00, 8.00, 8.00, 0.10, 0.10),
+        ("SAME", "D"): (6.00, 6.00, 6.00, 6.00, 0.10, 0.10),
+        ("W2", "A"): (1.00, 1.00, 1.00, 1.00, 0.90, 0.90),
+        ("W2", "B"): (1.00, 1.00, 1.00, 1.00, 0.90, 0.90),
+    }
+    gamedays = {
+        "P1": "2023-09-10",
+        "P2": "2023-09-17",
+        "W1": "2024-09-08",
+        "SAME": "2024-09-08",
+        "W2": "2024-09-15",
+    }
+    rows: list[dict[str, object]] = []
+    for (game_id, team), values in rates.items():
+        dirty_off, dirty_def, clean_off, clean_def, success, success_allowed = values
+        season = 2023 if game_id.startswith("P") else 2024
+        rows.append(
+            {
+                "game_id": game_id,
+                "season": season,
+                "gameday": pd.Timestamp(gamedays[game_id]),
+                "team_franchise": team,
+                "avg_offensive_epa": dirty_off,
+                "avg_defensive_epa_allowed": dirty_def,
+                "avg_clean_offensive_epa": clean_off,
+                "avg_clean_defensive_epa_allowed": clean_def,
+                "clean_success_rate": success,
+                "clean_defensive_success_rate": success_allowed,
+            }
+        )
+    return games, pd.DataFrame(rows)
+
+
+class TestCleanEpaLeakage:
+    """Clean EPA uses prior games only, with the same windows as h2_full."""
+
+    def test_week_one_uses_clean_history_and_not_the_original_rates(self) -> None:
+        """The opener's clean recent mean is the two prior clean games, not 9.0."""
+        games, epa = _clean_epa_games()
+        features = build_pregame_features(games, epa, lookback_games=10)
+        opener = _feature_row(features, "W1")
+        same_day = _feature_row(features, "SAME")
+        league_offense: float = (0.50 + 0.10 + 0.30 + 0.00) / 4.0
+        prior_offense: float = (0.50 + 0.30) / 2.0
+        shrunk: float = league_offense + (2.0 / 3.0) * (prior_offense - league_offense)
+        assert opener["home_recent_offensive_epa_per_play"] == pytest.approx((0.05 + 0.15) / 2.0)
+        assert opener["home_recent_clean_offensive_epa_per_play"] == pytest.approx(prior_offense)
+        assert opener["home_recent_clean_offensive_epa_per_play"] != pytest.approx(
+            opener["home_recent_offensive_epa_per_play"]
+        )
+        assert opener["home_recent_clean_defensive_epa_per_play"] == pytest.approx(
+            (-0.20 + 0.00) / 2.0
+        )
+        assert pd.isna(opener["home_season_clean_offensive_epa_per_play"])
+        assert opener["home_regressed_season_clean_offensive_epa_per_play"] == pytest.approx(shrunk)
+        assert opener["home_regressed_recent_clean_offensive_epa_per_play"] == pytest.approx(shrunk)
+        assert opener["home_recent_clean_offensive_success_rate"] == pytest.approx(
+            (0.80 + 0.40) / 2.0
+        )
+        assert opener["home_recent_clean_defensive_success_rate"] == pytest.approx(
+            (0.25 + 0.50) / 2.0
+        )
+        assert opener["home_regressed_season_clean_offensive_epa_per_play"] != pytest.approx(9.0)
+        for column in CLEAN_EPA_FEATURE_COLUMNS + CLEAN_SUCCESS_RATE_COLUMNS:
+            if column.startswith("away_"):
+                continue
+            _assert_equal(same_day[column], opener[column], column)
+
+    def test_lookback_one_keeps_the_last_prior_clean_game(self) -> None:
+        """Recent clean success and EPA use P2. The season shrink still uses both."""
+        games, epa = _clean_epa_games()
+        features = build_pregame_features(games, epa, lookback_games=1)
+        opener = _feature_row(features, "W1")
+        league_offense: float = 0.225
+        last_offense: float = 0.30
+        season_offense: float = 0.40
+        assert opener["home_recent_clean_offensive_epa_per_play"] == pytest.approx(last_offense)
+        assert opener["home_recent_clean_offensive_success_rate"] == pytest.approx(0.40)
+        assert opener["home_recent_clean_defensive_success_rate"] == pytest.approx(0.50)
+        assert opener["home_regressed_recent_clean_offensive_epa_per_play"] == pytest.approx(
+            league_offense + (2.0 / 3.0) * (last_offense - league_offense)
+        )
+        assert opener["home_regressed_season_clean_offensive_epa_per_play"] == pytest.approx(
+            league_offense + (2.0 / 3.0) * (season_offense - league_offense)
+        )
+
+    def test_later_week_blends_current_clean_games_and_ignores_itself(self) -> None:
+        """W1 and SAME are in the current mean. W2's own clean EPA of 1.0 is not."""
+        games, epa = _clean_epa_games()
+        features = build_pregame_features(games, epa, lookback_games=10)
+        second = _feature_row(features, "W2")
+        current_offense: float = (9.0 + 8.0) / 2.0
+        shrunk: float = 0.225 + (2.0 / 3.0) * (0.40 - 0.225)
+        weight: float = 2.0 / (2.0 + SEASON_BLEND_K)
+        expected: float = weight * current_offense + (1.0 - weight) * shrunk
+        assert second["home_season_clean_offensive_epa_per_play"] == pytest.approx(current_offense)
+        assert second["home_regressed_season_clean_offensive_epa_per_play"] == pytest.approx(
+            expected
+        )
+        assert second["home_recent_clean_offensive_epa_per_play"] == pytest.approx(
+            (0.50 + 0.30 + 9.0 + 8.0) / 4.0
+        )
+        assert second["home_recent_clean_offensive_success_rate"] == pytest.approx(
+            (0.80 + 0.40 + 0.10 + 0.10) / 4.0
+        )
+        assert second["home_regressed_season_clean_offensive_epa_per_play"] != pytest.approx(1.0)
+        earlier = games.loc[games["gameday"] < pd.Timestamp("2024-09-15")]
+        current_game = games.loc[games["game_id"] == "W2"]
+        truncated = build_pregame_features(
+            pd.concat([earlier, current_game], ignore_index=True),
+            epa.loc[epa["gameday"] < pd.Timestamp("2024-09-15")],
+            lookback_games=10,
+        )
+        truncated_row = _feature_row(truncated, "W2")
+        for column in CLEAN_EPA_FEATURE_COLUMNS + CLEAN_SUCCESS_RATE_COLUMNS:
+            _assert_equal(truncated_row[column], second[column], column)
+        for column in PREGAME_FEATURE_COLUMNS_H2_FULL:
+            _assert_equal(
+                truncated_row[column],
+                second[column],
+                f"h2.{column}",
+            )
+
+    def test_future_clean_rates_do_not_move_week_one_and_do_not_move_h2(self) -> None:
+        """Poisoning clean columns on or after week 1 leaves the opener put."""
+        games, epa = _clean_epa_games()
+        baseline = build_pregame_features(games, epa, lookback_games=10)
+        poisoned = epa.copy()
+        later = poisoned["gameday"] >= pd.Timestamp("2024-09-08")
+        poisoned.loc[later, "avg_clean_offensive_epa"] = 50.0
+        poisoned.loc[later, "avg_clean_defensive_epa_allowed"] = -50.0
+        poisoned.loc[later, "clean_success_rate"] = 0.0
+        poisoned.loc[later, "clean_defensive_success_rate"] = 1.0
+        updated = build_pregame_features(games, poisoned, lookback_games=10)
+        baseline_row = _feature_row(baseline, "W1")
+        updated_row = _feature_row(updated, "W1")
+        for column in CLEAN_EPA_FEATURE_COLUMNS + CLEAN_SUCCESS_RATE_COLUMNS:
+            _assert_equal(updated_row[column], baseline_row[column], column)
+        for column in PREGAME_FEATURE_COLUMNS_H2_FULL:
+            _assert_equal(updated_row[column], baseline_row[column], column)
+
+        changed = epa.copy()
+        prior = (changed["game_id"] == "P2") & (changed["team_franchise"] == "A")
+        changed.loc[prior, "avg_clean_offensive_epa"] = 0.0
+        moved = build_pregame_features(games, changed, lookback_games=10)
+        moved_row = _feature_row(moved, "W1")
+        assert moved_row["home_recent_clean_offensive_epa_per_play"] != pytest.approx(
+            baseline_row["home_recent_clean_offensive_epa_per_play"]
+        )
+        assert moved_row["home_recent_offensive_epa_per_play"] == pytest.approx(
+            baseline_row["home_recent_offensive_epa_per_play"]
+        )
+        for dirty, clean in zip(
+            PREGAME_FEATURE_COLUMNS_H2_FULL,
+            PREGAME_FEATURE_COLUMNS_H4_CLEAN,
+            strict=True,
+        ):
+            if dirty == clean:
+                continue
+            assert clean in CLEAN_EPA_FEATURE_COLUMNS
 
 
 def _elo_games() -> pd.DataFrame:
