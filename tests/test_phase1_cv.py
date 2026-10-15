@@ -16,6 +16,8 @@ from src.features.pregame import (
     PREGAME_FEATURE_COLUMNS_H2_FULL,
     PREGAME_FEATURE_COLUMNS_H3_REPLACE,
     PREGAME_FEATURE_COLUMNS_H3_SPLIT,
+    PREGAME_FEATURE_COLUMNS_H4_CLEAN,
+    PREGAME_FEATURE_COLUMNS_H4_CLEAN_SR,
     REGRESSED_EPA_COLUMNS,
     SEASON_DEFENSIVE_EPA_COLUMNS,
     american_odds_to_implied_probability,
@@ -26,6 +28,7 @@ from src.train.train import (
     HYPOTHESIS_H1,
     HYPOTHESIS_H2,
     HYPOTHESIS_H3,
+    HYPOTHESIS_H4,
     HYPOTHESIS_RIDGE,
     MIN_LOG_LOSS_IMPROVEMENT,
     PHASE1_EXPERIMENT_NAME,
@@ -33,6 +36,7 @@ from src.train.train import (
     PHASE2_EXPERIMENT_NAME,
     PHASE2_H2_EXPERIMENT_NAME,
     PHASE2_H3_EXPERIMENT_NAME,
+    PHASE2_H4_EXPERIMENT_NAME,
     PHASE2_RIDGE_EXPERIMENT_NAME,
     PHASE2_TAG,
     CvModelSpec,
@@ -731,6 +735,23 @@ class TestReferenceSelection:
             "h3_split",
             "h3_replace",
         )
+        h4_reference = resolve_reference_spec(2, hypothesis="h4")
+        assert h4_reference == {"model": "logistic", "feature_set": "h2_full"}
+        assert logistic_feature_sets_for(2, hypothesis="h4") == (
+            "h2_full",
+            "h4_clean",
+            "h4_clean_sr",
+        )
+        assert logistic_feature_sets_for(2, hypothesis="h4-clean-epa") == (
+            "h2_full",
+            "h4_clean",
+            "h4_clean_sr",
+        )
+        assert cv_model_specs_for(2, hypothesis="h4") == (
+            CvModelSpec("logistic", "h2_full"),
+            CvModelSpec("logistic", "h4_clean"),
+            CvModelSpec("logistic", "h4_clean_sr"),
+        )
         ridge_reference = resolve_reference_spec(2, hypothesis="ridge")
         assert ridge_reference == {"model": "logistic", "feature_set": "h2_full"}
         assert logistic_feature_sets_for(2, hypothesis="ridge") == ("h2_full",)
@@ -757,6 +778,11 @@ class TestReferenceSelection:
         assert h3_settings["output_dir"] == "reports/phase2_h3"
         assert h3_settings["experiment_name"] == PHASE2_H3_EXPERIMENT_NAME
         assert h3_settings["phase_tag"] == PHASE2_TAG
+        h4_settings = phase_tracking_settings(2, hypothesis="h4")
+        assert h4_settings["hypothesis"] == HYPOTHESIS_H4
+        assert h4_settings["output_dir"] == "reports/phase2_h4"
+        assert h4_settings["experiment_name"] == PHASE2_H4_EXPERIMENT_NAME
+        assert h4_settings["phase_tag"] == PHASE2_TAG
         ridge_settings = phase_tracking_settings(2, hypothesis="ridge")
         assert ridge_settings["hypothesis"] == HYPOTHESIS_RIDGE
         assert ridge_settings["output_dir"] == "reports/phase2_ridge"
@@ -769,7 +795,7 @@ class TestReferenceSelection:
         with pytest.raises(ValueError, match="does not take a hypothesis"):
             logistic_feature_sets_for(1, hypothesis="h2")
         with pytest.raises(ValueError, match="Unknown hypothesis"):
-            logistic_feature_sets_for(2, hypothesis="h4")
+            logistic_feature_sets_for(2, hypothesis="h9")
 
     def test_attach_uses_the_named_reference_and_rejects_a_missing_one(self) -> None:
         """Log loss gaps are versus the selected row, which differs from itself by zero."""
@@ -835,6 +861,14 @@ class TestReferenceSelection:
             assert column in h3_groups["epa"]
             assert column not in h3_groups["win_rate"]
             assert column not in h3_groups["diff"]
+        h4_groups = feature_column_groups(list(PREGAME_FEATURE_COLUMNS_H4_CLEAN))
+        assert "home_recent_clean_offensive_epa_per_play" in h4_groups["epa"]
+        assert h4_groups["success_rate"] == []
+        sr_groups = feature_column_groups(list(PREGAME_FEATURE_COLUMNS_H4_CLEAN_SR))
+        assert "home_recent_clean_offensive_success_rate" in sr_groups["success_rate"]
+        assert "home_recent_clean_defensive_success_rate" in sr_groups["success_rate"]
+        assert "home_recent_clean_offensive_success_rate" not in sr_groups["epa"]
+        assert "home_recent_clean_offensive_success_rate" not in sr_groups["other"]
 
 
 class TestPhase2Hypothesis:
@@ -1254,6 +1288,173 @@ class TestPhase2H3Hypothesis:
             _reset_mlflow_tracking()
 
 
+class TestPhase2H4Hypothesis:
+    """H4 scores clean EPA against logistic h2_full, plus the baselines."""
+
+    def test_phase2_h4_report_uses_h2_full_as_the_reference(self) -> None:
+        """h4_clean and h4_clean_sr replace the H3 candidates. Older sets stay out."""
+        games, team_games = _schedule(with_moneyline=False)
+        report = run_phase1_baselines(
+            games,
+            team_games,
+            config=_fast_config(n_bootstrap=8),
+            lookback_games=2,
+            logistic_max_iter=200,
+            phase=2,
+            hypothesis="h4",
+        )
+        table = report["comparison_table"]
+        pairs = set(zip(table["model"], table["feature_set"], strict=True))
+        assert pairs == {
+            ("baseline-home", "none"),
+            ("logistic", "h2_full"),
+            ("logistic", "h4_clean"),
+            ("logistic", "h4_clean_sr"),
+            ("elo", "elo"),
+            ("market", "market"),
+        }
+        assert report["reference_model"] == "logistic"
+        assert report["reference_feature_set"] == "h2_full"
+        assert report["hypothesis"] == HYPOTHESIS_H4
+        assert report["title"] == "Phase 2 H4 clean EPA"
+        reference = next(
+            item
+            for item in report["results"]
+            if item["model"] == "logistic" and item["feature_set"] == "h2_full"
+        )
+        h4_clean = next(item for item in report["results"] if item["feature_set"] == "h4_clean")
+        h4_sr = next(item for item in report["results"] if item["feature_set"] == "h4_clean_sr")
+        assert reference["comparison"]["log_loss_diff"] == pytest.approx(0.0)
+        assert h4_clean["comparison"]["reference_log_loss"] == pytest.approx(
+            reference["comparison"]["log_loss"]
+        )
+        assert h4_sr["comparison"]["n"] == reference["comparison"]["n"]
+        assert h4_clean["params"]["features"].split(",") == list(PREGAME_FEATURE_COLUMNS_H4_CLEAN)
+        assert h4_sr["params"]["features"].split(",") == list(PREGAME_FEATURE_COLUMNS_H4_CLEAN_SR)
+        assert h4_clean["params"]["shrink_factor"] == pytest.approx(1.0 / 3.0)
+        assert h4_clean["params"]["blend_k"] == pytest.approx(4.0)
+        assert "home_recent_offensive_epa_per_play" not in h4_clean["params"]["features"]
+        assert "home_recent_clean_offensive_epa_per_play" in h4_clean["params"]["features"]
+        assert "home_recent_clean_offensive_success_rate" in h4_sr["params"]["features"]
+        assert "home_recent_win_rate" in h4_clean["params"]["features"]
+        decisions = {row["feature_set"]: row["decision"] for row in report["acceptance"]}
+        assert decisions["h2_full"] == "reference"
+        assert decisions["h4_clean"] in {"accepted", "rejected", "inconclusive"}
+        assert decisions["h4_clean_sr"] in {"accepted", "rejected", "inconclusive"}
+        assert "Hypothesis: `h4-clean-epa`" in report["markdown"]
+        assert "on feature set `h2_full`" in report["markdown"]
+        assert "0.003" in report["markdown"]
+        assert "Clean EPA keeps pass and run plays only." in report["markdown"]
+        assert "0.05" in report["markdown"]
+        assert "No model is promoted" in report["markdown"]
+        assert "\u2014" not in report["markdown"]
+        for result in report["results"]:
+            if result["oof"] is None:
+                continue
+            assert set(result["oof"]["season"]).isdisjoint({2024, 2025})
+
+    def test_cli_phase2_h4_tags_hypothesis_and_keeps_h3_available(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """``--hypothesis h4`` logs phase=2 and writes reports/phase2_h4."""
+        import mlflow
+
+        games, team_games = _schedule(with_moneyline=True)
+        fixture_dir = tmp_path / "fixtures"
+        fixture_dir.mkdir()
+        games.to_parquet(fixture_dir / "fct_games.parquet")
+        team_games.to_parquet(fixture_dir / "fct_team_game_epa.parquet")
+        tracking_uri: str = "sqlite:///" + (tmp_path / "mlflow.db").as_posix()
+        monkeypatch.setenv("MLFLOW_TRACKING_URI", tracking_uri)
+        monkeypatch.setattr("src.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
+        output_dir = tmp_path / "phase2_h4"
+        try:
+            main(
+                [
+                    "--cv",
+                    "--phase",
+                    "2",
+                    "--hypothesis",
+                    "h4",
+                    "--fixture-path",
+                    str(fixture_dir),
+                    "--output-dir",
+                    str(output_dir),
+                    "--cv-start-season",
+                    "2022",
+                    "--cv-end-season",
+                    "2023",
+                    "--n-bootstrap",
+                    "4",
+                    "--lookback",
+                    "2",
+                    "--max-iter",
+                    "200",
+                    "--seed",
+                    "7",
+                ]
+            )
+            table = pd.read_csv(output_dir / "comparison.csv")
+            pairs = set(zip(table["model"], table["feature_set"], strict=True))
+            assert ("logistic", "h4_clean") in pairs
+            assert ("logistic", "h4_clean_sr") in pairs
+            assert ("logistic", "h2_full") in pairs
+            assert ("logistic", "h3_split") not in pairs
+            assert ("logistic", "current") not in pairs
+            assert ("elo", "elo") in pairs
+            assert ("baseline-home", "none") in pairs
+            markdown = (output_dir / "comparison.md").read_text(encoding="utf-8")
+            assert "Hypothesis: `h4-clean-epa`" in markdown
+            assert "on feature set `h2_full`" in markdown
+            assert "\u2014" not in markdown
+            client = mlflow.tracking.MlflowClient(tracking_uri=tracking_uri)
+            experiment = client.get_experiment_by_name(PHASE2_H4_EXPERIMENT_NAME)
+            assert experiment is not None
+            runs = client.search_runs(experiment_ids=[experiment.experiment_id])
+            assert runs
+            assert all(run.data.tags.get("phase") == PHASE2_TAG for run in runs)
+            assert all(run.data.tags.get("hypothesis") == HYPOTHESIS_H4 for run in runs)
+            parents = [run for run in runs if "mlflow.parentRunId" not in run.data.tags]
+            children = [run for run in runs if "mlflow.parentRunId" in run.data.tags]
+            assert len(parents) == 1
+            parent = client.get_run(parents[0].info.run_id)
+            assert parent.info.run_name.startswith("phase2-h4-")
+            assert parent.data.tags["reference_model"] == "logistic"
+            assert parent.data.tags["reference_feature_set"] == "h2_full"
+            assert parent.data.tags["best_feature_set"] in {"h2_full", "h4_clean", "h4_clean_sr"}
+            digest = parent.data.tags["data_digest"]
+            assert digest
+            assert all(
+                child.data.tags["mlflow.parentRunId"] == parent.info.run_id for child in children
+            )
+            assert all(child.data.tags["data_digest"] == digest for child in children)
+            by_pair = {
+                (child.data.params["model_type"], child.data.params["feature_set"]): child
+                for child in children
+            }
+            assert by_pair[("logistic", "h2_full")].data.tags["decision"] == "reference"
+            assert by_pair[("baseline-home", "none")].data.tags["decision"] == "baseline"
+            assert by_pair[("elo", "elo")].data.tags["decision"] == "baseline"
+            assert by_pair[("market", "market")].data.tags["decision"] == "baseline"
+            clean_run = by_pair[("logistic", "h4_clean")]
+            assert clean_run.data.tags["decision"] in {"accepted", "rejected", "inconclusive"}
+            assert "log_loss_diff" in clean_run.data.metrics
+            assert "log_loss_diff_ci_low" in clean_run.data.metrics
+            assert "log_loss_diff_ci_high" in clean_run.data.metrics
+            assert float(clean_run.data.params["shrink_factor"]) == pytest.approx(1.0 / 3.0)
+            parent_artifacts = {item.path for item in client.list_artifacts(parent.info.run_id)}
+            assert "comparison.md" in parent_artifacts
+            assert "comparison.csv" in parent_artifacts
+            clean_artifacts = {item.path for item in client.list_artifacts(clean_run.info.run_id)}
+            assert "comparison.md" not in clean_artifacts
+            h3_experiment = client.get_experiment_by_name(PHASE2_H3_EXPERIMENT_NAME)
+            assert h3_experiment is None
+        finally:
+            _reset_mlflow_tracking()
+
+
 def _labeled_result(
     model_name: str,
     feature_set: str,
@@ -1288,6 +1489,7 @@ class TestCvRunStructure:
         assert parent_run_name(2, HYPOTHESIS_H1, timestamp=stamp) == "phase2-h1-20261015T010203Z"
         assert parent_run_name(2, HYPOTHESIS_H2, timestamp=stamp) == "phase2-h2-20261015T010203Z"
         assert parent_run_name(2, HYPOTHESIS_H3, timestamp=stamp) == "phase2-h3-20261015T010203Z"
+        assert parent_run_name(2, HYPOTHESIS_H4, timestamp=stamp) == "phase2-h4-20261015T010203Z"
         assert parent_run_name(2, HYPOTHESIS_RIDGE, timestamp=stamp) == (
             "phase2-ridge-20261015T010203Z"
         )
