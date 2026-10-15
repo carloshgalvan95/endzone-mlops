@@ -41,6 +41,7 @@ from src.features.pregame import (
     ELO_MEAN_RATING,
     ELO_SCALE,
     ELO_SEASON_REVERSION,
+    FEATURE_SET_COLUMNS,
     FEATURE_SET_CURRENT,
     FEATURE_SET_DIFF,
     FEATURE_SET_DIFF_ONLY,
@@ -120,6 +121,10 @@ BASELINE_MODEL_NAMES: frozenset[str] = frozenset({REFERENCE_MODEL_NAME, "elo", "
 CV_DATASET_NAME: str = "nfl_pregame_cv"
 # Accept a set only when pooled log loss falls by at least this much.
 MIN_LOG_LOSS_IMPROVEMENT: float = 0.003
+# A requested feature column at or above this null share is not a real signal.
+# The H4 pre-rebuild run filled absent clean columns and scored a constant.
+DEFAULT_MAX_NULL_FRACTION: float = 0.5
+FEATURE_COLUMN_REBUILD_HINT: str = "run make dbt-build-databricks"
 PHASE1_LOGISTIC_FEATURE_SETS: tuple[str, ...] = (
     FEATURE_SET_CURRENT,
     FEATURE_SET_WITH_GAMES_PLAYED,
@@ -1818,6 +1823,77 @@ def acceptance_decisions(
     return rows
 
 
+def validate_feature_columns(
+    frame: pd.DataFrame,
+    feature_sets: tuple[str, ...],
+    max_null_fraction: float = DEFAULT_MAX_NULL_FRACTION,
+) -> dict[str, dict[str, float]]:
+    """Refuse a requested feature set whose columns are missing or mostly null.
+
+    The check runs on the feature frame before any fold is fit. A column
+    that is absent, or whose null share is at least ``max_null_fraction``,
+    fails the set. The default share is one half. Filling those nulls in
+    the logistic imputer would score a constant, which is what happened
+    when the clean EPA columns had not been rebuilt.
+
+    Args:
+        frame: One row per game, including every column the sets will use.
+        feature_sets: Names understood by ``feature_columns_for``.
+        max_null_fraction: Inclusive null-share limit in ``(0, 1]``.
+
+    Returns:
+        Dict of feature set to ``{column: null_fraction}`` for sets that
+        passed. Fractions are in ``[0, 1]``.
+
+    Raises:
+        ValueError: The threshold is invalid, the frame has no rows, or a
+            set has a missing or too-null column. The message names the
+            feature set, the columns, and tells the reader to run
+            ``make dbt-build-databricks``.
+    """
+    threshold: float = float(max_null_fraction)
+    if not np.isfinite(threshold) or not 0.0 < threshold <= 1.0:
+        raise ValueError("max_null_fraction must be in (0, 1]")
+    if len(frame) == 0:
+        raise ValueError("feature frame has no rows to validate")
+
+    problems: list[str] = []
+    passed: dict[str, dict[str, float]] = {}
+    seen: set[str] = set()
+    row_count: int = len(frame)
+    for feature_set in feature_sets:
+        if feature_set in seen:
+            continue
+        seen.add(feature_set)
+        columns: tuple[str, ...] = feature_columns_for(feature_set)
+        missing: list[str] = [column for column in columns if column not in frame.columns]
+        null_columns: list[str] = []
+        fractions: dict[str, float] = {}
+        for column in columns:
+            if column not in frame.columns:
+                continue
+            null_fraction: float = float(frame[column].isna().sum()) / float(row_count)
+            fractions[column] = null_fraction
+            if null_fraction >= threshold:
+                null_columns.append(f"{column} ({null_fraction:.0%} null)")
+        if missing or null_columns:
+            missing_text: str = ", ".join(missing) if missing else "none"
+            null_text: str = ", ".join(null_columns) if null_columns else "none"
+            problems.append(
+                f"{feature_set}: missing columns: {missing_text}. "
+                f"Columns at or above {threshold:.0%} null: {null_text}."
+            )
+            continue
+        passed[feature_set] = fractions
+    if problems:
+        detail: str = " ".join(problems)
+        raise ValueError(
+            "Feature columns are missing or too null to score. "
+            f"{detail} Hint: {FEATURE_COLUMN_REBUILD_HINT}."
+        )
+    return passed
+
+
 def run_phase1_baselines(
     games: pd.DataFrame,
     team_games: pd.DataFrame,
@@ -1831,6 +1907,7 @@ def run_phase1_baselines(
     reference_feature_set: str | None = None,
     phase: int = 1,
     hypothesis: str | None = None,
+    max_null_fraction: float = DEFAULT_MAX_NULL_FRACTION,
 ) -> dict[str, Any]:
     """Score logistic feature sets, the home prior, Elo, and the market.
 
@@ -1861,6 +1938,7 @@ def run_phase1_baselines(
         reference_feature_set: Reference feature set. None uses the phase default.
         phase: ``1`` keeps the phase 1 report. ``2`` is a phase 2 hypothesis.
         hypothesis: ``h1``, ``h2``, ``h3``, ``h4``, or ``ridge``. None on phase 2 keeps H1.
+        max_null_fraction: Fail a requested column at or above this null share.
 
     Returns:
         Dict with ``results``, ``comparison_table``, ``markdown``, ``config``,
@@ -1892,6 +1970,20 @@ def run_phase1_baselines(
         games,
         team_games,
         lookback_games=lookback_games,
+    )
+    requested_sets: list[str] = []
+    for spec in model_specs:
+        if spec.feature_set in FEATURE_SET_COLUMNS and spec.feature_set not in requested_sets:
+            requested_sets.append(spec.feature_set)
+    if (
+        reference_spec["feature_set"] in FEATURE_SET_COLUMNS
+        and reference_spec["feature_set"] not in requested_sets
+    ):
+        requested_sets.append(reference_spec["feature_set"])
+    validate_feature_columns(
+        features,
+        tuple(requested_sets),
+        max_null_fraction=max_null_fraction,
     )
     shared_params: dict[str, Any] = {
         "lookback_games": lookback_games,
@@ -2776,6 +2868,7 @@ def _run_phase1_cli(args: argparse.Namespace) -> None:
         reference_feature_set=args.reference_feature_set,
         phase=args.phase,
         hypothesis=args.hypothesis,
+        max_null_fraction=args.max_null_fraction,
     )
     paths: dict[str, Any] = write_phase1_outputs(report, Path(output_dir))
     tracking_uri: str = resolve_tracking_uri(
@@ -2929,6 +3022,17 @@ def main(argv: list[str] | None = None) -> None:
             "Phase 2 h3 with this default writes reports/phase2_h3. "
             "Phase 2 h4 with this default writes reports/phase2_h4. "
             "Phase 2 ridge with this default writes reports/phase2_ridge."
+        ),
+    )
+
+    parser.add_argument(
+        "--max-null-fraction",
+        type=float,
+        default=DEFAULT_MAX_NULL_FRACTION,
+        help=(
+            "Refuse a requested CV feature column whose null share is at "
+            "least this value. Default is 0.5. The error names the feature "
+            "set and says to run make dbt-build-databricks."
         ),
     )
 

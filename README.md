@@ -166,7 +166,7 @@ endzone-mlops/
 
 ### Prerequisites
 
-- Python 3.10+
+- Python 3.11 for the local venv. Python 3.10 still passes CI. Python 3.14 triggers pydantic v1 warnings inside dbt.
 - (Optional) Databricks Free Edition account
 - (Optional) dbt installed locally or via Databricks SQL Warehouse
 
@@ -191,7 +191,9 @@ pip install -r requirements.txt
 # Copy config templates
 cp .env.example .env
 cp dbt/profiles.yml.example dbt/profiles.yml
-# Edit .env and dbt/profiles.yml with your settings
+# Edit .env and dbt/profiles.yml with your settings.
+# profiles.yml is gitignored. After a pull, compare it to profiles.yml.example.
+# The warehouse build target must be databricks, and that output's catalog must be workspace.
 
 # Run tests
 make test
@@ -225,7 +227,9 @@ pip install -r requirements.txt
 # Copy config templates
 Copy-Item .env.example .env
 Copy-Item dbt\profiles.yml.example dbt\profiles.yml
-# Edit .env and dbt\profiles.yml with your settings
+# Edit .env and dbt\profiles.yml with your settings.
+# profiles.yml is gitignored. After a pull, compare it to profiles.yml.example.
+# The warehouse build target must be databricks, and that output's catalog must be workspace.
 
 # Run tests
 .\scripts\dev.ps1 test
@@ -362,7 +366,13 @@ The parent run name for this comparison is `phase2-ridge-<timestamp>`.
 
 `make train-cv` (Windows: `.\scripts\dev.ps1 train-cv`) is `--phase 2 --hypothesis h4`. It scores logistic regression on `h2_full` (the reference), `h4_clean`, and `h4_clean_sr`, plus the home prior, Elo, and the market. `h4_clean` is `h2_full` with every EPA input taken from pass and run plays only, excluding kneels, spikes, `no_play`, and garbage time (`wp` below 0.05 or above 0.95). A missing `wp` stays in. `h4_clean_sr` adds the recent clean success rate. Shrinkage (1/3), blend (`n / (n + 4)`), the lookback, and the garbage-time cutoffs are fixed. They are not tuned on this run. The paired comparison and the 0.003 acceptance rule are the same, against logistic `h2_full`. Runs go to MLflow experiment `nfl_pregame/phase2_h4` with tags `phase=2` and `hypothesis=h4-clean-epa`. The comparison is written to `reports/phase2_h4/` (gitignored). The frozen copy is `docs/experiments/reports/phase2_h4_comparison.md`. The method is in `docs/experiments/phase2_h4_clean_epa.md`.
 
-`qb_kneel`, `qb_spike`, and `wp` are already on `workspace.nfl_raw.play_by_play`. `wp` is already staged as `win_probability`. Do not run `make ingest` for this hypothesis. Run `make dbt-build-databricks`, then `make train-cv`. Chain them with `&&` so training does not start after a failed build.
+`qb_kneel`, `qb_spike`, and `wp` are already on `workspace.nfl_raw.play_by_play`. `wp` is already staged as `win_probability`. Do not run `make ingest` for this hypothesis. `make dbt-build-databricks` runs `dbt deps` and then `dbt build --target databricks`. Chain it with training so a failed build does not score:
+
+```bash
+make dbt-build-databricks && make train-cv
+```
+
+Before CV, each requested feature column has to exist on the feature frame and stay under 50% null (`--max-null-fraction`, default 0.5). A failure names the feature set and the columns and says to run `make dbt-build-databricks`.
 
 Both clean sets are rejected against logistic `h2_full` 0.6377 (n=2191). `h4_clean` is 0.6398 (difference +0.0021, interval -0.0012 to 0.0053). `h4_clean_sr` is 0.6379 (difference +0.0002, interval -0.0036 to 0.0039). Removing `no_play`, kneels, spikes, and garbage time adds no signal. Averaging over many plays already absorbs that noise.
 

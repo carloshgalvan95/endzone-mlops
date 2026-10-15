@@ -16,7 +16,7 @@ help:
 	@echo "  dbt-test            - Run dbt tests"
 	@echo "  ingest              - Load nflverse data (all seasons 1999-2026, games and pbp)"
 	@echo "  ingest-current      - Refresh current season only (for weekly update)"
-	@echo "  dbt-build-databricks - Build dbt models on Databricks target"
+	@echo "  dbt-build-databricks - dbt deps, then build models on the Databricks target"
 	@echo "  train               - Train NFL pregame prediction models with MLflow"
 	@echo "  train-sweep         - Run training sweep (5+ configs for MLflow comparison)"
 	@echo "  train-cv            - Phase 2 H4 clean EPA CV against logistic h2_full"
@@ -75,8 +75,8 @@ clean:
 	rm -rf dbt/target dbt/logs dbt/dbt_packages
 
 dbt-build-databricks:
-	@echo "Building dbt models on Databricks target..."
-	cd dbt && dbt build --profiles-dir . --target databricks
+	@echo "Installing dbt packages, then building on the Databricks target..."
+	cd dbt && dbt deps --profiles-dir . && dbt build --profiles-dir . --target databricks
 
 train:
 	@if [ -f .env ]; then set -a && . ./.env && set +a; fi; \

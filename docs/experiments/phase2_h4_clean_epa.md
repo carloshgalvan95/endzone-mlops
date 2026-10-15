@@ -118,7 +118,7 @@ Local rolling-origin run, CV 2016-2023, n=2191, reference logistic `h2_full` 0.6
 
 `h2_full` is the reference row. Its difference is zero. `h4_clean` is worse by 0.0021. `h4_clean_sr` matches the reference within 0.0002. The home prior, Elo, and the market were scored by the same command. They are baselines, not this hypothesis, and this record does not restate them.
 
-A first local run, before that dbt rebuild, printed the same log loss 0.6509 for the clean sets. The clean columns were absent from `fct_team_game_epa`, so the clean features were empty and the imputer filled them with constants. Those identical numbers are not this comparison. They are why training has to refuse a feature set whose columns are missing or mostly null, instead of scoring a constant fill.
+A first local run, before that dbt rebuild, printed the same log loss 0.6509 for the clean sets. The clean columns were absent from `fct_team_game_epa`, so the clean features were empty and the imputer filled them with constants. Those identical numbers are not this comparison. Training now refuses that case. Before CV, each requested feature column has to exist and stay under 50% null. The error names the feature set and the columns and says to run `make dbt-build-databricks`.
 
 ## Decision log
 

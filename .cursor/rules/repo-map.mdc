@@ -26,13 +26,17 @@ MLflow local store: `sqlite:///mlflow.db`. Experiment names: `nfl_pregame`, `nfl
 
 Make targets: `setup`, `install`, `lint`, `test`, `dbt-compile`, `dbt-run`, `dbt-test`, `dbt-build-databricks`, `ingest`, `ingest-current`, `train`, `train-sweep`, `train-cv`, `mlflow-ui`, `audit-features`, `check-epa-filter`, `reproduce`, `clean`. `.\scripts\dev.ps1 <target>` is the Windows equivalent of each of those. `dev.ps1` also has `format` (`ruff format src/ tests/`). The Makefile does not. `reproduce` is `install` then local `dbt-compile`. It does not build Databricks marts and it does not log an MLflow model. `check-epa-filter` counts `play = 1` rows by `play_type` on `workspace.nfl_dev_staging.stg_nflverse__pbp` and counts `qb_kneel` and `qb_spike`. Staging selects those flags. The check still reads `workspace.nfl_raw.play_by_play` when the live staging view lacks them. It does not change dbt models.
 
+The recommended local venv is Python 3.11. Python 3.10 still passes CI. Python 3.14 triggers pydantic v1 warnings inside dbt.
+
+`dbt/profiles.yml` is gitignored. After a pull, compare it to `dbt/profiles.yml.example`. The warehouse build target must be `databricks`, and that output's catalog must be `workspace`. The example file's default target is `local` for DuckDB. `make dbt-build-databricks` passes `--target databricks` and runs `dbt deps` first, which a fresh clone needs before `dbt build`.
+
 Before `make train-cv` (or `.\scripts\dev.ps1 train-cv`) on a catalog that does not already have the marts:
 
 1. Copy `.env.example` to `.env` and set `DATABRICKS_HOST`, `DATABRICKS_HTTP_PATH`, and `DATABRICKS_TOKEN`. Do not commit `.env`.
-2. Copy `dbt/profiles.yml.example` to `dbt/profiles.yml`. Do not commit it. The Databricks target schema in that file is `nfl_dev`.
+2. Copy `dbt/profiles.yml.example` to `dbt/profiles.yml`. Do not commit it. The Databricks target schema in that file is `nfl_dev`. Compare it to the example after every pull.
 3. `make ingest` (or `.\scripts\dev.ps1 ingest`) writes `workspace.nfl_raw.games` and `workspace.nfl_raw.play_by_play`.
-4. `make dbt-build-databricks` (or `.\scripts\dev.ps1 dbt-build-databricks`) builds `nfl_dev_staging`, `nfl_dev_marts`, and `nfl_dev_test_results`.
-5. Then `make train-cv`. It reads `fct_games` and `fct_team_game_epa` from `workspace.nfl_dev_marts`. It scores H4 (`h4_clean` and `h4_clean_sr`) against logistic `h2_full`.
+4. `make dbt-build-databricks` (or `.\scripts\dev.ps1 dbt-build-databricks`) runs `dbt deps`, then builds `nfl_dev_staging`, `nfl_dev_marts`, and `nfl_dev_test_results`.
+5. Then `make train-cv`. Chain the two with `&&` so training does not start after a failed build: `make dbt-build-databricks && make train-cv`. It reads `fct_games` and `fct_team_game_epa` from `workspace.nfl_dev_marts`. It scores H4 (`h4_clean` and `h4_clean_sr`) against logistic `h2_full`. Before the fit, each requested feature column has to exist and stay under 50% null. A failure names the feature set and says to run `make dbt-build-databricks`.
 
 H4 adds `qb_kneel` and `qb_spike` to staging and clean EPA columns to `fct_team_game_epa`. `wp` is already staged as `win_probability`. Those source columns are already on `workspace.nfl_raw.play_by_play`. Do not run `make ingest` for H4. On a catalog that already has bronze and the previous marts, run `make dbt-build-databricks` (Windows: `.\scripts\dev.ps1 dbt-build-databricks`), then `make train-cv`. Training before that rebuild leaves the clean columns absent.
 

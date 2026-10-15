@@ -157,6 +157,8 @@ pip install dbt-databricks
 # Copy profile template
 cd dbt
 cp profiles.yml.example profiles.yml
+# profiles.yml is gitignored. After a pull, compare it to profiles.yml.example.
+# The warehouse build target must be databricks. That output's catalog must be workspace.
 # profiles.yml uses env_var() to read credentials from environment
 
 # Create .env file (never commit)
@@ -353,6 +355,8 @@ dbt test --profiles-dir .
 
 ### Python Package Development
 
+Use Python 3.11 for the local venv. Python 3.10 still passes CI. Python 3.14 triggers pydantic v1 warnings inside dbt.
+
 ```bash
 # Run tests
 pytest tests/ -v
@@ -436,9 +440,10 @@ make ingest-current
 # Custom season range
 python -m src.ingest.load_raw_nflverse --seasons 2020-2024 --dataset all
 
-# Build dbt models on Databricks
-make dbt-build-databricks
-# Or: cd dbt && dbt build --profiles-dir . --target databricks
+# Build dbt models on Databricks. This runs dbt deps, then dbt build.
+# Chain training with && so a failed build does not score.
+make dbt-build-databricks && make train-cv
+# Or: cd dbt && dbt deps --profiles-dir . && dbt build --profiles-dir . --target databricks
 ```
 
 #### Windows Git Bash
@@ -459,8 +464,9 @@ make ingest-current
 # Custom season range
 python -m src.ingest.load_raw_nflverse --seasons 2020-2024 --dataset all
 
-# Build dbt models on Databricks
-make dbt-build-databricks
+# Build dbt models on Databricks. This runs dbt deps, then dbt build.
+# Chain training with && so a failed build does not score.
+make dbt-build-databricks && make train-cv
 ```
 
 #### Windows PowerShell
@@ -482,8 +488,9 @@ make dbt-build-databricks
 python -m src.ingest.load_raw_nflverse --seasons 2020-2024 --dataset all
 .\scripts\dev.ps1 ingest
 
-# Build dbt models on Databricks
-.\scripts\dev.ps1 dbt-build-databricks
+# Build dbt models on Databricks. This runs dbt deps, then dbt build.
+# Chain training so a failed build does not score.
+.\scripts\dev.ps1 dbt-build-databricks; if ($LASTEXITCODE -eq 0) { .\scripts\dev.ps1 train-cv }
 ```
 
 ### Unity Catalog schema map
@@ -697,7 +704,13 @@ with mlflow.start_run():
 - **Solution**: Run `dbt deps --profiles-dir .`
 
 **Problem**: profiles.yml errors
-- **Check**: Valid YAML? Correct indentation? No tabs?
+- **Check**: Valid YAML? Correct indentation? No tabs? `dbt/profiles.yml` is gitignored, so a pull does not update it. Compare it to `dbt/profiles.yml.example`. The warehouse build target must be `databricks`, and that output's catalog must be `workspace`.
+
+**Problem**: `dbt build` fails on a fresh clone with a missing package
+- **Solution**: Run `dbt deps --profiles-dir .` first. `make dbt-build-databricks` and `.\scripts\dev.ps1 dbt-build-databricks` do that, then build. Chain the warehouse build with training: `make dbt-build-databricks && make train-cv`.
+
+**Problem**: pydantic v1 warnings while running dbt
+- **Check**: The local venv is Python 3.11. Python 3.14 triggers those warnings.
 
 ### Python
 

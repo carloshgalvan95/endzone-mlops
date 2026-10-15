@@ -21,6 +21,7 @@ from src.features.pregame import (
     REGRESSED_EPA_COLUMNS,
     SEASON_DEFENSIVE_EPA_COLUMNS,
     american_odds_to_implied_probability,
+    feature_columns_for,
     market_home_probabilities,
     no_vig_home_probability,
 )
@@ -58,6 +59,7 @@ from src.train.train import (
     rolling_origin_cv,
     run_phase1_baselines,
     select_best_feature_set,
+    validate_feature_columns,
     write_phase1_outputs,
 )
 
@@ -162,6 +164,10 @@ def _schedule(with_moneyline: bool) -> tuple[pd.DataFrame, pd.DataFrame]:
                     "rush_plays": 8,
                     "pass_epa": offense_value * 10.0,
                     "rush_epa": offense_value * -4.0,
+                    "avg_clean_offensive_epa": offense_value,
+                    "avg_clean_defensive_epa_allowed": -offense_value,
+                    "clean_success_rate": 0.55,
+                    "clean_defensive_success_rate": 0.45,
                 }
             )
     return games, pd.DataFrame(epa_rows)
@@ -1691,3 +1697,68 @@ class TestPhase2RidgeReference:
             assert h3_experiment is None
         finally:
             _reset_mlflow_tracking()
+
+
+class TestFeatureColumnValidation:
+    """CV refuses a feature set whose columns are missing or mostly null."""
+
+    def test_missing_column_names_the_set_and_the_rebuild_hint(self) -> None:
+        """The error names the feature set, the column, and the dbt rebuild."""
+        columns: list[str] = list(feature_columns_for("h2_full"))
+        frame = pd.DataFrame({column: [0.1, 0.2, 0.3] for column in columns})
+        frame = frame.drop(columns=["home_rest_days"])
+        with pytest.raises(ValueError, match="h2_full") as exc_info:
+            validate_feature_columns(frame, ("h2_full",))
+        message = str(exc_info.value)
+        assert "home_rest_days" in message
+        assert "missing columns" in message
+        assert "run make dbt-build-databricks" in message
+
+    def test_null_share_at_the_threshold_fails_and_below_it_passes(self) -> None:
+        """Exactly 50% null fails. 49% null passes. The limit is configurable."""
+        columns: list[str] = list(feature_columns_for("current"))
+        frame = pd.DataFrame({column: [1.0] * 100 for column in columns})
+        frame.loc[:48, "away_rest_days"] = np.nan
+        passed = validate_feature_columns(frame, ("current",))
+        assert passed["current"]["away_rest_days"] == pytest.approx(0.49)
+        frame.loc[49, "away_rest_days"] = np.nan
+        with pytest.raises(ValueError, match="away_rest_days") as exc_info:
+            validate_feature_columns(frame, ("current",))
+        assert "50% null" in str(exc_info.value)
+        assert "run make dbt-build-databricks" in str(exc_info.value)
+        relaxed = validate_feature_columns(frame, ("current",), max_null_fraction=0.9)
+        assert relaxed["current"]["away_rest_days"] == pytest.approx(0.5)
+
+    def test_invalid_threshold_and_an_empty_frame_are_refused(self) -> None:
+        """The share has to sit in (0, 1], and a frame with no rows cannot pass."""
+        columns: list[str] = list(feature_columns_for("current"))
+        frame = pd.DataFrame({column: [1.0] for column in columns})
+        with pytest.raises(ValueError, match="max_null_fraction"):
+            validate_feature_columns(frame, ("current",), max_null_fraction=0.0)
+        with pytest.raises(ValueError, match="max_null_fraction"):
+            validate_feature_columns(frame, ("current",), max_null_fraction=1.1)
+        empty = frame.iloc[0:0]
+        with pytest.raises(ValueError, match="no rows"):
+            validate_feature_columns(empty, ("current",))
+
+    def test_h4_without_clean_mart_columns_fails_before_scoring(self) -> None:
+        """Absent clean columns stay all null, so H4 CV raises instead of fitting."""
+        games, team_games = _schedule(with_moneyline=False)
+        drop_names = [
+            column
+            for column in team_games.columns
+            if column.startswith("avg_clean_") or column.startswith("clean_")
+        ]
+        bare = team_games.drop(columns=drop_names)
+        with pytest.raises(ValueError, match="h4_clean") as exc_info:
+            run_phase1_baselines(
+                games,
+                bare,
+                config=_fast_config(),
+                phase=2,
+                hypothesis="h4",
+            )
+        message = str(exc_info.value)
+        assert "h4_clean_sr" in message
+        assert "home_recent_clean_offensive_epa_per_play" in message
+        assert "run make dbt-build-databricks" in message

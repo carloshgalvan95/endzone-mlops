@@ -19,7 +19,7 @@ function Show-Help {
     Write-Host "  dbt-test            - Run dbt tests"
     Write-Host "  ingest              - Load all seasons (1999-2026, games and pbp)"
     Write-Host "  ingest-current      - Refresh current season only (for weekly update)"
-    Write-Host "  dbt-build-databricks - Build dbt models on Databricks target"
+    Write-Host "  dbt-build-databricks - dbt deps, then build models on the Databricks target"
     Write-Host "  train               - Train NFL pregame prediction models with MLflow"
     Write-Host "  train-sweep         - Run training sweep (5+ configs for MLflow comparison)"
     Write-Host "  train-cv            - Phase 2 H4 clean EPA CV against logistic h2_full"
@@ -167,10 +167,13 @@ function Invoke-IngestCurrent {
 }
 
 function Invoke-DbtBuildDatabricks {
-    Write-Host "Building dbt models on Databricks target..."
+    Write-Host "Installing dbt packages, then building on the Databricks target..."
     Push-Location dbt
     try {
+        dbt deps --profiles-dir .
+        if ($LASTEXITCODE -ne 0) { throw "dbt deps failed" }
         dbt build --profiles-dir . --target databricks
+        if ($LASTEXITCODE -ne 0) { throw "dbt build failed" }
     }
     finally {
         Pop-Location
