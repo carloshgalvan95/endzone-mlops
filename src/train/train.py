@@ -10,6 +10,7 @@ Usage:
     python -m src.train.train --cv --phase 2 --hypothesis h3
     python -m src.train.train --cv --phase 2 --hypothesis h4
     python -m src.train.train --cv --phase 2 --hypothesis h5
+    python -m src.train.train --cv --phase 2 --hypothesis h5b
     python -m src.train.train --cv --phase 2 --hypothesis ridge
 """
 
@@ -94,6 +95,7 @@ PHASE2_H2_EXPERIMENT_NAME: str = "nfl_pregame/phase2_h2"
 PHASE2_H3_EXPERIMENT_NAME: str = "nfl_pregame/phase2_h3"
 PHASE2_H4_EXPERIMENT_NAME: str = "nfl_pregame/phase2_h4"
 PHASE2_H5_EXPERIMENT_NAME: str = "nfl_pregame/phase2_h5"
+PHASE2_H5B_EXPERIMENT_NAME: str = "nfl_pregame/phase2_h5b"
 PHASE2_RIDGE_EXPERIMENT_NAME: str = "nfl_pregame/phase2_ridge"
 PHASE2_TAG: str = "2"
 HYPOTHESIS_H1: str = "h1-diff"
@@ -101,6 +103,7 @@ HYPOTHESIS_H2: str = "h2-season-def-regression"
 HYPOTHESIS_H3: str = "h3-pass-rush-epa"
 HYPOTHESIS_H4: str = "h4-clean-epa"
 HYPOTHESIS_H5: str = "h5-starting-qb"
+HYPOTHESIS_H5B: str = "h5b-starter-coverage"
 HYPOTHESIS_RIDGE: str = "ridge-reference"
 HYPOTHESIS_ALIASES: dict[str, str] = {
     "h1": HYPOTHESIS_H1,
@@ -113,6 +116,8 @@ HYPOTHESIS_ALIASES: dict[str, str] = {
     "h4-clean-epa": HYPOTHESIS_H4,
     "h5": HYPOTHESIS_H5,
     "h5-starting-qb": HYPOTHESIS_H5,
+    "h5b": HYPOTHESIS_H5B,
+    "h5b-starter-coverage": HYPOTHESIS_H5B,
     "ridge": HYPOTHESIS_RIDGE,
     "ridge-reference": HYPOTHESIS_RIDGE,
 }
@@ -173,8 +178,11 @@ DEFAULT_REFERENCE_BY_HYPOTHESIS: dict[str, tuple[str, str]] = {
     HYPOTHESIS_H3: ("logistic", FEATURE_SET_H2_FULL),
     HYPOTHESIS_H4: ("logistic", FEATURE_SET_H2_FULL),
     HYPOTHESIS_H5: ("logistic", FEATURE_SET_H2_FULL),
+    HYPOTHESIS_H5B: ("logistic", FEATURE_SET_H2_FULL),
     HYPOTHESIS_RIDGE: ("logistic", FEATURE_SET_H2_FULL),
 }
+# H5 and H5b score the same h5_qb columns. H5b is the rerun after the starter join.
+STARTING_QB_HYPOTHESES: frozenset[str] = frozenset({HYPOTHESIS_H5, HYPOTHESIS_H5B})
 MODEL_DEFAULT_FEATURE_SET: dict[str, str] = {
     REFERENCE_MODEL_NAME: "none",
     MODEL_LOGISTIC: FEATURE_SET_CURRENT,
@@ -213,6 +221,13 @@ PHASE2_H4_NOTE: str = (
 PHASE2_H5_NOTE: str = (
     "Phase 2 hypothesis h5-starting-qb. "
     "QB shrinkage and the replacement level are fixed. "
+    f"{FINAL_VALIDATION_SEASON} and {HELD_OUT_TEST_SEASON} are not scored. "
+    "No model is promoted from this run."
+)
+PHASE2_H5B_NOTE: str = (
+    "Phase 2 hypothesis h5b-starter-coverage. "
+    "Same h5_qb features and the same QB shrinkage as H5. "
+    "The starter id comes from the fixed depth-chart join. "
     f"{FINAL_VALIDATION_SEASON} and {HELD_OUT_TEST_SEASON} are not scored. "
     "No model is promoted from this run."
 )
@@ -1523,7 +1538,8 @@ def resolve_hypothesis(phase: int, hypothesis: str | None = None) -> str | None:
 
     Phase 1 has no hypothesis. Phase 2 defaults to H1 so the differential
     report stays reproducible. ``h2`` selects the season-defense hypothesis.
-    ``h3`` selects the pass/rush split. ``h4`` selects clean EPA.
+    ``h3`` selects the pass/rush split.     ``h4`` selects clean EPA. ``h5`` selects the starting-QB rating.
+    ``h5b`` scores that same rating after the starter join is fixed.
     ``ridge`` selects the L2 reference comparison.
 
     Args:
@@ -1533,7 +1549,8 @@ def resolve_hypothesis(phase: int, hypothesis: str | None = None) -> str | None:
     Returns:
         ``None`` for phase 1, otherwise ``h1-diff``,
         ``h2-season-def-regression``, ``h3-pass-rush-epa``,
-        ``h4-clean-epa``, ``h5-starting-qb``, or ``ridge-reference``.
+        ``h4-clean-epa``, ``h5-starting-qb``, ``h5b-starter-coverage``,
+        or ``ridge-reference``.
 
     Raises:
         ValueError: Phase 1 was given a hypothesis, or the name is unknown.
@@ -1560,7 +1577,7 @@ def logistic_feature_sets_for(phase: int, hypothesis: str | None = None) -> tupl
     ``current``, ``diff``, and ``diff_only``. Phase 2 H2 scores ``current``,
     ``h2_def``, and ``h2_full``. Phase 2 H3 scores ``h2_full``, ``h3_split``,
     and ``h3_replace``. Phase 2 H4 scores ``h2_full``, ``h4_clean``, and
-    ``h4_clean_sr``. Phase 2 H5 scores ``h2_full`` and ``h5_qb``.
+    ``h4_clean_sr``. Phase 2 H5 and H5b both score ``h2_full`` and ``h5_qb``.
     The ridge comparison's logistic row is ``h2_full``
     only. Its L2 rows are returned by ``cv_model_specs_for``.
 
@@ -1585,7 +1602,7 @@ def logistic_feature_sets_for(phase: int, hypothesis: str | None = None) -> tupl
             return PHASE2_H3_LOGISTIC_FEATURE_SETS
         if resolved == HYPOTHESIS_H4:
             return PHASE2_H4_LOGISTIC_FEATURE_SETS
-        if resolved == HYPOTHESIS_H5:
+        if resolved in STARTING_QB_HYPOTHESES:
             return PHASE2_H5_LOGISTIC_FEATURE_SETS
         if resolved == HYPOTHESIS_RIDGE:
             return (FEATURE_SET_H2_FULL,)
@@ -1596,7 +1613,7 @@ def logistic_feature_sets_for(phase: int, hypothesis: str | None = None) -> tupl
 def cv_model_specs_for(phase: int, hypothesis: str | None = None) -> tuple[CvModelSpec, ...]:
     """Return the model and feature-set pairs a phase scores, before baselines.
 
-    Phase 1 and hypotheses H1, H2, H3, H4, and H5 score fixed-C logistic regression
+    Phase 1 and hypotheses H1, H2, H3, H4, H5, and H5b score fixed-C logistic regression
     on ``logistic_feature_sets_for``. The ridge comparison scores fixed-C
     logistic on ``h2_full``, then L2 logistic on ``h2_full``, ``h3_split``,
     and ``h3_replace``.
@@ -1682,6 +1699,15 @@ def phase_tracking_settings(phase: int, hypothesis: str | None = None) -> dict[s
                 "note": PHASE2_H5_NOTE,
                 "output_dir": "reports/phase2_h5",
                 "title": "Phase 2 H5 starting QB",
+            }
+        if resolved == HYPOTHESIS_H5B:
+            return {
+                "experiment_name": PHASE2_H5B_EXPERIMENT_NAME,
+                "phase_tag": PHASE2_TAG,
+                "hypothesis": HYPOTHESIS_H5B,
+                "note": PHASE2_H5B_NOTE,
+                "output_dir": "reports/phase2_h5b",
+                "title": "Phase 2 H5b starter coverage",
             }
         if resolved == HYPOTHESIS_RIDGE:
             return {
@@ -2148,11 +2174,12 @@ def run_phase1_baselines(
         HYPOTHESIS_H3,
         HYPOTHESIS_H4,
         HYPOTHESIS_H5,
+        HYPOTHESIS_H5B,
         HYPOTHESIS_RIDGE,
     }:
         shared_params["shrink_factor"] = SEASON_SHRINK_FACTOR
         shared_params["blend_k"] = SEASON_BLEND_K
-    if tracking["hypothesis"] == HYPOTHESIS_H5:
+    if tracking["hypothesis"] in STARTING_QB_HYPOTHESES:
         shared_params["qb_prior_dropbacks"] = QB_PRIOR_DROPBACKS
         shared_params["replacement_epa_per_dropback"] = REPLACEMENT_EPA_PER_DROPBACK
     results: list[dict[str, Any]] = []
@@ -2323,7 +2350,7 @@ def run_phase1_baselines(
     comparison_table: pd.DataFrame = _comparison_table(results)
     apply_acceptance: bool = phase == 2
     qb_subset: dict[str, Any] | None = None
-    if tracking["hypothesis"] == HYPOTHESIS_H5:
+    if tracking["hypothesis"] in STARTING_QB_HYPOTHESES:
         qb_subset = qb_change_subset_comparison(
             features,
             results,
@@ -2563,7 +2590,7 @@ def render_phase1_report(report: dict[str, Any]) -> str:
         ]
         lookback_index: int = lines.index(f"Lookback games: {report['lookback_games']}.")
         lines[lookback_index + 1 : lookback_index + 1] = regression_note
-    elif report.get("hypothesis") == HYPOTHESIS_H5:
+    elif report.get("hypothesis") in STARTING_QB_HYPOTHESES:
         regression_note = [
             "The starter is the offense QB1 on that week's depth chart.",
             "A missing chart uses the previous game's primary passer.",
@@ -2742,6 +2769,7 @@ def parent_run_name(
         HYPOTHESIS_H3: "h3",
         HYPOTHESIS_H4: "h4",
         HYPOTHESIS_H5: "h5",
+        HYPOTHESIS_H5B: "h5b",
         HYPOTHESIS_RIDGE: "ridge",
     }
     short: str | None = short_names.get(hypothesis)
@@ -3078,7 +3106,7 @@ def _run_phase1_cli(args: argparse.Namespace) -> None:
     games, team_games = load_data(fixture_path=fixture_path)
     expected_starters: pd.DataFrame | None = None
     qb_dropbacks: pd.DataFrame | None = None
-    if settings["hypothesis"] == HYPOTHESIS_H5:
+    if settings["hypothesis"] in STARTING_QB_HYPOTHESES:
         expected_starters, qb_dropbacks = load_qb_inputs(fixture_path)
     report: dict[str, Any] = run_phase1_baselines(
         games,
@@ -3183,6 +3211,7 @@ def main(argv: list[str] | None = None) -> None:
             "--phase 2 --hypothesis h3 scores pass and rush splits against h2_full. "
             "--phase 2 --hypothesis h4 scores clean EPA against h2_full. "
             "--phase 2 --hypothesis h5 scores starting QB ratings against h2_full. "
+            "--phase 2 --hypothesis h5b scores the same ratings after the starter fix. "
             "--phase 2 --hypothesis ridge scores logistic_l2 against logistic h2_full. "
             "Does not score 2024 or 2025."
         ),
@@ -3196,7 +3225,7 @@ def main(argv: list[str] | None = None) -> None:
         help=(
             "1 keeps the phase 1 report (home prior, current, with_games_played). "
             "2 scores the hypothesis from --hypothesis. H1 and H2 use logistic "
-            "current. H3, H4, H5, and ridge use logistic h2_full."
+            "current. H3, H4, H5, H5b, and ridge use logistic h2_full."
         ),
     )
 
@@ -3212,6 +3241,8 @@ def main(argv: list[str] | None = None) -> None:
             "against h2_full and writes reports/phase2_h3. h4 scores h4_clean "
             "and h4_clean_sr against h2_full and writes reports/phase2_h4. "
             "h5 scores h5_qb against h2_full and writes reports/phase2_h5. "
+            "h5b scores the same h5_qb set against h2_full and writes "
+            "reports/phase2_h5b. "
             "ridge scores "
             "logistic_l2 against logistic h2_full and writes reports/phase2_ridge. "
             "Phase 1 rejects this flag."
@@ -3235,7 +3266,7 @@ def main(argv: list[str] | None = None) -> None:
         help=(
             "Feature set of the reference model. "
             "Default is none for the home prior, current for logistic on H1 and H2, "
-            "and h2_full for logistic on H3, H4, H5, and ridge."
+            "and h2_full for logistic on H3, H4, H5, H5b, and ridge."
         ),
     )
 
