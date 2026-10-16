@@ -15,7 +15,7 @@ alwaysApply: false
 
 ## Status
 
-Phase 0 and Phase 1 are done. Phase 2 is in progress. Phases 3 and 4 are planned and not started. Do not invent their scope. H4 is rejected. H5 is running and not scored. The reference stays logistic `h2_full`.
+Phase 0 and Phase 1 are done. Phase 2 is in progress. Phases 3 and 4 are planned and not started. Do not invent their scope. H4 is rejected. H5 is rejected, with a positive signal. The 0.003 threshold is not changed after the result. H5b is next. The reference stays logistic `h2_full`.
 
 | Step | State | Reference |
 | --- | --- | --- |
@@ -26,13 +26,15 @@ Phase 0 and Phase 1 are done. Phase 2 is in progress. Phases 3 and 4 are planned
 | H3 pass and rush EPA | rejected | logistic `h2_full` |
 | Ridge, fold-tuned L2 | did not help | plain logistic `h2_full` stays the reference |
 | H4 clean EPA | rejected | logistic `h2_full` |
-| H5 starting QB | running, not scored | logistic `h2_full` |
+| H5 starting QB | rejected, positive signal | logistic `h2_full` |
 
 H3, CV 2016-2023, n=2191: logistic `h2_full` 0.6377. `h3_split` 0.6393 (difference +0.0016, interval -0.0009 to 0.0039). `h3_replace` 0.6395 (difference +0.0018, interval -0.0008 to 0.0043).
 
 Ridge, same window: `logistic_l2` on `h2_full` is 0.6386 (difference +0.0009, interval -0.0008 to 0.0025) versus plain logistic `h2_full` 0.6377. `logistic_l2` `h3_split` is +0.0010. `logistic_l2` `h3_replace` is +0.0015. Fold-tuned L2 does not help. Those fits still reject the H3 splits, so the H3 rejection is not collinearity noise.
 
 H4, same window, n=2191: logistic `h2_full` 0.6377. `h4_clean` 0.6398 (difference +0.0021, interval -0.0012 to 0.0053). `h4_clean_sr` 0.6379 (difference +0.0002, interval -0.0036 to 0.0039). Removing `no_play`, kneels, spikes, and garbage time adds no signal. Averaging over many plays already absorbs that noise. A first local run before the dbt rebuild printed the same log loss 0.6509 for both clean sets because the clean columns were absent. That number is not the comparison.
+
+H5, same window, n=2191: logistic `h2_full` 0.6377. `h5_qb` 0.6355 (difference -0.0022, interval -0.0042 to -0.0003, AUC 0.6869). Rejected. The rule needs a gain of at least 0.003. The interval excludes zero, so the sign is a positive signal. The threshold is not changed after the result. QB-change subset, 383 out-of-fold games: difference -0.0026, interval -0.0075 to 0.0023. Depth-chart starter sides 10,249. Previous-passer fallback sides 4,399. Games flagged as a QB change: 972. H5b is the same `h5_qb` features after the starter join is fixed.
 
 EPA filter (`docs/experiments/reports/epa_filter_check.md`): `play = 1` rows are pass 528,368 (53.6%), run 388,724 (39.5%), and no_play 68,233 (6.9%). No special-teams play types. Only 36 kneels and 70 spikes have `play = 1`. The contamination is the `no_play` (penalty) rows, not special teams. That finding drives H4.
 
