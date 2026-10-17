@@ -1,6 +1,6 @@
 # Phase 2 ridge reference
 
-Method note. This file does not report warehouse metrics. Reproduce this comparison with `python -m src.train.train --cv --phase 2 --hypothesis ridge --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_ridge`. It writes the measured comparison to `reports/phase2_ridge/comparison.md` and `reports/phase2_ridge/comparison.csv`. `make train-cv` now runs H5 and writes `reports/phase2_h5/`. See `docs/experiments/phase2_h5_starting_qb.md` and `docs/experiments/phase2_h4_clean_epa.md`. Those files are local outputs. The frozen copy is `docs/experiments/reports/phase2_ridge_comparison.md`. Do not copy numbers from a test fixture.
+Method note. This file does not report warehouse metrics. Reproduce this comparison with `python -m src.train.train --cv --phase 2 --hypothesis ridge --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_ridge`. It writes the measured comparison to `reports/phase2_ridge/comparison.md` and `reports/phase2_ridge/comparison.csv`. `make train-cv` now runs H5b and writes `reports/phase2_h5b/`. See `docs/experiments/phase2_h5b_starter_coverage.md`, `docs/experiments/phase2_h5_starting_qb.md`, and `docs/experiments/phase2_h4_clean_epa.md`. Those files are local outputs. The frozen copy is `docs/experiments/reports/phase2_ridge_comparison.md`. Do not copy numbers from a test fixture.
 
 No model is promoted from this run. 2024 stays the final validation. 2025 is not scored here.
 

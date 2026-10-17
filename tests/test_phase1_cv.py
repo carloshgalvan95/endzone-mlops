@@ -32,6 +32,7 @@ from src.train.train import (
     HYPOTHESIS_H3,
     HYPOTHESIS_H4,
     HYPOTHESIS_H5,
+    HYPOTHESIS_H5B,
     HYPOTHESIS_RIDGE,
     MIN_LOG_LOSS_IMPROVEMENT,
     PHASE1_EXPERIMENT_NAME,
@@ -41,6 +42,7 @@ from src.train.train import (
     PHASE2_H3_EXPERIMENT_NAME,
     PHASE2_H4_EXPERIMENT_NAME,
     PHASE2_H5_EXPERIMENT_NAME,
+    PHASE2_H5B_EXPERIMENT_NAME,
     PHASE2_RIDGE_EXPERIMENT_NAME,
     PHASE2_TAG,
     CvModelSpec,
@@ -769,6 +771,14 @@ class TestReferenceSelection:
             CvModelSpec("logistic", "h2_full"),
             CvModelSpec("logistic", "h5_qb"),
         )
+        h5b_reference = resolve_reference_spec(2, hypothesis="h5b")
+        assert h5b_reference == {"model": "logistic", "feature_set": "h2_full"}
+        assert logistic_feature_sets_for(2, hypothesis="h5b") == ("h2_full", "h5_qb")
+        assert logistic_feature_sets_for(2, hypothesis="h5b-starter-coverage") == (
+            "h2_full",
+            "h5_qb",
+        )
+        assert cv_model_specs_for(2, hypothesis="h5b") == cv_model_specs_for(2, hypothesis="h5")
         ridge_reference = resolve_reference_spec(2, hypothesis="ridge")
         assert ridge_reference == {"model": "logistic", "feature_set": "h2_full"}
         assert logistic_feature_sets_for(2, hypothesis="ridge") == ("h2_full",)
@@ -805,6 +815,11 @@ class TestReferenceSelection:
         assert h5_settings["output_dir"] == "reports/phase2_h5"
         assert h5_settings["experiment_name"] == PHASE2_H5_EXPERIMENT_NAME
         assert h5_settings["phase_tag"] == PHASE2_TAG
+        h5b_settings = phase_tracking_settings(2, hypothesis="h5b")
+        assert h5b_settings["hypothesis"] == HYPOTHESIS_H5B
+        assert h5b_settings["output_dir"] == "reports/phase2_h5b"
+        assert h5b_settings["experiment_name"] == PHASE2_H5B_EXPERIMENT_NAME
+        assert h5b_settings["phase_tag"] == PHASE2_TAG
         ridge_settings = phase_tracking_settings(2, hypothesis="ridge")
         assert ridge_settings["hypothesis"] == HYPOTHESIS_RIDGE
         assert ridge_settings["output_dir"] == "reports/phase2_ridge"
@@ -1518,6 +1533,9 @@ class TestCvRunStructure:
         assert parent_run_name(2, HYPOTHESIS_H3, timestamp=stamp) == "phase2-h3-20261015T010203Z"
         assert parent_run_name(2, HYPOTHESIS_H4, timestamp=stamp) == "phase2-h4-20261015T010203Z"
         assert parent_run_name(2, HYPOTHESIS_H5, timestamp=stamp) == "phase2-h5-20261015T010203Z"
+        assert parent_run_name(2, HYPOTHESIS_H5B, timestamp=stamp) == (
+            "phase2-h5b-20261015T010203Z"
+        )
         assert parent_run_name(2, HYPOTHESIS_RIDGE, timestamp=stamp) == (
             "phase2-ridge-20261015T010203Z"
         )
@@ -1818,7 +1836,15 @@ def _h5_tables(games: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
 class TestPhase2H5Hypothesis:
     """H5 scores the starting-QB rating against logistic h2_full, plus the baselines."""
 
-    def test_phase2_h5_report_uses_h2_full_and_describes_qb_changes(self) -> None:
+    @pytest.mark.parametrize(
+        ("hypothesis", "tag"),
+        [("h5", HYPOTHESIS_H5), ("h5b", HYPOTHESIS_H5B)],
+    )
+    def test_phase2_h5_report_uses_h2_full_and_describes_qb_changes(
+        self,
+        hypothesis: str,
+        tag: str,
+    ) -> None:
         """h5_qb replaces the H4 candidates. The change slice is not an acceptance rule."""
         games, team_games = _schedule(with_moneyline=False)
         starters, dropbacks = _h5_tables(games)
@@ -1829,7 +1855,7 @@ class TestPhase2H5Hypothesis:
             lookback_games=2,
             logistic_max_iter=200,
             phase=2,
-            hypothesis="h5",
+            hypothesis=hypothesis,
             expected_starters=starters,
             qb_dropbacks=dropbacks,
         )
@@ -1843,7 +1869,7 @@ class TestPhase2H5Hypothesis:
             ("market", "market"),
         }
         assert report["reference_feature_set"] == "h2_full"
-        assert report["hypothesis"] == HYPOTHESIS_H5
+        assert report["hypothesis"] == tag
         h5 = next(item for item in report["results"] if item["feature_set"] == "h5_qb")
         assert h5["params"]["features"].split(",") == list(PREGAME_FEATURE_COLUMNS_H5_QB)
         assert float(h5["params"]["qb_prior_dropbacks"]) == pytest.approx(100.0)
@@ -1853,13 +1879,14 @@ class TestPhase2H5Hypothesis:
         assert subset["n_qb_change_games"] >= 2
         assert subset["n_depth_chart_starters"] > 0
         assert subset["comparison"]["n"] >= 2
-        assert "Hypothesis: `h5-starting-qb`" in report["markdown"]
+        assert f"Hypothesis: `{tag}`" in report["markdown"]
         assert "## QB change subset" in report["markdown"]
         assert "not an acceptance decision" in report["markdown"]
         assert "CPOE is stored" in report["markdown"]
         assert "\u2014" not in report["markdown"]
 
-    def test_h5_without_qb_tables_fails_before_scoring(self) -> None:
+    @pytest.mark.parametrize("hypothesis", ["h5", "h5b"])
+    def test_h5_without_qb_tables_fails_before_scoring(self, hypothesis: str) -> None:
         """Missing starter inputs leave the ratings null, so CV names h5_qb and the rebuild hint."""
         games, team_games = _schedule(with_moneyline=False)
         with pytest.raises(ValueError, match="h5_qb") as exc_info:
@@ -1868,18 +1895,29 @@ class TestPhase2H5Hypothesis:
                 team_games,
                 config=_fast_config(),
                 phase=2,
-                hypothesis="h5",
+                hypothesis=hypothesis,
             )
         message = str(exc_info.value)
         assert "home_qb_rating" in message
         assert "run make dbt-build-databricks" in message
 
+    @pytest.mark.parametrize(
+        ("hypothesis", "tag", "experiment_name", "run_prefix"),
+        [
+            ("h5", HYPOTHESIS_H5, PHASE2_H5_EXPERIMENT_NAME, "phase2-h5-"),
+            ("h5b", HYPOTHESIS_H5B, PHASE2_H5B_EXPERIMENT_NAME, "phase2-h5b-"),
+        ],
+    )
     def test_cli_phase2_h5_tags_hypothesis(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
+        hypothesis: str,
+        tag: str,
+        experiment_name: str,
+        run_prefix: str,
     ) -> None:
-        """``--hypothesis h5`` logs phase=2 and writes reports/phase2_h5."""
+        """``--hypothesis h5`` and ``h5b`` log phase=2 and write their own report dirs."""
         import mlflow
 
         games, team_games = _schedule(with_moneyline=True)
@@ -1893,7 +1931,7 @@ class TestPhase2H5Hypothesis:
         tracking_uri: str = "sqlite:///" + (tmp_path / "mlflow.db").as_posix()
         monkeypatch.setenv("MLFLOW_TRACKING_URI", tracking_uri)
         monkeypatch.setattr("src.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
-        output_dir = tmp_path / "phase2_h5"
+        output_dir = tmp_path / f"phase2_{hypothesis}"
         try:
             main(
                 [
@@ -1901,7 +1939,7 @@ class TestPhase2H5Hypothesis:
                     "--phase",
                     "2",
                     "--hypothesis",
-                    "h5",
+                    hypothesis,
                     "--fixture-path",
                     str(fixture_dir),
                     "--output-dir",
@@ -1921,18 +1959,18 @@ class TestPhase2H5Hypothesis:
                 ]
             )
             markdown = (output_dir / "comparison.md").read_text(encoding="utf-8")
-            assert "Hypothesis: `h5-starting-qb`" in markdown
+            assert f"Hypothesis: `{tag}`" in markdown
             assert "## QB change subset" in markdown
             assert "\u2014" not in markdown
             client = mlflow.tracking.MlflowClient(tracking_uri=tracking_uri)
-            experiment = client.get_experiment_by_name(PHASE2_H5_EXPERIMENT_NAME)
+            experiment = client.get_experiment_by_name(experiment_name)
             assert experiment is not None
             runs = client.search_runs(experiment_ids=[experiment.experiment_id])
             parents = [run for run in runs if "mlflow.parentRunId" not in run.data.tags]
             assert len(parents) == 1
             parent = client.get_run(parents[0].info.run_id)
-            assert parent.info.run_name.startswith("phase2-h5-")
-            assert parent.data.tags["hypothesis"] == HYPOTHESIS_H5
+            assert parent.info.run_name.startswith(run_prefix)
+            assert parent.data.tags["hypothesis"] == tag
             children = [run for run in runs if "mlflow.parentRunId" in run.data.tags]
             by_pair = {
                 (child.data.params["model_type"], child.data.params["feature_set"]): child

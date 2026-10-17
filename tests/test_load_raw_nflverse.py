@@ -19,6 +19,7 @@ from src.ingest.load_raw_nflverse import (
     DEPTH_CHART_2025_COLUMNS,
     DEPTH_CHART_COLUMNS,
     DEPTH_CHART_FIRST_SEASON,
+    DEPTH_CHART_READ_SCHEMA_HINT,
     NFLVERSE_GAMES_URL,
     cleanup_stale_pbp_files,
     conform_table_to_schema,
@@ -31,7 +32,9 @@ from src.ingest.load_raw_nflverse import (
     get_current_season,
     get_databricks_config,
     get_default_season_range,
+    load_depth_chart_club_map,
     load_target_schema,
+    normalize_depth_chart_frame,
     parse_seasons,
     select_depth_chart_columns,
     upload_to_volume,
@@ -666,6 +669,63 @@ class TestDepthCharts:
         assert "workspace.nfl_raw.depth_charts" in create_call
         assert "/Volumes/workspace/nfl_raw/landing/depth_charts" in create_call
         assert "read_files" in create_call
+        assert "schemaHints" in create_call
+        assert DEPTH_CHART_READ_SCHEMA_HINT in create_call
+        assert "week int" in create_call
+
+    def test_normalize_writes_one_week_type_and_translates_legacy_clubs(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """A null week and a complete week both land as int32, and legacy clubs move."""
+        with_null = pd.concat([_depth_chart_frame()] * 5, ignore_index=True)
+        with_null["season"] = [2004, 2010, 2016, 2019, 2020]
+        with_null["club_code"] = ["ARZ", "LA", "LA", "OAK", "OAK"]
+        with_null["week"] = [1.0, 2.0, None, 4.0, 5.0]
+        with_null["depth_team"] = [1, 1.0, "1", "1.0", "QB"]
+        complete = _depth_chart_frame()
+        complete["season"] = [2002]
+        complete["club_code"] = ["LA"]
+        complete["week"] = [17]
+        complete["depth_team"] = ["1"]
+
+        sparse = normalize_depth_chart_frame(with_null)
+        dense = normalize_depth_chart_frame(complete)
+        assert str(sparse["week"].dtype) == "Int32"
+        assert str(dense["week"].dtype) == "Int32"
+        assert list(sparse["club_code"]) == ["ARI", "STL", "LA", "OAK", "LV"]
+        assert list(sparse["depth_team"]) == ["1", "1", "1", "1", "QB"]
+        assert list(dense["club_code"]) == ["STL"]
+        assert int(dense["week"].iloc[0]) == 17
+        assert pd.isna(sparse["week"].iloc[2])
+
+        sparse_path = tmp_path / "null_week.parquet"
+        dense_path = tmp_path / "int_week.parquet"
+        sparse.to_parquet(sparse_path, index=False)
+        dense.to_parquet(dense_path, index=False)
+        assert pq.read_schema(sparse_path).field("week").type == pa.int32()
+        assert pq.read_schema(dense_path).field("week").type == pa.int32()
+
+    def test_club_map_loads_and_rejects_an_overlap(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The checked-in seed has no overlapping ranges. A bad seed is an error."""
+        loaded = load_depth_chart_club_map()
+        assert {"club_code", "season_start", "season_end", "schedule_team"} <= set(loaded.columns)
+        assert (loaded["club_code"] == "LAR").sum() == 2
+        bad_path = tmp_path / "overlap.csv"
+        bad_path.write_text(
+            "club_code,season_start,season_end,schedule_team\nARZ,1999,2010,ARI\nARZ,2010,2100,ARI\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(
+            "src.ingest.load_raw_nflverse._depth_chart_club_map_path",
+            lambda: bad_path,
+        )
+        with pytest.raises(ValueError, match="overlaps"):
+            load_depth_chart_club_map()
 
     def test_upload_uses_a_season_directory(self, tmp_path: Path) -> None:
         """One season file does not overwrite the other seasons."""

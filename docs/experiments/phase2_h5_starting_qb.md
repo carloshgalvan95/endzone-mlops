@@ -1,6 +1,6 @@
 # Phase 2 H5: starting quarterback
 
-Method note. Result pending. Reproduce this comparison with `make train-cv` (Windows: `.\scripts\dev.ps1 train-cv`), which is `python -m src.train.train --cv --phase 2 --hypothesis h5 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h5`. It writes `reports/phase2_h5/comparison.md` and `reports/phase2_h5/comparison.csv`. Those files are local outputs. Do not copy numbers from a test fixture. There is no frozen snapshot until this hypothesis is decided.
+Method note. Reproduce this comparison with `python -m src.train.train --cv --phase 2 --hypothesis h5 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h5`. It writes `reports/phase2_h5/comparison.md` and `reports/phase2_h5/comparison.csv`. Those files are local outputs. The result section records the local H5 run. The frozen copy is `docs/experiments/reports/phase2_h5_comparison.md`. Do not copy numbers from a test fixture. `make train-cv` (Windows: `.\scripts\dev.ps1 train-cv`) now runs H5b and writes `reports/phase2_h5b/`. See `docs/experiments/phase2_h5b_starter_coverage.md`. After the depth-chart reload in that note, this same `--hypothesis h5` command reads the fixed starter. The frozen snapshot is the original decision.
 
 No model is promoted from a phase 2 run. 2024 stays the final validation. 2025 is not scored here.
 
@@ -48,15 +48,15 @@ The report also describes games where either change flag is 1: paired log loss o
 H5 adds `workspace.nfl_raw.depth_charts`. Games and play-by-play can stay. On a catalog that already has those two tables:
 
 ```bash
-python -m src.ingest.load_raw_nflverse --dataset depth_charts && make dbt-build-databricks && make train-cv
+python -m src.ingest.load_raw_nflverse --dataset depth_charts && make dbt-build-databricks && python -m src.train.train --cv --phase 2 --hypothesis h5 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h5
 ```
 
-`make dbt-build-databricks` runs `dbt deps`, then `dbt build --target databricks`. `make train-cv` reads `fct_games`, `fct_team_game_epa`, `fct_expected_starter`, and `fct_qb_dropbacks` from `workspace.nfl_dev_marts`. Chain the commands with `&&` so training does not start after a failed ingest or build.
+`make dbt-build-databricks` runs `dbt deps`, then `dbt build --target databricks`. The H5 command reads `fct_games`, `fct_team_game_epa`, `fct_expected_starter`, and `fct_qb_dropbacks` from `workspace.nfl_dev_marts`. Chain the commands with `&&` so training does not start after a failed ingest or build. `make train-cv` is H5b, not this hypothesis. The reload also rewrites every depth-chart season so `week` is one int type. See `docs/experiments/phase2_h5b_starter_coverage.md`.
 
 A fresh clone loads every bronze table, including depth charts:
 
 ```bash
-make ingest && make dbt-build-databricks && make train-cv
+make ingest && make dbt-build-databricks && python -m src.train.train --cv --phase 2 --hypothesis h5 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h5
 ```
 
 Windows PowerShell 5.1 has no `&&`. After games and play-by-play are already loaded:
@@ -64,7 +64,7 @@ Windows PowerShell 5.1 has no `&&`. After games and play-by-play are already loa
 ```powershell
 python -m src.ingest.load_raw_nflverse --dataset depth_charts
 if ($LASTEXITCODE -eq 0) { .\scripts\dev.ps1 dbt-build-databricks }
-if ($LASTEXITCODE -eq 0) { .\scripts\dev.ps1 train-cv }
+if ($LASTEXITCODE -eq 0) { python -m src.train.train --cv --phase 2 --hypothesis h5 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h5 }
 ```
 
 Before CV, each requested feature column has to exist and stay under 50% null. A failure names the feature set and says to run `make dbt-build-databricks`. If the depth-chart bronze table was never loaded, the warehouse read fails first. Load depth charts, then rebuild.
@@ -73,4 +73,13 @@ Before CV, each requested feature column has to exist and stay under 50% null. A
 
 ## Result
 
-Pending. Do not fill this section from a test fixture.
+Local rolling-origin run, CV 2016-2023, n=2191, reference logistic `h2_full` 0.6377. These rows are that run. They are not taken from a test fixture. The frozen copy is `docs/experiments/reports/phase2_h5_comparison.md`.
+
+| feature_set | n | log_loss | auc | log_loss_diff | ci_low | ci_high | decision |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| h2_full | 2191 | 0.6377 | 0.6843 | 0.0000 | 0.0000 | 0.0000 | reference |
+| h5_qb | 2191 | 0.6355 | 0.6869 | -0.0022 | -0.0042 | -0.0003 | rejected |
+
+`h5_qb` improves log loss by 0.0022. The pre-registered rule needs a gain of at least 0.003 (`log_loss_diff` <= -0.003) and an interval entirely below 0. The interval does lie entirely below 0, so the sign is a positive signal, but 0.0022 misses the 0.003 bar. The threshold is not changed after seeing this result. The home prior, Elo, and the market were scored by the same command. They are baselines, not this hypothesis.
+
+On 383 out-of-fold games with a QB change, `h5_qb` log loss is 0.6402 and the reference is 0.6428. The difference is -0.0026 (interval -0.0075 to 0.0023). That slice is descriptive. It is not an acceptance decision. The same report counted 10,249 depth-chart starter sides and 4,399 previous-passer fallback sides, about 30% fallback, and 972 games flagged as a QB change. Those coverage counts are the reason for the next starter-join check. The counts are in the frozen snapshot. The starter-join check is H5b. Its score is pending. See `docs/experiments/phase2_h5b_starter_coverage.md`.

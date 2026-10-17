@@ -24,12 +24,20 @@ class TestExpectedStarterSql:
         assert "passer_player_id" not in lowered
         assert "qb_dropback" not in lowered
         assert "play_by_play" not in lowered
-        assert "position = 'qb'" in lowered
-        assert "formation = 'offense'" in lowered
-        assert "depth_team = '1'" in lowered
+        assert "cast(position as string)) = 'qb'" in lowered
+        assert "cast(formation as string)) = 'offense'" in lowered
+        assert "depth_rank = 1" in lowered
+        assert "try_cast(week as double)" in lowered
+        assert "try_cast(depth_team as double)" in lowered
+        assert "chr(10)" in lowered
+        assert "depth_position_norm" in lowered
+        assert "row_number()" in lowered
+        assert "depth_chart_club_map" in lowered
         assert "week is not null" in lowered
         assert "stg_nflverse__depth_charts" in lowered
-        assert "min(gsis_id)" in lowered
+        assert "depth_team = '1'" not in lowered
+        assert "min(gsis_id)" not in lowered
+        assert "depth_rank = 2" not in lowered
 
     def test_dropback_model_is_who_played_and_keeps_cpoe(self) -> None:
         """Dropbacks are aggregated from staging. The comment says this is not the starter."""

@@ -29,6 +29,42 @@ seeds:
         tests:
           - not_null
 
+  - name: depth_chart_club_map
+    description: |
+      Legacy depth-chart club codes translated onto the schedule abbreviation.
+
+      The current nflverse weekly files already use the schedule codes
+      (ARI, BAL, JAX, LA, OAK, SD, STL). This seed is for NFL.com scraps
+      and older releases: ARZ, BLT, CLV, HST, JAC, LAR, and a code used in
+      the wrong city-year. A code that already matches the schedule is not
+      listed, so the map is safe to apply twice. season_end 2100 means the
+      row has no end year. Ranges for one club_code do not overlap.
+
+    columns:
+      - name: club_code
+        description: "Abbreviation on the depth chart, before translation"
+        tests:
+          - not_null
+      - name: season_start
+        description: "First season this translation applies"
+        tests:
+          - not_null
+      - name: season_end
+        description: "Last season this translation applies"
+        tests:
+          - not_null
+      - name: schedule_team
+        description: "Abbreviation on games.parquet for that season"
+        tests:
+          - not_null
+
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - club_code
+              - season_start
+
   - name: known_pbp_gaps
     description: |
       Known gaps in nflverse play-by-play data where completed games have no pbp records.

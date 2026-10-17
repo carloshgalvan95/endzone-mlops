@@ -102,6 +102,9 @@ POS_GRP_TO_FORMATION: dict[str, str] = {
     "Base 3-4 D": "Defense",
     "Special Teams": "Special Teams",
 }
+# Hint read_files so a leftover int/double week mix still parses as one int column.
+# The upload path already writes nullable int32. This hint is the belt.
+DEPTH_CHART_READ_SCHEMA_HINT: str = "season int, week int, depth_team string, club_code string"
 # nflverse publishes gametime in Eastern time. Snapshot dt is UTC.
 KICKOFF_TIMEZONE = "America/New_York"
 _SCHEDULE_COLUMNS: tuple[str, ...] = (
@@ -498,6 +501,128 @@ def _blank_string_column(index: pd.Index) -> pd.Series:
     return pd.Series(pd.NA, index=index, dtype="string")
 
 
+def _depth_chart_club_map_path() -> Path:
+    """Path of the seed that translates legacy depth-chart club codes."""
+    return Path(__file__).resolve().parents[2] / "dbt" / "seeds" / "depth_chart_club_map.csv"
+
+
+def load_depth_chart_club_map() -> pd.DataFrame:
+    """Load legacy club-code ranges onto the schedule abbreviation.
+
+    The current nflverse release already uses the schedule codes. Older
+    files and NFL.com scraps use ARZ, BLT, CLV, HST, JAC, LAR, and the
+    relocated codes in the wrong years. Ranges for one code do not overlap.
+    A code that is already the schedule abbreviation is absent, so applying
+    the map twice does not change it.
+
+    Returns:
+        Columns ``club_code``, ``season_start``, ``season_end``, and
+        ``schedule_team``.
+
+    Raises:
+        ValueError: The seed is missing a column, or one code has overlapping
+            season ranges.
+    """
+    required: tuple[str, ...] = ("club_code", "season_start", "season_end", "schedule_team")
+    frame: pd.DataFrame = pd.read_csv(_depth_chart_club_map_path())
+    missing: list[str] = [column for column in required if column not in frame.columns]
+    if missing:
+        missing_list: str = ", ".join(missing)
+        raise ValueError(f"Depth chart club map is missing columns: {missing_list}")
+    cleaned: pd.DataFrame = pd.DataFrame(
+        {
+            "club_code": frame["club_code"].astype("string").str.strip(),
+            "season_start": pd.to_numeric(frame["season_start"], errors="raise").astype(int),
+            "season_end": pd.to_numeric(frame["season_end"], errors="raise").astype(int),
+            "schedule_team": frame["schedule_team"].astype("string").str.strip(),
+        }
+    )
+    for club_code, group in cleaned.groupby("club_code", sort=False):
+        ordered: pd.DataFrame = group.sort_values(["season_start", "season_end"], kind="mergesort")
+        starts: list[int] = ordered["season_start"].astype(int).tolist()
+        ends: list[int] = ordered["season_end"].astype(int).tolist()
+        for index in range(1, len(starts)):
+            if starts[index] <= ends[index - 1]:
+                raise ValueError(f"Depth chart club map overlaps for {club_code}")
+    return cleaned.reset_index(drop=True)
+
+
+def schedule_club_codes(club_code: pd.Series, season: pd.Series) -> pd.Series:
+    """Translate depth-chart club codes onto the schedule abbreviation.
+
+    Args:
+        club_code: Raw ``club_code`` or snapshot ``team``.
+        season: Season year for each row. Used when a code changed cities.
+
+    Returns:
+        Schedule abbreviations. An unknown code is returned unchanged.
+    """
+    codes: pd.Series = club_code.astype("string").str.strip()
+    seasons: pd.Series = pd.to_numeric(season, errors="coerce")
+    translated: pd.Series = codes.copy()
+    mapping: pd.DataFrame = load_depth_chart_club_map()
+    for row in mapping.itertuples(index=False):
+        matched: pd.Series = (
+            codes.eq(str(row.club_code))
+            & seasons.ge(int(row.season_start))
+            & seasons.le(int(row.season_end))
+        )
+        translated = translated.mask(matched, str(row.schedule_team))
+    return translated
+
+
+def _stable_week(values: pd.Series) -> pd.Series:
+    """Return week as nullable int32.
+
+    A file with a null week (the Super Bowl bye) is what pandas reads as
+    float64. A file with no null week stays int32. Those two parquet types
+    must not both land in one ``read_files`` folder.
+    """
+    numeric: pd.Series = pd.to_numeric(values, errors="coerce")
+    return numeric.round().astype("Int32")
+
+
+def _stable_depth_team(values: pd.Series) -> pd.Series:
+    """Return depth rank as text, so 1, 1.0, and '1' all become '1'."""
+    numeric: pd.Series = pd.to_numeric(values, errors="coerce")
+    as_text: pd.Series = numeric.round().astype("Int64").astype("string")
+    original: pd.Series = values.astype("string").str.strip()
+    return as_text.where(numeric.notna(), original)
+
+
+def normalize_depth_chart_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    """Force the weekly bronze schema onto one season.
+
+    Week is nullable int32 in every file. ``depth_team`` is text.
+    ``club_code`` is the schedule abbreviation. Column order stays
+    ``DEPTH_CHART_COLUMNS``.
+
+    Args:
+        frame: A weekly chart or a snapshot that was already mapped onto
+            those columns.
+
+    Returns:
+        A copy safe to upload next to the other seasons.
+
+    Raises:
+        ValueError: A stable column is missing.
+    """
+    missing: list[str] = [column for column in DEPTH_CHART_COLUMNS if column not in frame.columns]
+    if missing:
+        missing_list: str = ", ".join(missing)
+        raise ValueError(f"Depth chart frame is missing columns: {missing_list}")
+    output: pd.DataFrame = frame.loc[:, list(DEPTH_CHART_COLUMNS)].copy()
+    output["season"] = pd.to_numeric(output["season"], errors="coerce").astype("Int32")
+    output["week"] = _stable_week(output["week"])
+    output["depth_team"] = _stable_depth_team(output["depth_team"])
+    output["club_code"] = schedule_club_codes(output["club_code"], output["season"])
+    for column in DEPTH_CHART_COLUMNS:
+        if column in {"season", "week", "depth_team", "club_code"}:
+            continue
+        output[column] = output[column].astype("string")
+    return output.loc[:, list(DEPTH_CHART_COLUMNS)]
+
+
 def _select_weekly_depth_chart_columns(frame: pd.DataFrame, season: int) -> pd.DataFrame:
     """Keep the stable weekly columns and refuse a file that lacks one.
 
@@ -522,7 +647,7 @@ def _select_weekly_depth_chart_columns(frame: pd.DataFrame, season: int) -> pd.D
             season,
             extra[:10],
         )
-    return frame.loc[:, list(DEPTH_CHART_COLUMNS)].copy()
+    return normalize_depth_chart_frame(frame)
 
 
 def _kickoff_utc(gameday: pd.Series, gametime: pd.Series) -> pd.Series:
@@ -735,7 +860,7 @@ def map_snapshot_depth_chart(
         int(assigned.loc[:, ["club_code", "week", "game_type"]].drop_duplicates().shape[0]),
         len(output),
     )
-    return output.loc[:, list(DEPTH_CHART_COLUMNS)].reset_index(drop=True)
+    return normalize_depth_chart_frame(output).reset_index(drop=True)
 
 
 def select_depth_chart_columns(
@@ -1027,6 +1152,11 @@ def create_bronze_table(
             raise ValueError("volume_path is required for games dataset")
         read_path = volume_path
 
+    read_options = "format => 'parquet'"
+    if dataset == "depth_charts":
+        read_options = (
+            "format => 'parquet',\n        schemaHints => '" + DEPTH_CHART_READ_SCHEMA_HINT + "'"
+        )
     create_table_sql = f"""
     CREATE OR REPLACE TABLE {table_name}
     USING DELTA
@@ -1034,7 +1164,7 @@ def create_bronze_table(
     AS
     SELECT * FROM read_files(
         '{read_path}',
-        format => 'parquet'
+        {read_options}
     )
     """
 
