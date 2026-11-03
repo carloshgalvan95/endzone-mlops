@@ -134,7 +134,7 @@ If PR Guard fails, fix the reported issues and push again.
 
 ### 4.3 Design (Wilson 9/10)
 
-- Entrypoint real: `endzone/train/train.py`. `score.py` está planificado y no está en el repo. Config inyectada.
+- Entrypoint real: `endzone/modeling/train.py`. `python -m endzone.train.train` es el comando compatible. `score.py` está planificado y no está en el repo. Config inyectada.
 - Nombres descriptivos; retornos dict/namedtuple
 - Sin except desnudo; sin estado global mutable
 - Contratos dbt schema.yml + test de negocio
@@ -180,7 +180,7 @@ Una historia/PR está Done solo si cumple todos los puntos aplicables:
 
 ### DoD Día 7 - Pipeline + MLOps mínimo
 - [x] dbt: staging + >=2 marts + schema tests + >=1 test de negocio
-- [x] Python: features + `endzone/train/train.py` (argparse, >=3 HP, seed) + MLflow (>=5 runs, params/metrics/artifact/model)
+- [x] Python: features + `endzone/modeling/train.py` (argparse, >=3 HP, seed) + MLflow (>=5 runs, params/metrics/artifact/model). `python -m endzone.train.train` sigue funcionando.
 - [x] CI: pytest + dbt compile (DuckDB). dbt build sigue en el target Databricks, no en CI.
 - [x] Docs: C4 L1 + secuencia en `docs/architecture.md` (score.py sigue como paso futuro)
 - [ ] make reproduce deja marts + modelo en MLflow. Hoy es solo `install` y `dbt-compile` local. Badge CI sí está.

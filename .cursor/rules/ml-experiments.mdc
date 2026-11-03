@@ -1,6 +1,6 @@
 ---
 description: What a training run logs, how models are compared, and which phase is current
-globs: endzone/train/**,endzone/features/**,endzone/analysis/**,docs/experiments/**
+globs: endzone/train/**,endzone/modeling/**,configs/experiments/**,endzone/features/**,endzone/analysis/**,docs/experiments/**
 alwaysApply: false
 ---
 
@@ -43,7 +43,7 @@ Accept a Phase 2 feature set only when pooled log loss improves by at least 0.00
 
 ## Commands
 
-Every `--cv` command uses rolling-origin seasons 2016-2023. Train on `season < S` and score `season == S`. 2024 is the final validation and is not a fold. 2025 is not scored. Each command also scores the home prior, Elo, and the market.
+The canonical module is `python -m endzone.modeling.train`. `python -m endzone.train.train` calls the same `main` with the same flags. Hypothesis rows live in `configs/experiments/*.yaml`. Every `--cv` command uses rolling-origin seasons 2016-2023. Train on `season < S` and score `season == S`. 2024 is the final validation and is not a fold. 2025 is not scored. Each command also scores the home prior, Elo, and the market.
 
 - Phase 1: `python -m endzone.train.train --cv`. Reference `baseline-home`. Local report `reports/phase1/`. Experiment `nfl_pregame/phase1_baselines`, tag `phase=1`.
 - H1: `python -m endzone.train.train --cv --phase 2 --hypothesis h1`. Scores logistic `current`, `diff`, and `diff_only` against logistic `current`. Local report `reports/phase2/`. Tags `phase=2`, `hypothesis=h1-diff`.

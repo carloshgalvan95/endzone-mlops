@@ -107,13 +107,13 @@ endzone-mlops demonstrates a modern lakehouse architecture for NFL analytics, co
 - `fct_qb_dropbacks`: Passer dropbacks and EPA by game. This is history, not the starter.
 - `fct_ingame_states`: Play-level states for an in-game model (future)
 
-#### 3. ML Pipeline (`endzone/train/`, `endzone/features/`)
+#### 3. ML Pipeline (`endzone/modeling/`, `endzone/features/`)
 
 **Technology**: Python, MLflow, scikit-learn/statsmodels
 
 **Responsibility**:
 - Feature engineering (rolling stats, team form, rest days)
-- Model training (`train.py` with argparse + seed + hyperparameters)
+- Model training (`python -m endzone.modeling.train`, argparse + seed + hyperparameters; `python -m endzone.train.train` is the same command)
 - Experiment tracking (MLflow: params, metrics, artifacts, models)
 - Batch scoring (`score.py` reads features, writes predictions)
 - Evaluation (metrics: log loss, Brier score, calibration)
