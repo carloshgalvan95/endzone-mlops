@@ -46,8 +46,21 @@ dbt/dbt_packages/
 dbt/logs/
 dbt/profiles.yml
 
-# Data (exclude data directory but not endzone/data code)
-/data/
+# Local CCDS data cache. Layout is tracked with .gitkeep.
+# The Python package is endzone/data, not this folder.
+data/*
+!data/raw/
+!data/interim/
+!data/processed/
+!data/external/
+data/raw/*
+!data/raw/.gitkeep
+data/interim/*
+!data/interim/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+data/external/*
+!data/external/.gitkeep
 *.parquet
 *.csv
 !dbt/seeds/*.csv
@@ -57,9 +70,17 @@ dbt/profiles.yml
 !tests/golden/*.json
 !docs/experiments/reference_metrics.json
 
+# Serialized local models. There is no endzone/models package.
+models/*
+!models/.gitkeep
+
 # Local audit and CV scratch (make audit-features, make train-cv, make check-epa-filter).
 # Frozen decision snapshots live in docs/experiments/reports/ and are committed.
-/reports/
+# Training still writes reports/phase* and reports/epa_filter_check.md.
+reports/*
+!reports/figures/
+reports/figures/*
+!reports/figures/.gitkeep
 
 # MLflow
 mlflow.db
