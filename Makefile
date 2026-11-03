@@ -1,4 +1,4 @@
-.PHONY: help setup install lint test vulture dbt-compile dbt-run dbt-test clean reproduce ingest ingest-current dbt-build-databricks train train-sweep train-cv mlflow-ui audit-features check-epa-filter verify-reference
+.PHONY: help setup install lint lint-structure test vulture dbt-compile dbt-run dbt-test clean reproduce ingest ingest-current dbt-build-databricks train train-sweep train-cv mlflow-ui audit-features check-epa-filter verify-reference
 
 # Git Bash on Windows rewrites arguments that look like Unix paths.
 # DATABRICKS_HTTP_PATH starts with /sql/1.0/... and would be mangled.
@@ -10,6 +10,7 @@ help:
 	@echo "  setup               - Create the Python 3.12 venv from uv.lock"
 	@echo "  install             - Install the locked environment (uv sync --frozen)"
 	@echo "  lint                - Run code quality checks (ruff)"
+	@echo "  lint-structure      - Check the CCDS layout and import-linter contracts"
 	@echo "  test                - Run pytest unit tests"
 	@echo "  vulture             - Fail on high-confidence unused code"
 	@echo "  dbt-compile         - Compile dbt models"
@@ -44,6 +45,10 @@ install:
 lint:
 	ruff check endzone/ tests/
 	ruff format --check endzone/ tests/
+
+lint-structure:
+	python scripts/check_structure.py
+	lint-imports
 
 test:
 	pytest tests/ -v

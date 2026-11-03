@@ -32,6 +32,11 @@ jobs:
     - name: Format check with ruff
       run: uv run ruff format --check endzone/ tests/
 
+    - name: Check repository structure and import boundaries
+      run: |
+        uv run python scripts/check_structure.py
+        uv run lint-imports
+
     - name: Unused code with vulture
       run: uv run vulture endzone scripts --min-confidence 80
 
@@ -87,6 +92,11 @@ jobs:
 
     - name: Format check with ruff
       run: uv run ruff format --check endzone/ tests/
+
+    - name: Check repository structure and import boundaries
+      run: |
+        uv run python scripts/check_structure.py
+        uv run lint-imports
 
     - name: Run tests with pytest
       run: uv run pytest tests/ -v --tb=short

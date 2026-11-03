@@ -30,6 +30,7 @@ dev = [
     "pytest-cov>=4.0.0",
     "ruff==0.17.0",
     "vulture>=2.14",
+    "import-linter==2.15",
 ]
 
 [tool.uv]
@@ -74,3 +75,44 @@ addopts = "-v --tb=short"
 
 [tool.coverage.run]
 source = ["endzone"]
+
+[tool.importlinter]
+root_packages = ["endzone"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Endzone layers match the current packages"
+type = "layers"
+layers = [
+    "endzone.analysis",
+    "endzone.train | endzone.ingest",
+    "endzone.features | endzone.data",
+    "endzone.utils",
+]
+
+[[tool.importlinter.contracts]]
+name = "Features do not import train"
+type = "forbidden"
+source_modules = ["endzone.features"]
+forbidden_modules = ["endzone.train"]
+
+[[tool.importlinter.contracts]]
+name = "Features do not import mlflow"
+type = "forbidden"
+source_modules = ["endzone.features"]
+forbidden_modules = ["mlflow"]
+
+[[tool.importlinter.contracts]]
+name = "Ingest does not import train"
+type = "forbidden"
+source_modules = ["endzone.ingest"]
+forbidden_modules = ["endzone.train"]
+
+[[tool.importlinter.contracts]]
+name = "Analysis does not import train except the phase 0 audit"
+type = "forbidden"
+source_modules = ["endzone.analysis"]
+forbidden_modules = ["endzone.train"]
+ignore_imports = [
+    "endzone.analysis.feature_audit -> endzone.train.train",
+]

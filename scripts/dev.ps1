@@ -12,6 +12,7 @@ function Show-Help {
     Write-Host "  setup               - Create the Python 3.12 venv from uv.lock"
     Write-Host "  install             - Install the locked environment (uv sync --frozen)"
     Write-Host "  lint                - Run code quality checks (ruff)"
+    Write-Host "  lint-structure      - Check the CCDS layout and import-linter contracts"
     Write-Host "  format              - Auto-format code with ruff"
     Write-Host "  test                - Run pytest unit tests"
     Write-Host "  vulture             - Fail on high-confidence unused code"
@@ -55,6 +56,13 @@ function Invoke-Install {
 function Invoke-Lint {
     ruff check endzone\ tests\
     ruff format --check endzone\ tests\
+}
+
+function Invoke-LintStructure {
+    python scripts/check_structure.py
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    lint-imports
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
 function Invoke-Format {
@@ -201,6 +209,7 @@ switch ($Target.ToLower()) {
     "setup" { Invoke-Setup }
     "install" { Invoke-Install }
     "lint" { Invoke-Lint }
+    "lint-structure" { Invoke-LintStructure }
     "format" { Invoke-Format }
     "test" { Invoke-Test }
     "vulture" { Invoke-Vulture }
