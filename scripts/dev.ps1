@@ -26,6 +26,7 @@ function Show-Help {
     Write-Host "  mlflow-ui           - Open MLflow UI against the local SQLite store"
     Write-Host "  audit-features      - Profile current pregame inputs (no feature changes)"
     Write-Host "  check-epa-filter    - Count play types in the EPA filter, plus kneel and spike rows"
+    Write-Host "  verify-reference    - Refit logistic h2_full and fail if it drifts from the reference file"
     Write-Host "  clean               - Remove build artifacts"
     Write-Host "  reproduce           - Full reproduction pipeline"
     Write-Host ""
@@ -148,6 +149,13 @@ function Invoke-CheckEpaFilter {
     python -m src.analysis.epa_play_filter_check --output reports/epa_filter_check.md
 }
 
+function Invoke-VerifyReference {
+    Load-Env
+    Write-Host "Checking logistic h2_full, Elo, and the market against the reference file..."
+    python -m src.train.train --verify-reference
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
 function Invoke-Reproduce {
     Invoke-Install
     Invoke-DbtCompile
@@ -200,6 +208,7 @@ switch ($Target.ToLower()) {
     "mlflow-ui" { Invoke-MlflowUi }
     "audit-features" { Invoke-AuditFeatures }
     "check-epa-filter" { Invoke-CheckEpaFilter }
+    "verify-reference" { Invoke-VerifyReference }
     "clean" { Invoke-Clean }
     "reproduce" { Invoke-Reproduce }
     default {

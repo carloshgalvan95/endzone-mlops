@@ -1,0 +1,38 @@
+{
+  "source": "docs/experiments/reports/phase2_h5_comparison.md",
+  "note": "Logistic h2_full on rolling-origin CV seasons 2016-2023, plus Elo, the no-vig market, and the home prior. These rows are the H5 comparison. H5b did not move them. make verify-reference refits them and fails when a locked number differs by more than tolerance.",
+  "cv_start_season": 2016,
+  "cv_end_season": 2023,
+  "n_bootstrap": 1000,
+  "bootstrap_seed": 42,
+  "tolerance": 0.0001,
+  "models": [
+    {
+      "model": "logistic",
+      "feature_set": "h2_full",
+      "n": 2191,
+      "log_loss": 0.6377,
+      "brier": 0.2235,
+      "auc": 0.6843,
+      "accuracy": 0.6426
+    },
+    {
+      "model": "elo",
+      "feature_set": "elo",
+      "n": 2191,
+      "log_loss": 0.6529
+    },
+    {
+      "model": "market",
+      "feature_set": "market",
+      "n": 2190,
+      "log_loss": 0.6120
+    },
+    {
+      "model": "baseline-home",
+      "feature_set": "none",
+      "n": 2191,
+      "log_loss": 0.6888
+    }
+  ]
+}

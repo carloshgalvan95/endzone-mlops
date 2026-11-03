@@ -9,7 +9,8 @@ This document contains operational procedures, setup checklists, and troubleshoo
 3. [Local Development Setup](#local-development-setup)
 4. [GitHub Actions CI/CD](#github-actions-cicd)
 5. [MLflow Tracking](#mlflow-tracking)
-6. [Troubleshooting](#troubleshooting)
+6. [Metric locks](#metric-locks)
+7. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -720,6 +721,36 @@ with mlflow.start_run():
 
 - **Databricks**: Experiments sidebar in workspace
 - **Local**: `mlflow ui --backend-store-uri sqlite:///mlflow.db` (opens http://localhost:5000)
+
+---
+
+## Metric locks
+
+Two checks guard the rolling-origin report while `src/train/train.py` is split. The offline check runs in CI. The warehouse check runs on a machine that can read the marts.
+
+### Offline golden
+
+`tests/test_golden_cv.py` builds the games and team-game tables in the test with numpy Generator seed 42. It calls `run_phase1_baselines` for phase 2 hypothesis `h3`: feature sets from `logistic_feature_sets_for` and `cv_model_specs_for`, the home prior, logistic regression, Elo, and the market. The window is rolling-origin 2016-2023. The paired bootstrap uses 1000 resamples and seed 42. Pooled metrics must match `tests/golden/cv_report.json` within 1e-9. Fold sizes and accept or reject labels must match exactly. Seasons 2024 and 2025 are in the slate. Scored folds stay inside 2016-2023.
+
+Rewrite the snapshot only when the change is intentional:
+
+```bash
+UPDATE_GOLDEN=1 pytest tests/test_golden_cv.py
+```
+
+### Warehouse reference
+
+`docs/experiments/reference_metrics.json` stores the H5 comparison for logistic `h2_full` (n=2191, log loss 0.6377, Brier 0.2235, AUC 0.6843, accuracy 0.6426), Elo 0.6529, the market 0.6120 (n=2190), and the home prior 0.6888. `make verify-reference` loads the marts and scores those rows through `run_phase1_baselines`. It exits non-zero when logistic `h2_full` log loss, n, Elo, or the market differ by more than 1e-4.
+
+On a Mac, from the repo root:
+
+```bash
+source .venv/bin/activate
+set -a; source .env; set +a
+make verify-reference
+```
+
+Windows: `.\scripts\dev.ps1 verify-reference`.
 
 ---
 

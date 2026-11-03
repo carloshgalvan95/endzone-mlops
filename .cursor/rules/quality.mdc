@@ -8,6 +8,8 @@ alwaysApply: true
 - Use the repo `.venv`. Ruff is pinned at `ruff==0.17.0`.
 - Before finishing, run `ruff format src/ tests/`, then `ruff check src/ tests/` and `ruff format --check src/ tests/`. Full `pytest tests/ -v` must pass. Paste the real command output in the final report.
 - `src/analysis` coverage stays at 100%. The CI command is `pytest tests/test_feature_leakage.py tests/test_feature_audit.py tests/test_epa_play_filter_check.py --cov=src/analysis --cov-report=term-missing --cov-fail-under=100`.
+- Golden CV: `tests/test_golden_cv.py` builds a seeded synthetic slate in code and runs `run_phase1_baselines` (feature-set selection, 2016-2023 folds, bootstrap seed 42, 1000 resamples). Metrics must match `tests/golden/cv_report.json` within 1e-9. Fold sizes and decision labels must match exactly. `UPDATE_GOLDEN=1 pytest tests/test_golden_cv.py` rewrites that file on purpose.
+- `make verify-reference` (Windows: `.\scripts\dev.ps1 verify-reference`) refits logistic `h2_full`, Elo, and the market on Databricks and fails when log loss, n, Elo, or the market differ from `docs/experiments/reference_metrics.json` by more than 1e-4. Refactor PRs pass the golden test. Carlos runs `make verify-reference`.
 - Extend the existing module. Do not recreate a parallel one.
 - Keep diffs small. Do not reformat unrelated lines.
 - Run the change before claiming it works.
