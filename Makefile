@@ -7,8 +7,8 @@ export MSYS_NO_PATHCONV=1
 
 help:
 	@echo "Available targets:"
-	@echo "  setup               - Create virtualenv and install dependencies"
-	@echo "  install             - Install Python dependencies (in active environment)"
+	@echo "  setup               - Create the Python 3.12 venv from uv.lock"
+	@echo "  install             - Install the locked environment (uv sync --frozen)"
 	@echo "  lint                - Run code quality checks (ruff)"
 	@echo "  test                - Run pytest unit tests"
 	@echo "  dbt-compile         - Compile dbt models"
@@ -30,17 +30,15 @@ help:
 	@echo "Note: Most targets expect an activated virtualenv (source .venv/bin/activate)"
 
 setup:
-	@echo "Creating virtual environment in .venv/"
-	python3 -m venv .venv
-	@echo "Installing dependencies..."
-	.venv/bin/pip install --upgrade pip
-	.venv/bin/pip install -r requirements.txt
+	@echo "Creating the Python 3.12 environment in .venv/ from uv.lock"
+	uv python install 3.12
+	uv sync --frozen
 	@echo ""
-	@echo "Setup complete! Activate the environment with:"
+	@echo "Setup complete. Activate the environment with:"
 	@echo "  source .venv/bin/activate"
 
 install:
-	pip install -r requirements.txt
+	uv sync --frozen
 
 lint:
 	ruff check src/ tests/

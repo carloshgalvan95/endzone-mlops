@@ -22,7 +22,7 @@ Build a reproducible lakehouse pipeline for NFL pregame predictions (win probabi
 - **Bronze ingest**: Games and play-by-play backfill is complete (1999-2026). Unity Catalog tables: `workspace.nfl_raw.games`, `workspace.nfl_raw.play_by_play` (partitioned by season). H5 adds `workspace.nfl_raw.depth_charts` (weekly charts from 2001; 1999 and 2000 were not published). Load that table before the H5 warehouse build. It is not part of the earlier games and play-by-play backfill.
 - **dbt**: 3 staging views (`stg_nflverse__games`, `stg_nflverse__pbp`, `stg_nflverse__depth_charts`), 5 marts (`fct_games`, `fct_team_game_epa`, `fct_upcoming_games`, `fct_expected_starter`, `fct_qb_dropbacks`), 3 sources, 3 seeds. The recorded Databricks build before the depth-chart models was 64/64 nodes (57 data tests). CI compiles the current graph on DuckDB. A warehouse rebuild that includes the new models has not been recorded yet.
 - **Training pipeline**: `src/train/train.py` with MLflow tracking. Supports a home baseline (constant probability equal to the training home win rate, hard home label when that rate is above one half), logistic regression (impute then standard-scale), and gradient boosting models. The default feature set is rolling EPA, win rate, rest days, and season offensive EPA (10-game lookback). `--feature-set diff` adds home-minus-away versions of those columns. `--feature-set diff_only` keeps only the differences. `--feature-set h2_def` adds season-to-date defensive EPA allowed. `--feature-set h2_full` also adds regressed season and recent EPA. `--feature-set h3_split` adds pass and rush EPA. `--feature-set h3_replace` swaps the combined recent and regressed-season EPA for those splits. `--feature-set h5_qb` adds the home and away starting-QB ratings and each rating minus that team's recent passing EPA. `--model logistic_l2` is L2 logistic regression whose C is tuned inside the training seasons and does not use the scored season to pick C. `home_games_played` and `away_games_played` are still computed and available as `--feature-set with_games_played`. Time-based split (train through 2023, validate 2024, test 2025). Logs params, metrics (log loss, Brier, accuracy, AUC), feature list, data window, git SHA. Can run against Databricks or local fixtures. Includes SimpleImputer for missing history (EPA imputed to 0, win_rate to 0.5). Tests include leakage protection and January playoff season handling. Local tracking uses `sqlite:///mlflow.db` in the repo root, with run artifacts under `mlartifacts/`.
-- **CI**: GitHub Actions runs ruff lint + format check, pytest on Python 3.10/3.11, dbt compile against DuckDB, cross-platform matrix (Ubuntu, Windows, macOS). Tests verify column references against real nflverse schema (fixtures in tests/fixtures), schema conforming logic, feature leakage protection, and end-to-end training.
+- **CI**: GitHub Actions runs ruff lint + format check, pytest on Python 3.12, dbt compile against DuckDB, cross-platform matrix (Ubuntu, Windows, macOS). Tests verify column references against real nflverse schema (fixtures in tests/fixtures), schema conforming logic, feature leakage protection, and end-to-end training.
 - **PR Guard**: Branch protection with freshness check, Conventional Commit titles, PR template verification, no secrets/data files, commit identity validation.
 
 **Next**: H5, the pregame starting-QB rating, is rejected. `h5_qb` is 0.6355 against logistic `h2_full` 0.6377 (n=2191, difference -0.0022, interval -0.0042 to -0.0003, AUC 0.6869). The interval excludes zero, which is a positive signal, but the pre-registered rule needs a gain of at least 0.003. That threshold is not changed after the result. The reference stays logistic `h2_full`. H5b is the same `h5_qb` features on the fixed starter. Its warehouse score is pending. H4, clean EPA, is rejected. `h4_clean` is 0.6398 and `h4_clean_sr` is 0.6379 on the same reference. Removing `no_play`, kneels, spikes, and garbage time adds no signal. Forecasting (batch scoring) comes after the Phase 2 feature search.
@@ -130,8 +130,9 @@ Experiments are tracked separately in MLflow. Never mix game states between trai
 endzone-mlops/
 ├── README.md                   # This file
 ├── LICENSE                     # MIT
-├── requirements.txt            # Python dependencies
-├── pyproject.toml              # Package metadata
+├── pyproject.toml              # Direct Python dependencies
+├── uv.lock                     # Locked environment, with hashes
+├── .python-version             # Python 3.12
 ├── Makefile                    # Common tasks (lint, test, reproduce)
 ├── .env.example                # Environment template (no secrets)
 ├── .github/
@@ -166,27 +167,32 @@ endzone-mlops/
 
 ### Prerequisites
 
-- Python 3.11 for the local venv. Python 3.10 still passes CI. Python 3.14 triggers pydantic v1 warnings inside dbt.
-- (Optional) Databricks Free Edition account
-- (Optional) dbt installed locally or via Databricks SQL Warehouse
+- Python 3.12. `.python-version` and `requires-python` pin that release. Python 3.14 triggers pydantic v1 warnings inside dbt, so the pin stops below 3.13.
+- [uv](https://docs.astral.sh/uv/) to create `.venv` from `uv.lock`.
+- (Optional) Databricks Free Edition account. dbt-core, dbt-duckdb, and dbt-databricks are in the lock.
 
 ### Local Setup (Day 1 Path)
 
-Cloud dev environment config (`.cursor/environment.json`) creates `.venv` and installs `requirements.txt`, with ruff pinned to 0.17.0 so it matches CI.
+Cloud dev environment config (`.cursor/environment.json`) installs uv and runs `uv sync --frozen`. Ruff stays pinned at 0.17.0.
 
 #### macOS / Linux
+
+Install uv once if it is not already on `PATH` (`brew install uv`, or the installer below). Then recreate `.venv` on Python 3.12:
 
 ```bash
 # Clone repository
 git clone https://github.com/carloshgalvan95/endzone-mlops.git
 cd endzone-mlops
 
-# Create and activate virtual environment
-python3 -m venv .venv
-source .venv/bin/activate
+# Install uv once (skip when `uv` is already on PATH)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source "$HOME/.local/bin/env"
 
-# Install dependencies (or use: make setup)
-pip install -r requirements.txt
+# Recreate the virtual environment on Python 3.12
+rm -rf .venv
+uv python install 3.12
+uv sync --frozen
+source .venv/bin/activate
 
 # Copy config templates
 cp .env.example .env
@@ -205,24 +211,28 @@ make lint
 make dbt-compile
 ```
 
-**Tip**: Use `make setup` to automate virtualenv creation and dependency installation.
+**Tip**: `make setup` runs `uv python install 3.12` and `uv sync --frozen`.
 
 #### Windows (PowerShell)
+
+Install uv once if it is not already on `PATH`. Then recreate `.venv` on Python 3.12:
 
 ```powershell
 # Clone repository
 git clone https://github.com/carloshgalvan95/endzone-mlops.git
 cd endzone-mlops
 
-# Create and activate virtual environment
-python -m venv .venv
-.venv\Scripts\Activate.ps1
+# Install uv once (skip when `uv` is already on PATH)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 
 # If activation is blocked, enable scripts (one-time):
 # Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 
-# Install dependencies (or use: .\scripts\dev.ps1 setup)
-pip install -r requirements.txt
+# Recreate the virtual environment on Python 3.12
+if (Test-Path .venv) { Remove-Item -Recurse -Force .venv }
+uv python install 3.12
+uv sync --frozen
+.venv\Scripts\Activate.ps1
 
 # Copy config templates
 Copy-Item .env.example .env
@@ -241,7 +251,7 @@ Copy-Item dbt\profiles.yml.example dbt\profiles.yml
 .\scripts\dev.ps1 dbt-compile
 ```
 
-**Tip**: Use `.\scripts\dev.ps1 setup` to automate virtualenv creation and dependency installation.
+**Tip**: `.\scripts\dev.ps1 setup` runs `uv python install 3.12` and `uv sync --frozen`.
 
 ### Training Models
 
@@ -469,9 +479,9 @@ See `docs/runbook.md` for credential setup, Unity Catalog volume paths, and veri
 
 **CI** (`.github/workflows/ci.yml`): Runs on every push and pull request:
 - **Lint**: ruff check + ruff format --check
-- **Test**: pytest on Python 3.10 and 3.11 (Ubuntu)
+- **Test**: pytest on Python 3.12 (Ubuntu)
 - **dbt compile**: Validates SQL against DuckDB (no Databricks credentials in CI yet)
-- **Cross-platform**: Lint + pytest on windows-latest and macos-latest (Python 3.11)
+- **Cross-platform**: Lint + pytest on windows-latest and macos-latest (Python 3.12)
 - Tests include verification that staging models reference real nflverse column names (fixtures in tests/fixtures)
 
 **Databricks Smoke Test** (`.github/workflows/databricks-smoke.yml`): Manual workflow_dispatch, runs dbt debug and dbt compile against Databricks using GitHub secrets (DATABRICKS_HOST, DATABRICKS_HTTP_PATH, DATABRICKS_TOKEN).

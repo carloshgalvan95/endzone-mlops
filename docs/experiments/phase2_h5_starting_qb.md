@@ -69,7 +69,7 @@ if ($LASTEXITCODE -eq 0) { python -m src.train.train --cv --phase 2 --hypothesis
 
 Before CV, each requested feature column has to exist and stay under 50% null. A failure names the feature set and says to run `make dbt-build-databricks`. If the depth-chart bronze table was never loaded, the warehouse read fails first. Load depth charts, then rebuild.
 
-`dbt/profiles.yml` is gitignored. After a pull, compare it to `dbt/profiles.yml.example`. The warehouse target must be `databricks` and the catalog must be `workspace`. The recommended venv is Python 3.11. Python 3.14 triggers pydantic v1 warnings inside dbt.
+`dbt/profiles.yml` is gitignored. After a pull, compare it to `dbt/profiles.yml.example`. The warehouse target must be `databricks` and the catalog must be `workspace`. The venv is Python 3.12 (`uv sync --frozen`). Python 3.14 triggers pydantic v1 warnings inside dbt.
 
 ## Result
 

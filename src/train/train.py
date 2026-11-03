@@ -22,7 +22,7 @@ import os
 import subprocess
 import tempfile
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -2776,7 +2776,7 @@ def parent_run_name(
     Returns:
         A name such as ``phase1-<timestamp>`` or ``phase2-h3-<timestamp>``.
     """
-    clock: datetime = timestamp if timestamp is not None else datetime.now(timezone.utc)
+    clock: datetime = timestamp if timestamp is not None else datetime.now(UTC)
     stamp: str = clock.strftime("%Y%m%dT%H%M%SZ")
     if phase != 2 or hypothesis is None:
         return f"phase1-{stamp}"

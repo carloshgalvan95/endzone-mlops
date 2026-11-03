@@ -288,7 +288,7 @@ src/
 **Requirement**: Any developer can clone repo and reproduce models.
 
 **Implementation**:
-- Pinned dependencies (`requirements.txt`)
+- Pinned dependencies (`pyproject.toml` and `uv.lock`, Python 3.12)
 - Seeds in MLflow runs
 - Data provenance documented
 - `make reproduce` command

@@ -5,9 +5,9 @@ Rules live in `.cursor/rules/` (`git-and-commits`, `quality`, `repo-map`, `ml-ex
 ## Verify
 
 ```bash
-python3 -m venv .venv
+uv python install 3.12
+uv sync --frozen
 . .venv/bin/activate
-pip install -r requirements.txt
 ruff check src/ tests/
 ruff format --check src/ tests/
 pytest tests/ -v
@@ -16,4 +16,4 @@ test -f dbt/profiles.yml || cp dbt/profiles.yml.example dbt/profiles.yml
 make train-sweep
 ```
 
-`make setup`, `make lint`, and `make test` match the venv, ruff, and pytest steps. `make dbt-compile` compiles with the local profile. `make train-sweep` runs the five training configs.
+`make setup` is `uv python install 3.12` and `uv sync --frozen`. `make lint` and `make test` match the ruff and pytest steps. `make dbt-compile` compiles with the local profile. `make train-sweep` runs the five training configs.

@@ -1,7 +1,7 @@
 """Phase 1 rolling-origin CV, Elo is covered with the leakage tests."""
 
 from collections.abc import Iterator
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
@@ -1526,7 +1526,7 @@ class TestCvRunStructure:
 
     def test_parent_run_name_uses_phase_and_hypothesis(self) -> None:
         """Phase 1 and each phase 2 hypothesis get a stable prefix."""
-        stamp = datetime(2026, 10, 15, 1, 2, 3, tzinfo=timezone.utc)
+        stamp = datetime(2026, 10, 15, 1, 2, 3, tzinfo=UTC)
         assert parent_run_name(1, None, timestamp=stamp) == "phase1-20261015T010203Z"
         assert parent_run_name(2, HYPOTHESIS_H1, timestamp=stamp) == "phase2-h1-20261015T010203Z"
         assert parent_run_name(2, HYPOTHESIS_H2, timestamp=stamp) == "phase2-h2-20261015T010203Z"

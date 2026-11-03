@@ -152,8 +152,8 @@ Free Edition includes a pre-created serverless SQL warehouse. No cluster creatio
 
 Local machine setup:
 ```bash
-# Install dbt-databricks (uncomment in requirements.txt if needed)
-pip install dbt-databricks
+# dbt-databricks is in uv.lock. From the repo root, with uv on PATH:
+uv sync --frozen
 
 # Copy profile template
 cd dbt
@@ -333,11 +333,42 @@ If Databricks spike fails:
 
 For Day 1 work without Databricks/Snowflake:
 
+### Python 3.12 lock
+
+`pyproject.toml` is the only list of direct dependencies. `uv.lock` pins the full graph, including hashes, for Python 3.12 (`requires-python` is `>=3.12,<3.13`, and `.python-version` is `3.12`).
+
+uv is the lock tool. It reads `pyproject.toml` directly, installs the matching CPython, and creates `.venv` with `uv sync --frozen`. pip-tools would also emit a hashed lock, but it needs a second input file and does not install the interpreter. A hand-maintained `requirements.txt` had already drifted from `pyproject.toml` (scikit-learn, the SQL connector, and requests were missing from the package metadata, dbt floors disagreed, and ruff was `==0.17.0` in one file and `>=0.1.0` in the other). That file is gone so the two lists cannot diverge again. CI, `make setup`, and `.\scripts\dev.ps1 setup` all run `uv sync --frozen`.
+
+Recreate `.venv` on a Mac:
+
+```bash
+brew install uv
+rm -rf .venv
+uv python install 3.12
+uv sync --frozen
+source .venv/bin/activate
+```
+
+The installer `curl -LsSf https://astral.sh/uv/install.sh | sh` works when Homebrew is not available. Then `source "$HOME/.local/bin/env"`.
+
+Recreate `.venv` on Windows PowerShell:
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+if (Test-Path .venv) { Remove-Item -Recurse -Force .venv }
+uv python install 3.12
+uv sync --frozen
+.venv\Scripts\Activate.ps1
+```
+
+Dev tools (pytest, pytest-cov, ruff `0.17.0`) are the `dev` group. `uv sync` installs that group by default (`tool.uv.default-groups`).
+
 ### DuckDB Path (Day 1 Default)
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
+# Install the locked environment (includes dbt-duckdb)
+uv sync --frozen
+source .venv/bin/activate
 
 # dbt with DuckDB (in-process database)
 cd dbt
@@ -356,7 +387,7 @@ dbt test --profiles-dir .
 
 ### Python Package Development
 
-Use Python 3.11 for the local venv. Python 3.10 still passes CI. Python 3.14 triggers pydantic v1 warnings inside dbt.
+Use Python 3.12. `.python-version` selects it, and CI tests only 3.12. Python 3.14 triggers pydantic v1 warnings inside dbt.
 
 ```bash
 # Run tests
@@ -393,7 +424,7 @@ This section covers loading nflverse games and play-by-play data into Databricks
 **Prerequisites**:
 - Databricks Free Edition account configured (see spike checklist above)
 - Environment variables set in `.env` (DATABRICKS_HOST, DATABRICKS_HTTP_PATH, DATABRICKS_TOKEN)
-- Python dependencies installed: `pip install -r requirements.txt`
+- Python dependencies installed: `uv sync --frozen`
 
 ### Data Ingestion Workflow
 
@@ -791,7 +822,7 @@ Windows: `.\scripts\dev.ps1 verify-reference`.
 - **Solution**: Run `dbt deps --profiles-dir .` first. `make dbt-build-databricks` and `.\scripts\dev.ps1 dbt-build-databricks` do that, then build. `make train-cv` is H5b. On a catalog that already has games and play-by-play, reload every depth-chart season: `python -m src.ingest.load_raw_nflverse --dataset depth_charts && make dbt-build-databricks && make train-cv`. A 2025-only load does not fix the int32 week files. A fresh clone uses `make ingest && make dbt-build-databricks && make train-cv`.
 
 **Problem**: pydantic v1 warnings while running dbt
-- **Check**: The local venv is Python 3.11. Python 3.14 triggers those warnings.
+- **Check**: The local venv is Python 3.12 (`uv sync --frozen`). Python 3.14 triggers those warnings.
 
 ### Python
 
@@ -799,7 +830,7 @@ Windows: `.\scripts\dev.ps1 verify-reference`.
 - **Solution**: Ensure PYTHONPATH includes project root: `export PYTHONPATH=.`
 
 **Problem**: Tests fail in CI but pass locally
-- **Check**: Dependencies in `requirements.txt`? Environment differences?
+- **Check**: Same lock (`uv sync --frozen`) and Python 3.12 locally and in CI?
 
 ### GitHub Actions
 

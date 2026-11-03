@@ -9,8 +9,8 @@ param(
 
 function Show-Help {
     Write-Host "Available targets:"
-    Write-Host "  setup               - Create virtualenv and install dependencies"
-    Write-Host "  install             - Install Python dependencies (in active environment)"
+    Write-Host "  setup               - Create the Python 3.12 venv from uv.lock"
+    Write-Host "  install             - Install the locked environment (uv sync --frozen)"
     Write-Host "  lint                - Run code quality checks (ruff)"
     Write-Host "  format              - Auto-format code with ruff"
     Write-Host "  test                - Run pytest unit tests"
@@ -36,18 +36,19 @@ function Show-Help {
 }
 
 function Invoke-Setup {
-    Write-Host "Creating virtual environment in .venv/"
-    python -m venv .venv
-    Write-Host "Installing dependencies..."
-    .venv\Scripts\pip install --upgrade pip
-    .venv\Scripts\pip install -r requirements.txt
+    Write-Host "Creating the Python 3.12 environment in .venv/ from uv.lock"
+    uv python install 3.12
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    uv sync --frozen
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     Write-Host ""
-    Write-Host "Setup complete! Activate the environment with:"
+    Write-Host "Setup complete. Activate the environment with:"
     Write-Host "  .venv\Scripts\Activate.ps1"
 }
 
 function Invoke-Install {
-    pip install -r requirements.txt
+    uv sync --frozen
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
 function Invoke-Lint {

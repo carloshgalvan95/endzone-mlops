@@ -11,42 +11,35 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.10", "3.11"]
+        python-version: ["3.12"]
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
+    - name: Install uv and Python ${{ matrix.python-version }}
+      uses: astral-sh/setup-uv@v5
       with:
         python-version: ${{ matrix.python-version }}
-        cache: 'pip'
+        enable-cache: true
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
+    - name: Install the locked environment
+      run: uv sync --frozen
 
     - name: Lint with ruff
-      run: |
-        ruff check src/ tests/
+      run: uv run ruff check src/ tests/
 
     - name: Format check with ruff
-      run: |
-        ruff format --check src/ tests/
+      run: uv run ruff format --check src/ tests/
 
     - name: Run tests with pytest
-      run: |
-        pytest tests/ -v --tb=short
+      run: uv run pytest tests/ -v --tb=short
 
     - name: Coverage of the feature audit
-      run: |
-        pytest tests/test_feature_leakage.py tests/test_feature_audit.py tests/test_epa_play_filter_check.py --cov=src/analysis --cov-report=term-missing --cov-fail-under=100
+      run: uv run pytest tests/test_feature_leakage.py tests/test_feature_audit.py tests/test_epa_play_filter_check.py --cov=src/analysis --cov-report=term-missing --cov-fail-under=100
 
     - name: Install dbt packages
-      run: |
-        cd dbt && dbt deps --profiles-dir .
+      run: cd dbt && uv run dbt deps --profiles-dir .
 
     - name: Create dbt profiles.yml for CI
       run: |
@@ -64,7 +57,7 @@ jobs:
 
     - name: dbt compile (local DuckDB)
       run: |
-        cd dbt && dbt deps --profiles-dir . && dbt seed --profiles-dir . --target local && dbt compile --profiles-dir . --target local
+        cd dbt && uv run dbt deps --profiles-dir . && uv run dbt seed --profiles-dir . --target local && uv run dbt compile --profiles-dir . --target local
 
     # Future: dbt build with Databricks (requires secrets)
     # - name: dbt build (Databricks)
@@ -81,34 +74,29 @@ jobs:
     strategy:
       matrix:
         os: [windows-latest, macos-latest]
-        python-version: ["3.11"]
+        python-version: ["3.12"]
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
+    - name: Install uv and Python ${{ matrix.python-version }}
+      uses: astral-sh/setup-uv@v5
       with:
         python-version: ${{ matrix.python-version }}
-        cache: 'pip'
+        enable-cache: true
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
+    - name: Install the locked environment
+      run: uv sync --frozen
 
     - name: Lint with ruff
-      run: |
-        ruff check src/ tests/
+      run: uv run ruff check src/ tests/
 
     - name: Format check with ruff
-      run: |
-        ruff format --check src/ tests/
+      run: uv run ruff format --check src/ tests/
 
     - name: Run tests with pytest
-      run: |
-        pytest tests/ -v --tb=short
+      run: uv run pytest tests/ -v --tb=short
 
   badge:
     runs-on: ubuntu-latest
