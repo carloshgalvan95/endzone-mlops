@@ -212,9 +212,7 @@ class DatabricksClient:
             logger.info("Databricks connection closed")
 
     def __enter__(self) -> "DatabricksClient":
-        """Context manager entry."""
         return self
 
     def __exit__(self, _exc_type: Any, _exc_val: Any, _exc_tb: Any) -> None:
-        """Context manager exit."""
         self.close()

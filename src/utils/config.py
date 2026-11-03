@@ -16,12 +16,6 @@ def resolve_tracking_uri(value: str) -> str:
     local path such as ``./mlruns`` or ``mlruns`` is refused by the
     MLflow 3.16 file store, so this logs a warning and falls back to
     ``sqlite:///mlflow.db``.
-
-    Args:
-        value: Tracking URI or local filesystem path.
-
-    Returns:
-        Tracking URI safe for ``mlflow.set_tracking_uri``.
     """
     has_scheme: bool = "://" in value
     is_databricks_target: bool = value == "databricks" or value.startswith("databricks")

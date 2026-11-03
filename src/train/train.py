@@ -138,7 +138,6 @@ CV_DATASET_NAME: str = "nfl_pregame_cv"
 # Accept a set only when pooled log loss falls by at least this much.
 MIN_LOG_LOSS_IMPROVEMENT: float = 0.003
 # A requested feature column at or above this null share is not a real signal.
-# The H4 pre-rebuild run filled absent clean columns and scored a constant.
 DEFAULT_MAX_NULL_FRACTION: float = 0.5
 FEATURE_COLUMN_REBUILD_HINT: str = "run make dbt-build-databricks"
 # Published H5 comparison. make verify-reference refits these rows.

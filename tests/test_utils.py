@@ -1,7 +1,4 @@
-"""
-Tests for utility modules.
-Follows DoD: smoke tests for pure functions.
-"""
+"""Tests for utility modules."""
 
 from pathlib import Path
 
