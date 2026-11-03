@@ -1,24 +1,37 @@
-"""Databricks SQL client for reading marts.
+"""Databricks SQL reads and Unity Catalog Volume uploads.
 
 Missing credentials stay in fixture mode and refuse to open a connection.
+Ingest opens a SQL connection without a default catalog, because its
+statements are already fully qualified. Mart reads pass catalog and schema
+as connection parameters. The warehouse rejects a script that starts with USE.
 """
 
-import os
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
+from endzone.config import (
+    DEFAULT_CATALOG,
+    DEFAULT_MARTS_SCHEMA,
+    load_databricks_settings,
+    resolve_setting,
+)
 from endzone.utils.logging import setup_logger
 
 logger = setup_logger(__name__)
 
-# dbt target databricks (profiles.yml.example) uses schema nfl_dev.
-# dbt_project.yml sets models.marts +schema: marts. This repo has no
-# generate_schema_name macro, so dbt's default macro appends the custom
-# schema: nfl_dev_marts. Override with DATABRICKS_CATALOG and
-# DATABRICKS_MARTS_SCHEMA.
-DEFAULT_CATALOG: str = "workspace"
-DEFAULT_MARTS_SCHEMA: str = "nfl_dev_marts"
+# Re-exported so callers can keep importing the defaults with the client.
+__all__ = [
+    "DEFAULT_CATALOG",
+    "DEFAULT_MARTS_SCHEMA",
+    "DatabricksClient",
+    "connect_sql",
+    "connect_workspace",
+    "qualify_table_name",
+    "quote_identifier",
+    "upload_volume_file",
+]
 
 
 def quote_identifier(identifier: str) -> str:
@@ -56,23 +69,74 @@ def qualify_table_name(catalog: str, schema: str, table_name: str) -> str:
     return ".".join(quote_identifier(part) for part in parts)
 
 
-def _resolve_setting(explicit: str | None, env_name: str, default: str) -> str:
-    """Prefer an explicit argument, then a non-empty env var, then a default.
+def connect_sql(
+    host: str,
+    http_path: str,
+    token: str,
+    *,
+    catalog: str | None = None,
+    schema: str | None = None,
+) -> Any:
+    """Open one Databricks SQL connection.
 
     Args:
-        explicit: Value passed by the caller. None or blank means unset.
-        env_name: Environment variable that overrides the default.
-        default: Value used when neither argument nor env var is set.
+        host: Workspace hostname, without ``https://``.
+        http_path: SQL warehouse HTTP path.
+        token: Access token.
+        catalog: Session catalog. Omit it when every statement is qualified.
+        schema: Session schema. Omit it when every statement is qualified.
 
     Returns:
-        The resolved setting.
+        A connection from ``databricks.sql.connect``.
+
+    Raises:
+        ImportError: The SQL connector is not installed.
     """
-    if explicit is not None and explicit.strip() != "":
-        return explicit
-    from_env: str | None = os.getenv(env_name)
-    if from_env is not None and from_env.strip() != "":
-        return from_env.strip()
-    return default
+    try:
+        from databricks import sql
+    except ImportError as exc:
+        raise ImportError(
+            "databricks-sql-connector not installed. "
+            "Install with: pip install databricks-sql-connector"
+        ) from exc
+
+    parameters: dict[str, str] = {
+        "server_hostname": host,
+        "http_path": http_path,
+        "access_token": token,
+    }
+    if catalog is not None:
+        parameters["catalog"] = catalog
+    if schema is not None:
+        parameters["schema"] = schema
+    return sql.connect(**parameters)
+
+
+def connect_workspace(host: str, token: str) -> Any:
+    """Open a Workspace client for the Files API.
+
+    Args:
+        host: Workspace hostname, without ``https://``.
+        token: Access token.
+
+    Returns:
+        A ``WorkspaceClient`` used for Volume upload, list, and delete.
+    """
+    from databricks.sdk import WorkspaceClient
+
+    return WorkspaceClient(host=host, token=token)
+
+
+def upload_volume_file(workspace_client: Any, local_path: Path, volume_path: str) -> None:
+    """Upload one local file to a Volume path, replacing an existing object.
+
+    Args:
+        workspace_client: Databricks Workspace client.
+        local_path: File to read in binary mode.
+        volume_path: Destination path, including the ``/Volumes`` prefix.
+    """
+    with open(local_path, "rb") as handle:
+        workspace_client.files.upload(volume_path, handle, overwrite=True)
 
 
 class DatabricksClient:
@@ -100,11 +164,12 @@ class DatabricksClient:
             >>> client = DatabricksClient()  # Uses env vars or fixture mode
             >>> df = client.query("SELECT * FROM fct_games LIMIT 10")
         """
-        self.host = host or os.getenv("DATABRICKS_HOST")
-        self.http_path = http_path or os.getenv("DATABRICKS_HTTP_PATH")
-        self.token = token or os.getenv("DATABRICKS_TOKEN")
-        self.catalog = _resolve_setting(catalog, "DATABRICKS_CATALOG", DEFAULT_CATALOG)
-        self.schema = _resolve_setting(schema, "DATABRICKS_MARTS_SCHEMA", DEFAULT_MARTS_SCHEMA)
+        settings = load_databricks_settings()
+        self.host = host or settings.host
+        self.http_path = http_path or settings.http_path
+        self.token = token or settings.token
+        self.catalog = resolve_setting(catalog, "DATABRICKS_CATALOG", DEFAULT_CATALOG)
+        self.schema = resolve_setting(schema, "DATABRICKS_MARTS_SCHEMA", DEFAULT_MARTS_SCHEMA)
 
         self._connection = None
         self._use_fixture = False
@@ -121,20 +186,16 @@ class DatabricksClient:
             raise RuntimeError("Cannot connect in fixture mode. Provide Databricks credentials.")
 
         if self._connection is None:
-            try:
-                from databricks import sql
-            except ImportError as e:
-                raise ImportError(
-                    "databricks-sql-connector not installed. "
-                    "Install with: pip install databricks-sql-connector"
-                ) from e
-
+            if self.host is None or self.http_path is None or self.token is None:
+                raise RuntimeError(
+                    "Cannot connect in fixture mode. Provide Databricks credentials."
+                )
             # Session catalog and schema are connection parameters.
             # The SQL warehouse rejects a script that starts with USE.
-            self._connection = sql.connect(
-                server_hostname=self.host,
-                http_path=self.http_path,
-                access_token=self.token,
+            self._connection = connect_sql(
+                self.host,
+                self.http_path,
+                self.token,
                 catalog=self.catalog,
                 schema=self.schema,
             )

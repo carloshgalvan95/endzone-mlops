@@ -41,6 +41,8 @@ Import-linter contracts match the packages as they are today:
 
 ## Consequences
 
+`endzone/config.py` is the only module that reads `.env`, `DATABRICKS_*`, and `MLFLOW_TRACKING_URI`. `endzone/data/warehouse.py` is the SQL and Volume client. Ingest is split across `cli.py`, `nflverse.py`, `schema.py`, `depth_charts.py`, `snapshots.py`, and `volume.py`. The command stays `python -m endzone.ingest.load_raw_nflverse`. `endzone.config` is outside the import-linter layers because every package may import it, and it does not import analysis, train, ingest, features, or data.
+
 Commands use `python -m endzone.train.train` and `python -m endzone.ingest.load_raw_nflverse`. Logger names follow `__name__`, so they are `endzone.*`. MLflow tags (`phase`, `hypothesis`, `git_commit`, `decision`, `feature_set`, `cv_scheme`, `reference_model`, `reference_feature_set`) do not embed the package name. The logged model artifact is still named `model`. The reviewed skops allowlist is still `numpy.dtype` and `sklearn.tree._tree.Tree`.
 
 New code respects this layout and these contracts. `make lint-structure` is the check.

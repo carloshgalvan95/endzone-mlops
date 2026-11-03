@@ -33,7 +33,7 @@ function Show-Help {
     Write-Host "  reproduce           - Full reproduction pipeline"
     Write-Host ""
     Write-Host "Note: Most targets expect an activated virtualenv"
-    Write-Host "      ingest* targets require DATABRICKS_* env vars (load from .env)"
+    Write-Host "      Python targets load .env. A shell variable already set wins. dbt targets still source .env."
     Write-Host "Usage: .\scripts\dev.ps1 <target>"
 }
 
@@ -131,7 +131,6 @@ function Invoke-Clean {
 }
 
 function Invoke-Train {
-    Load-Env
     Write-Host "Training NFL pregame prediction models with MLflow..."
     python -m endzone.train.train --model logistic --lookback 10 --seed 42
 }
@@ -142,7 +141,6 @@ function Invoke-TrainSweep {
 }
 
 function Invoke-TrainCv {
-    Load-Env
     Write-Host "Running phase 2 H5b starter coverage CV..."
     python -m endzone.train.train --cv --phase 2 --hypothesis h5b --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h5b
 }
@@ -153,19 +151,16 @@ function Invoke-MlflowUi {
 }
 
 function Invoke-AuditFeatures {
-    Load-Env
     Write-Host "Auditing pregame inputs (features are not changed)..."
     python -m endzone.analysis.feature_audit --output-dir reports/phase0
 }
 
 function Invoke-CheckEpaFilter {
-    Load-Env
     Write-Host "Checking play types inside the EPA play filter..."
     python -m endzone.analysis.epa_play_filter_check --output reports/epa_filter_check.md
 }
 
 function Invoke-VerifyReference {
-    Load-Env
     Write-Host "Checking logistic h2_full, Elo, and the market against the reference file..."
     python -m endzone.train.train --verify-reference
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -178,13 +173,11 @@ function Invoke-Reproduce {
 }
 
 function Invoke-Ingest {
-    Load-Env
     Write-Host "Loading nflverse data (all seasons 1999-2026, games and pbp)..."
     python -m endzone.ingest.load_raw_nflverse --dataset all
 }
 
 function Invoke-IngestCurrent {
-    Load-Env
     Write-Host "Refreshing current season only..."
     python -m endzone.ingest.load_raw_nflverse --current-season --dataset all
 }

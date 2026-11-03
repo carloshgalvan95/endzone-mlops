@@ -11,7 +11,6 @@ seasons and scored on 2024.
 """
 
 import argparse
-import os
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -21,6 +20,7 @@ import pandas as pd
 from sklearn.inspection import permutation_importance
 from sklearn.metrics import log_loss, roc_auc_score
 
+from endzone.config import configured_tracking_uri, resolve_tracking_uri
 from endzone.features.pregame import (
     MODEL_ID_COLUMNS,
     build_pregame_features,
@@ -33,7 +33,6 @@ from endzone.train.train import (
     load_data,
     train_logistic_regression,
 )
-from endzone.utils.config import DEFAULT_MLFLOW_TRACKING_URI, resolve_tracking_uri
 from endzone.utils.logging import setup_logger
 
 logger = setup_logger(__name__)
@@ -1040,7 +1039,7 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
     model_frame, target = prepare_training_data(games, built)
     report = run_feature_audit(model_frame, target, config)
     paths = write_audit_outputs(report, Path(args.output_dir))
-    tracking_uri = os.getenv("MLFLOW_TRACKING_URI", DEFAULT_MLFLOW_TRACKING_URI)
+    tracking_uri = configured_tracking_uri()
     run = log_audit_to_mlflow(
         report,
         paths,

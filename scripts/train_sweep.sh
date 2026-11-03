@@ -6,12 +6,7 @@ set -e
 echo "Running training sweep (5 configs)..."
 echo ""
 
-# Load .env if it exists
-if [ -f .env ]; then
-    set -a
-    . ./.env
-    set +a
-fi
+# train reads .env. A variable already exported in the shell wins.
 
 # 1. Baseline
 echo "1/5: Baseline (training home win rate)"

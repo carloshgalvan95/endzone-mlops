@@ -30,6 +30,7 @@ help:
 	@echo "  clean               - Remove build artifacts"
 	@echo ""
 	@echo "Note: Most targets expect an activated virtualenv (source .venv/bin/activate)"
+	@echo "      Python targets load .env. dbt-compile, dbt-run, and dbt-test still source it."
 
 setup:
 	@echo "Creating the Python 3.12 environment in .venv/ from uv.lock"
@@ -57,11 +58,9 @@ vulture:
 	vulture endzone scripts --min-confidence 80
 
 ingest:
-	@if [ -f .env ]; then set -a && . ./.env && set +a; fi; \
 	python -m endzone.ingest.load_raw_nflverse --dataset all
 
 ingest-current:
-	@if [ -f .env ]; then set -a && . ./.env && set +a; fi; \
 	python -m endzone.ingest.load_raw_nflverse --current-season --dataset all
 
 dbt-compile:
@@ -87,29 +86,24 @@ dbt-build-databricks:
 	cd dbt && dbt deps --profiles-dir . && dbt build --profiles-dir . --target databricks
 
 train:
-	@if [ -f .env ]; then set -a && . ./.env && set +a; fi; \
 	python -m endzone.train.train --model logistic --lookback 10 --seed 42
 
 train-sweep:
 	bash scripts/train_sweep.sh
 
 train-cv:
-	@if [ -f .env ]; then set -a && . ./.env && set +a; fi; \
 	python -m endzone.train.train --cv --phase 2 --hypothesis h5b --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h5b
 
 mlflow-ui:
 	mlflow ui --backend-store-uri sqlite:///mlflow.db --workers 1
 
 audit-features:
-	@if [ -f .env ]; then set -a && . ./.env && set +a; fi; \
 	python -m endzone.analysis.feature_audit --output-dir reports/phase0 $(AUDIT_ARGS)
 
 check-epa-filter:
-	@if [ -f .env ]; then set -a && . ./.env && set +a; fi; \
 	python -m endzone.analysis.epa_play_filter_check --output reports/epa_filter_check.md
 
 verify-reference:
-	@if [ -f .env ]; then set -a && . ./.env && set +a; fi; \
 	python -m endzone.train.train --verify-reference
 
 reproduce: install dbt-compile

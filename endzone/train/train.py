@@ -18,7 +18,6 @@ Usage:
 import argparse
 import json
 import math
-import os
 import subprocess
 import tempfile
 from collections.abc import Callable
@@ -39,7 +38,8 @@ from sklearn.metrics import accuracy_score, brier_score_loss, log_loss, roc_auc_
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
-from endzone.data.databricks_client import DatabricksClient
+from endzone.config import configured_tracking_uri, resolve_tracking_uri
+from endzone.data.warehouse import DatabricksClient
 from endzone.features.pregame import (
     ELO_HOME_ADVANTAGE,
     ELO_K,
@@ -70,7 +70,6 @@ from endzone.features.pregame import (
     prepare_training_data,
     split_by_season,
 )
-from endzone.utils.config import DEFAULT_MLFLOW_TRACKING_URI, resolve_tracking_uri
 from endzone.utils.logging import setup_logger
 
 logger = setup_logger(__name__)
@@ -3360,9 +3359,7 @@ def _run_phase1_cli(args: argparse.Namespace) -> None:
         qb_dropbacks=qb_dropbacks,
     )
     paths: dict[str, Any] = write_phase1_outputs(report, Path(output_dir))
-    tracking_uri: str = resolve_tracking_uri(
-        os.getenv("MLFLOW_TRACKING_URI", DEFAULT_MLFLOW_TRACKING_URI)
-    )
+    tracking_uri: str = configured_tracking_uri()
     logged: dict[str, Any] = log_phase1_to_mlflow(
         report,
         paths,
@@ -3609,9 +3606,7 @@ def main(argv: list[str] | None = None) -> None:
     # Plain local paths such as ./mlruns fall back to sqlite inside
     # resolve_tracking_uri (MLflow 3.16 refuses the file store).
     # sqlite:// and databricks pass through unchanged.
-    tracking_uri = resolve_tracking_uri(
-        os.getenv("MLFLOW_TRACKING_URI", DEFAULT_MLFLOW_TRACKING_URI)
-    )
+    tracking_uri = configured_tracking_uri()
     activate_tracking_experiment("nfl_pregame", tracking_uri)
 
     # Load data

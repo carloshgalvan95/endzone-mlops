@@ -10,14 +10,13 @@ SQL client training uses. One statement per ``cursor.execute``.
 """
 
 import argparse
-import os
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
-from endzone.data.databricks_client import (
-    DEFAULT_CATALOG,
+from endzone.config import DEFAULT_CATALOG, resolve_setting
+from endzone.data.warehouse import (
     DatabricksClient,
     qualify_table_name,
     quote_identifier,
@@ -32,25 +31,6 @@ DEFAULT_STAGING_SCHEMA: str = "nfl_dev_staging"
 DEFAULT_RAW_SCHEMA: str = "nfl_raw"
 FLAG_COLUMNS: tuple[str, ...] = ("qb_kneel", "qb_spike")
 DEFAULT_OUTPUT: str = "reports/epa_filter_check.md"
-
-
-def _resolve_setting(explicit: str | None, env_name: str, default: str) -> str:
-    """Prefer an explicit argument, then a non-empty env var, then a default.
-
-    Args:
-        explicit: Value passed by the caller. None or blank means unset.
-        env_name: Environment variable that overrides the default.
-        default: Value used when neither argument nor env var is set.
-
-    Returns:
-        The resolved setting.
-    """
-    if explicit is not None and explicit.strip() != "":
-        return explicit.strip()
-    from_env: str | None = os.getenv(env_name)
-    if from_env is not None and from_env.strip() != "":
-        return from_env.strip()
-    return default
 
 
 def resolve_epa_filter_locations(
@@ -77,13 +57,13 @@ def resolve_epa_filter_locations(
         ``staging_table``, and ``raw_table``. Table values are qualified
         and backtick-quoted.
     """
-    resolved_catalog: str = _resolve_setting(catalog, "DATABRICKS_CATALOG", DEFAULT_CATALOG)
-    resolved_staging: str = _resolve_setting(
+    resolved_catalog: str = resolve_setting(catalog, "DATABRICKS_CATALOG", DEFAULT_CATALOG)
+    resolved_staging: str = resolve_setting(
         staging_schema,
         "DATABRICKS_STAGING_SCHEMA",
         DEFAULT_STAGING_SCHEMA,
     )
-    resolved_raw: str = _resolve_setting(raw_schema, "DATABRICKS_RAW_SCHEMA", DEFAULT_RAW_SCHEMA)
+    resolved_raw: str = resolve_setting(raw_schema, "DATABRICKS_RAW_SCHEMA", DEFAULT_RAW_SCHEMA)
     return {
         "catalog": resolved_catalog,
         "staging_schema": resolved_staging,

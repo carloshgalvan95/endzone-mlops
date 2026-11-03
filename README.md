@@ -144,12 +144,13 @@ endzone-mlops/
 │   ├── tests/
 │   └── macros/
 ├── endzone/                    # Python package
+│   ├── config.py              # .env, DATABRICKS_*, MLflow tracking URI
 │   ├── analysis/              # Phase 0 audit and EPA play-filter check
-│   ├── data/                  # Databricks SQL client for marts
+│   ├── data/                  # warehouse.py: SQL reads and Volume upload
 │   ├── features/              # Feature engineering
-│   ├── ingest/                # Bronze nflverse load
+│   ├── ingest/                # Bronze nflverse load (cli, nflverse, schema, depth charts, volume)
 │   ├── train/                 # Training entrypoint
-│   └── utils/                 # Shared utilities
+│   └── utils/                 # Logging
 ├── data/                       # Local cache: raw, interim, processed, external
 ├── models/                     # Gitignored serialized artifacts
 ├── notebooks/                  # Exploration only (not the product)
@@ -435,6 +436,8 @@ In the MLflow UI, filter with `tags.decision = 'accepted'` (or `rejected`, `refe
 
 **Important .env notes**:
 - `.env` is for environment variables (e.g., Databricks credentials), not the Python virtual environment
+- Python entry points load `.env` from the working directory (`make ingest`, `make train`, `make train-cv`, `make train-sweep`, `make audit-features`, `make check-epa-filter`, `make verify-reference`). A variable already set in the shell wins, so `set -a; source .env; set +a` still works.
+- `make dbt-compile`, `make dbt-run`, and `make dbt-test` still source `.env`, because dbt does not use that loader.
 - Format: `KEY=value` with no spaces around `=`
 - DATABRICKS_HOST should NOT include `https://` prefix
 - Git Bash (MINGW) on Windows mangles paths starting with `/`, including `DATABRICKS_HTTP_PATH`. `make` already exports `MSYS_NO_PATHCONV=1`. Add the same export to `~/.bashrc` if you run commands outside `make`.

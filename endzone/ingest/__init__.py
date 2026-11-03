@@ -1,8 +1,6 @@
-"""
-Data ingestion module for loading raw NFL data into Databricks.
+"""Bronze load of nflverse games, play-by-play, and depth charts.
 
-This module contains scripts for:
-- Downloading nflverse datasets (games, play-by-play)
-- Uploading to Unity Catalog Volumes
-- Creating bronze Delta tables in workspace.nfl_raw schema
+`python -m endzone.ingest.load_raw_nflverse` is the entrypoint. Download,
+schema, depth-chart mapping, Volume upload, and the command live in
+separate modules under this package.
 """

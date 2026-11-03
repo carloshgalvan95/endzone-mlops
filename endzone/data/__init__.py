@@ -1,4 +1,4 @@
-"""Databricks SQL client for mart tables.
+"""Databricks SQL and Volume client.
 
-Bronze ingest lives in ``endzone.ingest``.
+``warehouse.py`` is the client. Bronze ingest lives in ``endzone.ingest``.
 """
