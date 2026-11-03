@@ -32,6 +32,9 @@ jobs:
     - name: Format check with ruff
       run: uv run ruff format --check src/ tests/
 
+    - name: Unused code with vulture
+      run: uv run vulture src scripts --min-confidence 80
+
     - name: Run tests with pytest
       run: uv run pytest tests/ -v --tb=short
 

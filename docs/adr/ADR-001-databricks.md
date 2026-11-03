@@ -96,9 +96,8 @@ ADR-001b will document the switch with specific failure reasons.
 
 ### Live Path (Documented, Not Implemented v0.1)
 
-- **Interface**: HistoricalFeed vs LiveFeed (same contract)
 - **Future target**: BALLDONTLIE NFL GOAT API (~$39.99/month) for v0.2+
-- **v0.1 status**: LiveFeed is stub (raises NotImplementedError)
+- **v0.1 status**: The unused feed stub was removed. Live data is not in the repo.
 - **Decision gate**: Live activation requires explicit owner approval, post-Day 14
 
 **Important**: nflverse is NOT a live API. It provides clean nightly updates and raw data ~15 minutes post-game. For in-play predictions (future), a second vendor (BALLDONTLIE) is documented but not purchased in v0.1.

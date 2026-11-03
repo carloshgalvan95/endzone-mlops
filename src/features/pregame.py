@@ -1362,7 +1362,7 @@ def build_pregame_features(
 
     features_list = []
 
-    for idx, game in fct_games.iterrows():
+    for _, game in fct_games.iterrows():
         game_id = game["game_id"]
         game_date = game["gameday"]
         home_team = game["home_team_franchise"]

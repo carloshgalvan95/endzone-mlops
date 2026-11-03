@@ -1,4 +1,4 @@
-.PHONY: help setup install lint test dbt-compile dbt-run dbt-test clean reproduce ingest ingest-current dbt-build-databricks train train-sweep train-cv mlflow-ui audit-features check-epa-filter verify-reference
+.PHONY: help setup install lint test vulture dbt-compile dbt-run dbt-test clean reproduce ingest ingest-current dbt-build-databricks train train-sweep train-cv mlflow-ui audit-features check-epa-filter verify-reference
 
 # Git Bash on Windows rewrites arguments that look like Unix paths.
 # DATABRICKS_HTTP_PATH starts with /sql/1.0/... and would be mangled.
@@ -11,6 +11,7 @@ help:
 	@echo "  install             - Install the locked environment (uv sync --frozen)"
 	@echo "  lint                - Run code quality checks (ruff)"
 	@echo "  test                - Run pytest unit tests"
+	@echo "  vulture             - Fail on high-confidence unused code"
 	@echo "  dbt-compile         - Compile dbt models"
 	@echo "  dbt-run             - Run dbt models (creates tables)"
 	@echo "  dbt-test            - Run dbt tests"
@@ -46,6 +47,9 @@ lint:
 
 test:
 	pytest tests/ -v
+
+vulture:
+	vulture src scripts --min-confidence 80
 
 ingest:
 	@if [ -f .env ]; then set -a && . ./.env && set +a; fi; \

@@ -14,6 +14,7 @@ function Show-Help {
     Write-Host "  lint                - Run code quality checks (ruff)"
     Write-Host "  format              - Auto-format code with ruff"
     Write-Host "  test                - Run pytest unit tests"
+    Write-Host "  vulture             - Fail on high-confidence unused code"
     Write-Host "  dbt-compile         - Compile dbt models"
     Write-Host "  dbt-run             - Run dbt models (creates tables)"
     Write-Host "  dbt-test            - Run dbt tests"
@@ -62,6 +63,11 @@ function Invoke-Format {
 
 function Invoke-Test {
     pytest tests\ -v
+}
+
+function Invoke-Vulture {
+    vulture src scripts --min-confidence 80
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
 function Load-Env {
@@ -197,6 +203,7 @@ switch ($Target.ToLower()) {
     "lint" { Invoke-Lint }
     "format" { Invoke-Format }
     "test" { Invoke-Test }
+    "vulture" { Invoke-Vulture }
     "dbt-compile" { Invoke-DbtCompile }
     "dbt-run" { Invoke-DbtRun }
     "dbt-test" { Invoke-DbtTest }

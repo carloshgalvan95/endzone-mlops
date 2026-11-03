@@ -41,15 +41,10 @@ Build a reproducible lakehouse pipeline for NFL pregame predictions (win probabi
 **Target architecture** (components marked [done] or [planned]):
 
 ```
-nflverse (historical)     BALLDONTLIE (future live, documented only)
-    |                            |
-    v                            v
-HistoricalFeed [done]       LiveFeed (stub) [planned]
-    |                            |
-    +----------------------------+
-                |
-                v
-         Bronze (raw data) [done]
+nflverse (historical)     BALLDONTLIE (future live, not in this repo)
+    |
+    v
+Bronze ingest (src/ingest) [done]
                 |
                 v
     dbt: Staging [done] -> Marts [done]
@@ -74,7 +69,7 @@ HistoricalFeed [done]       LiveFeed (stub) [planned]
 
 - **Batch-first**: v0.1 focuses on offline training and batch scoring. Real-time inference is documented as a future adapter pattern, not implemented.
 - **Historical source**: nflverse (CC BY 4.0, play-by-play from 1999+, Parquet format)
-- **Live path (documented, not active)**: HistoricalFeed vs LiveFeed interface. LiveFeed target is BALLDONTLIE GOAT API (~$40/month) for post-v0.1 with owner approval. No API keys in repo, no live calls in v0.1.
+- **Live path (documented, not active)**: No live-feed code is in the repo. A BALLDONTLIE GOAT API (~$40/month) adapter is a post-v0.1 option and needs owner approval. No API keys in the repo, no live calls in v0.1.
 - **Primary stack**: Databricks Free Edition + dbt-databricks + MLflow + GitHub Actions
 - **Plan B**: Snowflake trial (same repo layout) if Databricks Free Edition spike fails
 
@@ -117,7 +112,7 @@ Experiments are tracked separately in MLflow. Never mix game states between trai
 
 ### Future Live Data: BALLDONTLIE (Documented Only)
 
-- **Status**: Stub interface in v0.1; no active API calls
+- **Status**: Not in the repo. No active API calls.
 - **Target plan**: BALLDONTLIE NFL GOAT tier (~$39.99/month) for v0.2+
 - **Capabilities**: Play-by-play, stats, injuries, odds (near-real-time, no published SLA)
 - **Decision gate**: Activation requires explicit owner approval and is post-Day 14
@@ -149,9 +144,10 @@ endzone-mlops/
 │   ├── tests/
 │   └── macros/
 ├── src/
-│   ├── data/                  # Data ingestion, HistoricalFeed/LiveFeed
+│   ├── data/                  # Databricks SQL client for marts
 │   ├── features/              # Feature engineering
-│   ├── models/                # train.py, score.py
+│   ├── ingest/                # Bronze nflverse load
+│   ├── train/                 # Training entrypoint
 │   └── utils/                 # Shared utilities
 ├── tests/                     # Pytest unit tests
 ├── notebooks/                 # Exploration only (not the product)
@@ -515,7 +511,7 @@ See `docs/runbook.md` for credential setup, Unity Catalog volume paths, and veri
 - [ ] Documentation and demo
 
 ### v0.2+ (Post-Day 14)
-- [ ] Activate LiveFeed adapter with BALLDONTLIE (requires paid subscription and approval)
+- [ ] Add a live-feed adapter for BALLDONTLIE (requires paid subscription and approval)
 - [ ] In-game prediction experiment
 - [ ] Monitoring and drift detection
 - [ ] Databricks Jobs or GitHub Actions schedule
