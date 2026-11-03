@@ -82,6 +82,7 @@ This is Carlos Galvan's public MLOps portfolio demonstrating Databricks + dbt + 
 
 A PR is Done when:
 - [ ] CI is green (lint, tests, dbt compile)
+- [ ] Refactor PRs pass the golden CV test (`tests/test_golden_cv.py`). Carlos runs `make verify-reference` and it matches `docs/experiments/reference_metrics.json`.
 - [ ] Acceptance criteria have evidence (automated test or manual proof)
 - [ ] Documentation updated (README, ADR, runbook if ASR changed)
 - [ ] Honesty banner intact

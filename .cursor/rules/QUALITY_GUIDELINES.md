@@ -158,6 +158,7 @@ Una historia/PR está Done solo si cumple todos los puntos aplicables:
 ### Pruebas
 - [ ] Evidencia de AC (pytest, dbt test, o guion + captura)
 - [ ] CI verde
+- [ ] Refactors: el golden CV (`tests/test_golden_cv.py`) pasa, y Carlos corre `make verify-reference`
 
 ### Docs
 - [ ] README/ADR/runbook/architecture al día; honesty intacta
