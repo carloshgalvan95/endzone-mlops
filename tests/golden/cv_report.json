@@ -1,0 +1,910 @@
+{
+  "dataset_seed": 42,
+  "phase": 2,
+  "hypothesis": "h3-pass-rush-epa",
+  "reference_model": "logistic",
+  "reference_feature_set": "h2_full",
+  "config": {
+    "cv_start_season": 2016,
+    "cv_end_season": 2023,
+    "n_bootstrap": 1000,
+    "bootstrap_seed": 42
+  },
+  "feature_set_selection": {
+    "phase1": {
+      "feature_sets": [
+        "current",
+        "with_games_played"
+      ],
+      "model_specs": [
+        {
+          "model": "logistic",
+          "feature_set": "current"
+        },
+        {
+          "model": "logistic",
+          "feature_set": "with_games_played"
+        }
+      ]
+    },
+    "h1": {
+      "feature_sets": [
+        "current",
+        "diff",
+        "diff_only"
+      ],
+      "model_specs": [
+        {
+          "model": "logistic",
+          "feature_set": "current"
+        },
+        {
+          "model": "logistic",
+          "feature_set": "diff"
+        },
+        {
+          "model": "logistic",
+          "feature_set": "diff_only"
+        }
+      ]
+    },
+    "h2": {
+      "feature_sets": [
+        "current",
+        "h2_def",
+        "h2_full"
+      ],
+      "model_specs": [
+        {
+          "model": "logistic",
+          "feature_set": "current"
+        },
+        {
+          "model": "logistic",
+          "feature_set": "h2_def"
+        },
+        {
+          "model": "logistic",
+          "feature_set": "h2_full"
+        }
+      ]
+    },
+    "h3": {
+      "feature_sets": [
+        "h2_full",
+        "h3_split",
+        "h3_replace"
+      ],
+      "model_specs": [
+        {
+          "model": "logistic",
+          "feature_set": "h2_full"
+        },
+        {
+          "model": "logistic",
+          "feature_set": "h3_split"
+        },
+        {
+          "model": "logistic",
+          "feature_set": "h3_replace"
+        }
+      ]
+    },
+    "h4": {
+      "feature_sets": [
+        "h2_full",
+        "h4_clean",
+        "h4_clean_sr"
+      ],
+      "model_specs": [
+        {
+          "model": "logistic",
+          "feature_set": "h2_full"
+        },
+        {
+          "model": "logistic",
+          "feature_set": "h4_clean"
+        },
+        {
+          "model": "logistic",
+          "feature_set": "h4_clean_sr"
+        }
+      ]
+    },
+    "h5": {
+      "feature_sets": [
+        "h2_full",
+        "h5_qb"
+      ],
+      "model_specs": [
+        {
+          "model": "logistic",
+          "feature_set": "h2_full"
+        },
+        {
+          "model": "logistic",
+          "feature_set": "h5_qb"
+        }
+      ]
+    },
+    "h5b": {
+      "feature_sets": [
+        "h2_full",
+        "h5_qb"
+      ],
+      "model_specs": [
+        {
+          "model": "logistic",
+          "feature_set": "h2_full"
+        },
+        {
+          "model": "logistic",
+          "feature_set": "h5_qb"
+        }
+      ]
+    },
+    "ridge": {
+      "feature_sets": [
+        "h2_full"
+      ],
+      "model_specs": [
+        {
+          "model": "logistic",
+          "feature_set": "h2_full"
+        },
+        {
+          "model": "logistic_l2",
+          "feature_set": "h2_full"
+        },
+        {
+          "model": "logistic_l2",
+          "feature_set": "h3_split"
+        },
+        {
+          "model": "logistic_l2",
+          "feature_set": "h3_replace"
+        }
+      ]
+    }
+  },
+  "rows": [
+    {
+      "model": "baseline-home",
+      "feature_set": "none",
+      "decision": "rejected",
+      "n": 64,
+      "log_loss": 0.69314718056,
+      "brier": 0.25,
+      "auc": 0.5,
+      "accuracy": 0.5,
+      "log_loss_diff": 0.236498076028,
+      "log_loss_diff_ci_low": 0.116613775169,
+      "log_loss_diff_ci_high": 0.335449876322,
+      "folds": [
+        {
+          "season": 2016,
+          "status": "scored",
+          "n_train": 16,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015
+          ]
+        },
+        {
+          "season": 2017,
+          "status": "scored",
+          "n_train": 24,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016
+          ]
+        },
+        {
+          "season": 2018,
+          "status": "scored",
+          "n_train": 32,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016,
+            2017
+          ]
+        },
+        {
+          "season": 2019,
+          "status": "scored",
+          "n_train": 40,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016,
+            2017,
+            2018
+          ]
+        },
+        {
+          "season": 2020,
+          "status": "scored",
+          "n_train": 48,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016,
+            2017,
+            2018,
+            2019
+          ]
+        },
+        {
+          "season": 2021,
+          "status": "scored",
+          "n_train": 56,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020
+          ]
+        },
+        {
+          "season": 2022,
+          "status": "scored",
+          "n_train": 64,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020,
+            2021
+          ]
+        },
+        {
+          "season": 2023,
+          "status": "scored",
+          "n_train": 72,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020,
+            2021,
+            2022
+          ]
+        }
+      ]
+    },
+    {
+      "model": "logistic",
+      "feature_set": "h2_full",
+      "decision": "reference",
+      "n": 64,
+      "log_loss": 0.456649104532,
+      "brier": 0.152766829468,
+      "auc": 0.8642578125,
+      "accuracy": 0.75,
+      "log_loss_diff": 0.0,
+      "log_loss_diff_ci_low": 0.0,
+      "log_loss_diff_ci_high": 0.0,
+      "folds": [
+        {
+          "season": 2016,
+          "status": "scored",
+          "n_train": 16,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015
+          ]
+        },
+        {
+          "season": 2017,
+          "status": "scored",
+          "n_train": 24,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016
+          ]
+        },
+        {
+          "season": 2018,
+          "status": "scored",
+          "n_train": 32,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016,
+            2017
+          ]
+        },
+        {
+          "season": 2019,
+          "status": "scored",
+          "n_train": 40,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016,
+            2017,
+            2018
+          ]
+        },
+        {
+          "season": 2020,
+          "status": "scored",
+          "n_train": 48,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016,
+            2017,
+            2018,
+            2019
+          ]
+        },
+        {
+          "season": 2021,
+          "status": "scored",
+          "n_train": 56,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020
+          ]
+        },
+        {
+          "season": 2022,
+          "status": "scored",
+          "n_train": 64,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020,
+            2021
+          ]
+        },
+        {
+          "season": 2023,
+          "status": "scored",
+          "n_train": 72,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020,
+            2021,
+            2022
+          ]
+        }
+      ]
+    },
+    {
+      "model": "logistic",
+      "feature_set": "h3_split",
+      "decision": "rejected",
+      "n": 64,
+      "log_loss": 0.440310480506,
+      "brier": 0.14422463173,
+      "auc": 0.875,
+      "accuracy": 0.796875,
+      "log_loss_diff": -0.016338624026,
+      "log_loss_diff_ci_low": -0.082760411507,
+      "log_loss_diff_ci_high": 0.05651265022,
+      "folds": [
+        {
+          "season": 2016,
+          "status": "scored",
+          "n_train": 16,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015
+          ]
+        },
+        {
+          "season": 2017,
+          "status": "scored",
+          "n_train": 24,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016
+          ]
+        },
+        {
+          "season": 2018,
+          "status": "scored",
+          "n_train": 32,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016,
+            2017
+          ]
+        },
+        {
+          "season": 2019,
+          "status": "scored",
+          "n_train": 40,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016,
+            2017,
+            2018
+          ]
+        },
+        {
+          "season": 2020,
+          "status": "scored",
+          "n_train": 48,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016,
+            2017,
+            2018,
+            2019
+          ]
+        },
+        {
+          "season": 2021,
+          "status": "scored",
+          "n_train": 56,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020
+          ]
+        },
+        {
+          "season": 2022,
+          "status": "scored",
+          "n_train": 64,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020,
+            2021
+          ]
+        },
+        {
+          "season": 2023,
+          "status": "scored",
+          "n_train": 72,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020,
+            2021,
+            2022
+          ]
+        }
+      ]
+    },
+    {
+      "model": "logistic",
+      "feature_set": "h3_replace",
+      "decision": "rejected",
+      "n": 64,
+      "log_loss": 0.439003451717,
+      "brier": 0.142724210766,
+      "auc": 0.87890625,
+      "accuracy": 0.8125,
+      "log_loss_diff": -0.017645652815,
+      "log_loss_diff_ci_low": -0.086655746678,
+      "log_loss_diff_ci_high": 0.061572299504,
+      "folds": [
+        {
+          "season": 2016,
+          "status": "scored",
+          "n_train": 16,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015
+          ]
+        },
+        {
+          "season": 2017,
+          "status": "scored",
+          "n_train": 24,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016
+          ]
+        },
+        {
+          "season": 2018,
+          "status": "scored",
+          "n_train": 32,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016,
+            2017
+          ]
+        },
+        {
+          "season": 2019,
+          "status": "scored",
+          "n_train": 40,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016,
+            2017,
+            2018
+          ]
+        },
+        {
+          "season": 2020,
+          "status": "scored",
+          "n_train": 48,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016,
+            2017,
+            2018,
+            2019
+          ]
+        },
+        {
+          "season": 2021,
+          "status": "scored",
+          "n_train": 56,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020
+          ]
+        },
+        {
+          "season": 2022,
+          "status": "scored",
+          "n_train": 64,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020,
+            2021
+          ]
+        },
+        {
+          "season": 2023,
+          "status": "scored",
+          "n_train": 72,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020,
+            2021,
+            2022
+          ]
+        }
+      ]
+    },
+    {
+      "model": "elo",
+      "feature_set": "elo",
+      "decision": "rejected",
+      "n": 64,
+      "log_loss": 0.73463114983,
+      "brier": 0.270208114331,
+      "auc": 0.14453125,
+      "accuracy": 0.5,
+      "log_loss_diff": 0.277982045299,
+      "log_loss_diff_ci_low": 0.147845781532,
+      "log_loss_diff_ci_high": 0.391982399122,
+      "folds": [
+        {
+          "season": 2016,
+          "status": "scored",
+          "n_train": 16,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015
+          ]
+        },
+        {
+          "season": 2017,
+          "status": "scored",
+          "n_train": 24,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016
+          ]
+        },
+        {
+          "season": 2018,
+          "status": "scored",
+          "n_train": 32,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016,
+            2017
+          ]
+        },
+        {
+          "season": 2019,
+          "status": "scored",
+          "n_train": 40,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016,
+            2017,
+            2018
+          ]
+        },
+        {
+          "season": 2020,
+          "status": "scored",
+          "n_train": 48,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016,
+            2017,
+            2018,
+            2019
+          ]
+        },
+        {
+          "season": 2021,
+          "status": "scored",
+          "n_train": 56,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020
+          ]
+        },
+        {
+          "season": 2022,
+          "status": "scored",
+          "n_train": 64,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020,
+            2021
+          ]
+        },
+        {
+          "season": 2023,
+          "status": "scored",
+          "n_train": 72,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020,
+            2021,
+            2022
+          ]
+        }
+      ]
+    },
+    {
+      "model": "market",
+      "feature_set": "market",
+      "decision": "accepted",
+      "n": 63,
+      "log_loss": 0.024573628713,
+      "brier": 0.000589234609,
+      "auc": 1.0,
+      "accuracy": 1.0,
+      "log_loss_diff": -0.438145863552,
+      "log_loss_diff_ci_low": -0.546133891328,
+      "log_loss_diff_ci_high": -0.332673818962,
+      "folds": [
+        {
+          "season": 2016,
+          "status": "scored",
+          "n_train": 16,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015
+          ]
+        },
+        {
+          "season": 2017,
+          "status": "scored",
+          "n_train": 24,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016
+          ]
+        },
+        {
+          "season": 2018,
+          "status": "scored",
+          "n_train": 32,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016,
+            2017
+          ]
+        },
+        {
+          "season": 2019,
+          "status": "scored",
+          "n_train": 40,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016,
+            2017,
+            2018
+          ]
+        },
+        {
+          "season": 2020,
+          "status": "scored",
+          "n_train": 48,
+          "n_eval": 7,
+          "train_seasons": [
+            2014,
+            2015,
+            2016,
+            2017,
+            2018,
+            2019
+          ]
+        },
+        {
+          "season": 2021,
+          "status": "scored",
+          "n_train": 55,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020
+          ]
+        },
+        {
+          "season": 2022,
+          "status": "scored",
+          "n_train": 63,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020,
+            2021
+          ]
+        },
+        {
+          "season": 2023,
+          "status": "scored",
+          "n_train": 71,
+          "n_eval": 8,
+          "train_seasons": [
+            2014,
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020,
+            2021,
+            2022
+          ]
+        }
+      ]
+    }
+  ]
+}
