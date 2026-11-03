@@ -1,0 +1,16 @@
+name: endzone
+
+entry_points:
+  ingest:
+    command: "python -m endzone.ingest.load_raw_nflverse --dataset all"
+
+  train_cv:
+    parameters:
+      hypothesis: {type: string, default: h5b}
+      reference_model: {type: string, default: logistic}
+      reference_feature_set: {type: string, default: h2_full}
+      output_dir: {type: string, default: reports/phase2_h5b}
+    command: "python -m endzone.train.train --cv --phase 2 --hypothesis {hypothesis} --reference-model {reference_model} --reference-feature-set {reference_feature_set} --output-dir {output_dir}"
+
+  verify_reference:
+    command: "python -m endzone.train.train --verify-reference"
