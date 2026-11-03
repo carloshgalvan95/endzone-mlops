@@ -6,13 +6,13 @@ import pandas as pd
 import pytest
 
 from endzone.features.pregame import FEATURE_SET_H2_FULL
-from endzone.train.train import (
+from endzone.modeling.pipeline import run_reference_check
+from endzone.modeling.reference import (
     compare_reference_metrics,
     format_reference_check,
     load_reference_metrics,
-    main,
-    run_reference_check,
 )
+from endzone.modeling.train import main
 
 
 def _report_from_reference(reference: dict[str, Any]) -> dict[str, Any]:
@@ -113,8 +113,8 @@ def test_run_reference_check_reuses_the_cv_entry_point(
         del args, kwargs
         raise AssertionError("load_data should wait for omitted frames")
 
-    monkeypatch.setattr("endzone.train.train.run_phase1_baselines", fake_run)
-    monkeypatch.setattr("endzone.train.train.load_data", fail_load)
+    monkeypatch.setattr("endzone.modeling.pipeline.run_phase1_baselines", fake_run)
+    monkeypatch.setattr("endzone.modeling.pipeline.load_data", fail_load)
     result: dict[str, Any] = run_reference_check(
         games=pd.DataFrame({"game_id": [1]}),
         team_games=pd.DataFrame({"game_id": [1]}),
@@ -144,9 +144,9 @@ def test_run_reference_check_loads_the_warehouse_when_frames_are_omitted(
         seen["fixture_path"] = fixture_path
         return pd.DataFrame({"game_id": [1]}), pd.DataFrame({"game_id": [1]})
 
-    monkeypatch.setattr("endzone.train.train.load_data", fake_load)
+    monkeypatch.setattr("endzone.modeling.pipeline.load_data", fake_load)
     monkeypatch.setattr(
-        "endzone.train.train.run_phase1_baselines",
+        "endzone.modeling.pipeline.run_phase1_baselines",
         lambda *args, **kwargs: _report_from_reference(reference),
     )
     result: dict[str, Any] = run_reference_check(fixture_path="fixtures/tiny")
@@ -159,7 +159,7 @@ def test_verify_reference_cli_exits_when_the_check_fails(
 ) -> None:
     """``--verify-reference`` returns a non-zero status when a locked metric moves."""
     monkeypatch.setattr(
-        "endzone.train.train.run_reference_check",
+        "endzone.modeling.train.run_reference_check",
         lambda **kwargs: {
             "ok": False,
             "tolerance": 1e-4,
@@ -186,7 +186,7 @@ def test_verify_reference_cli_returns_when_the_check_passes(
 ) -> None:
     """A matching refit does not raise."""
     monkeypatch.setattr(
-        "endzone.train.train.run_reference_check",
+        "endzone.modeling.train.run_reference_check",
         lambda **kwargs: {
             "ok": True,
             "tolerance": 1e-4,

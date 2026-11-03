@@ -26,47 +26,52 @@ from endzone.features.pregame import (
     market_home_probabilities,
     no_vig_home_probability,
 )
-from endzone.train.train import (
-    HYPOTHESIS_H1,
-    HYPOTHESIS_H2,
-    HYPOTHESIS_H3,
-    HYPOTHESIS_H4,
-    HYPOTHESIS_H5,
-    HYPOTHESIS_H5B,
-    HYPOTHESIS_RIDGE,
+from endzone.modeling.cv import make_rolling_origin_config, rolling_origin_cv
+from endzone.modeling.dataset import validate_feature_columns
+from endzone.modeling.evaluation import (
     MIN_LOG_LOSS_IMPROVEMENT,
-    PHASE1_EXPERIMENT_NAME,
-    PHASE1_TAG,
-    PHASE2_EXPERIMENT_NAME,
-    PHASE2_H2_EXPERIMENT_NAME,
-    PHASE2_H3_EXPERIMENT_NAME,
-    PHASE2_H4_EXPERIMENT_NAME,
-    PHASE2_H5_EXPERIMENT_NAME,
-    PHASE2_H5B_EXPERIMENT_NAME,
-    PHASE2_RIDGE_EXPERIMENT_NAME,
-    PHASE2_TAG,
-    CvModelSpec,
     attach_reference_comparison,
     binary_classification_metrics,
     compare_oof_to_reference,
-    cv_model_specs_for,
     decide_log_loss_improvement,
-    feature_column_groups,
-    log_phase1_to_mlflow,
-    logistic_feature_sets_for,
-    main,
-    make_rolling_origin_config,
-    mlflow_decision_tag,
     paired_log_loss_difference,
-    parent_run_name,
+)
+from endzone.modeling.hypotheses import (
+    CvModelSpec,
+    cv_model_specs_for,
+    logistic_feature_sets_for,
     phase_tracking_settings,
     resolve_reference_spec,
-    rolling_origin_cv,
-    run_phase1_baselines,
-    select_best_feature_set,
-    validate_feature_columns,
-    write_phase1_outputs,
 )
+from endzone.modeling.models import feature_column_groups
+from endzone.modeling.pipeline import run_phase1_baselines
+from endzone.modeling.report import write_phase1_outputs
+from endzone.modeling.tracking import (
+    log_phase1_to_mlflow,
+    mlflow_decision_tag,
+    parent_run_name,
+    select_best_feature_set,
+)
+from endzone.modeling.train import main
+
+# Stored tags and experiment names. These literals lock the YAML files.
+HYPOTHESIS_H1: str = "h1-diff"
+HYPOTHESIS_H2: str = "h2-season-def-regression"
+HYPOTHESIS_H3: str = "h3-pass-rush-epa"
+HYPOTHESIS_H4: str = "h4-clean-epa"
+HYPOTHESIS_H5: str = "h5-starting-qb"
+HYPOTHESIS_H5B: str = "h5b-starter-coverage"
+HYPOTHESIS_RIDGE: str = "ridge-reference"
+PHASE1_EXPERIMENT_NAME: str = "nfl_pregame/phase1_baselines"
+PHASE1_TAG: str = "1"
+PHASE2_EXPERIMENT_NAME: str = "nfl_pregame/phase2_h1"
+PHASE2_H2_EXPERIMENT_NAME: str = "nfl_pregame/phase2_h2"
+PHASE2_H3_EXPERIMENT_NAME: str = "nfl_pregame/phase2_h3"
+PHASE2_H4_EXPERIMENT_NAME: str = "nfl_pregame/phase2_h4"
+PHASE2_H5_EXPERIMENT_NAME: str = "nfl_pregame/phase2_h5"
+PHASE2_H5B_EXPERIMENT_NAME: str = "nfl_pregame/phase2_h5b"
+PHASE2_RIDGE_EXPERIMENT_NAME: str = "nfl_pregame/phase2_ridge"
+PHASE2_TAG: str = "2"
 
 _NEUTRAL_TRACKING_URI: str = "sqlite:///:memory:"
 
@@ -562,7 +567,9 @@ class TestPhase1Report:
         assert set(frame["season"]).isdisjoint({2024, 2025})
         paths = write_phase1_outputs(report, tmp_path / "report")
         tracking_uri: str = "sqlite:///" + (tmp_path / "mlflow.db").as_posix()
-        monkeypatch.setattr("endzone.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
+        monkeypatch.setattr(
+            "endzone.modeling.tracking.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts")
+        )
         try:
             logged = log_phase1_to_mlflow(report, paths, tracking_uri=tracking_uri)
             client = mlflow.tracking.MlflowClient(tracking_uri=tracking_uri)
@@ -643,7 +650,9 @@ class TestPhase1Report:
         team_games.to_parquet(fixture_dir / "fct_team_game_epa.parquet")
         tracking_uri: str = "sqlite:///" + (tmp_path / "mlflow.db").as_posix()
         monkeypatch.setenv("MLFLOW_TRACKING_URI", tracking_uri)
-        monkeypatch.setattr("endzone.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
+        monkeypatch.setattr(
+            "endzone.modeling.tracking.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts")
+        )
         output_dir = tmp_path / "out"
         try:
             main(
@@ -985,7 +994,9 @@ class TestPhase2Hypothesis:
         team_games.to_parquet(fixture_dir / "fct_team_game_epa.parquet")
         tracking_uri: str = "sqlite:///" + (tmp_path / "mlflow.db").as_posix()
         monkeypatch.setenv("MLFLOW_TRACKING_URI", tracking_uri)
-        monkeypatch.setattr("endzone.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
+        monkeypatch.setattr(
+            "endzone.modeling.tracking.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts")
+        )
         output_dir = tmp_path / "phase2"
         try:
             main(
@@ -1111,7 +1122,9 @@ class TestPhase2H2Hypothesis:
         team_games.to_parquet(fixture_dir / "fct_team_game_epa.parquet")
         tracking_uri: str = "sqlite:///" + (tmp_path / "mlflow.db").as_posix()
         monkeypatch.setenv("MLFLOW_TRACKING_URI", tracking_uri)
-        monkeypatch.setattr("endzone.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
+        monkeypatch.setattr(
+            "endzone.modeling.tracking.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts")
+        )
         output_dir = tmp_path / "phase2_h2"
         try:
             main(
@@ -1244,7 +1257,9 @@ class TestPhase2H3Hypothesis:
         team_games.to_parquet(fixture_dir / "fct_team_game_epa.parquet")
         tracking_uri: str = "sqlite:///" + (tmp_path / "mlflow.db").as_posix()
         monkeypatch.setenv("MLFLOW_TRACKING_URI", tracking_uri)
-        monkeypatch.setattr("endzone.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
+        monkeypatch.setattr(
+            "endzone.modeling.tracking.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts")
+        )
         output_dir = tmp_path / "phase2_h3"
         try:
             main(
@@ -1410,7 +1425,9 @@ class TestPhase2H4Hypothesis:
         team_games.to_parquet(fixture_dir / "fct_team_game_epa.parquet")
         tracking_uri: str = "sqlite:///" + (tmp_path / "mlflow.db").as_posix()
         monkeypatch.setenv("MLFLOW_TRACKING_URI", tracking_uri)
-        monkeypatch.setattr("endzone.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
+        monkeypatch.setattr(
+            "endzone.modeling.tracking.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts")
+        )
         output_dir = tmp_path / "phase2_h4"
         try:
             main(
@@ -1681,7 +1698,9 @@ class TestPhase2RidgeReference:
         team_games.to_parquet(fixture_dir / "fct_team_game_epa.parquet")
         tracking_uri: str = "sqlite:///" + (tmp_path / "mlflow.db").as_posix()
         monkeypatch.setenv("MLFLOW_TRACKING_URI", tracking_uri)
-        monkeypatch.setattr("endzone.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
+        monkeypatch.setattr(
+            "endzone.modeling.tracking.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts")
+        )
         output_dir = tmp_path / "phase2_ridge"
         try:
             main(
@@ -1930,7 +1949,9 @@ class TestPhase2H5Hypothesis:
         dropbacks.to_parquet(fixture_dir / "fct_qb_dropbacks.parquet")
         tracking_uri: str = "sqlite:///" + (tmp_path / "mlflow.db").as_posix()
         monkeypatch.setenv("MLFLOW_TRACKING_URI", tracking_uri)
-        monkeypatch.setattr("endzone.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
+        monkeypatch.setattr(
+            "endzone.modeling.tracking.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts")
+        )
         output_dir = tmp_path / f"phase2_{hypothesis}"
         try:
             main(

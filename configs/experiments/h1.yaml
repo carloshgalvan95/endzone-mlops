@@ -1,0 +1,31 @@
+id: h1
+phase: 2
+default: true
+aliases:
+  - h1
+  - h1-diff
+tag: h1-diff
+short_name: h1
+experiment_name: nfl_pregame/phase2_h1
+phase_tag: "2"
+output_dir: reports/phase2
+title: Phase 2 H1 differential features
+note: "Phase 2 hypothesis h1-diff. 2024 and 2025 are not scored. No model is promoted from this run."
+reference_model: logistic
+reference_feature_set: current
+logistic_feature_sets:
+  - current
+  - diff
+  - diff_only
+model_specs:
+  - model: logistic
+    feature_set: current
+  - model: logistic
+    feature_set: diff
+  - model: logistic
+    feature_set: diff_only
+log_shrinkage: false
+log_qb: false
+qb_subset: false
+qb_feature_set: null
+report_profile: none

@@ -1,7 +1,8 @@
 """Phase 0 audit of the current pregame inputs.
 
 The audit does not add, drop, or redefine features. It profiles the matrix
-from ``prepare_training_data`` and the logistic pipeline from ``train.py``.
+from ``prepare_training_data`` and the logistic pipeline from
+``endzone.modeling.models``.
 
 2025 is included only in missingness and in the train-versus-2024-versus-2025
 distribution. It is not scored and it is not used to choose a model.
@@ -27,12 +28,9 @@ from endzone.features.pregame import (
     prepare_training_data,
     split_by_season,
 )
-from endzone.train.train import (
-    activate_tracking_experiment,
-    get_git_sha,
-    load_data,
-    train_logistic_regression,
-)
+from endzone.modeling.dataset import load_data
+from endzone.modeling.models import train_logistic_regression
+from endzone.modeling.tracking import activate_tracking_experiment, get_git_sha
 from endzone.utils.logging import setup_logger
 
 logger = setup_logger(__name__)

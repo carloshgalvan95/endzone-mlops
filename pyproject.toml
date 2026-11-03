@@ -23,6 +23,7 @@ dependencies = [
     "dbt-core>=1.8.0,<2.0.0",
     "dbt-duckdb>=1.8.0,<2.0.0",
     "dbt-databricks>=1.8.0,<2.0.0",
+    "pyyaml>=6.0.3",
 ]
 
 [dependency-groups]
@@ -86,16 +87,21 @@ name = "Endzone layers match the current packages"
 type = "layers"
 layers = [
     "endzone.analysis",
-    "endzone.train | endzone.ingest",
+    "endzone.train",
+    "endzone.modeling.train | endzone.ingest",
+    "endzone.modeling.pipeline | endzone.modeling.holdout",
+    "endzone.modeling.scoring",
+    "endzone.modeling.cv | endzone.modeling.tracking | endzone.modeling.report",
+    "endzone.modeling.evaluation | endzone.modeling.reference | endzone.modeling.models | endzone.modeling.hypotheses | endzone.modeling.dataset",
     "endzone.features | endzone.data",
     "endzone.utils",
 ]
 
 [[tool.importlinter.contracts]]
-name = "Features do not import train"
+name = "Features do not import training"
 type = "forbidden"
 source_modules = ["endzone.features"]
-forbidden_modules = ["endzone.train"]
+forbidden_modules = ["endzone.train", "endzone.modeling"]
 
 [[tool.importlinter.contracts]]
 name = "Features do not import mlflow"
@@ -104,19 +110,21 @@ source_modules = ["endzone.features"]
 forbidden_modules = ["mlflow"]
 
 [[tool.importlinter.contracts]]
-name = "Ingest does not import train"
+name = "Ingest does not import training"
 type = "forbidden"
 source_modules = ["endzone.ingest"]
-forbidden_modules = ["endzone.train"]
+forbidden_modules = ["endzone.train", "endzone.modeling"]
 
 [[tool.importlinter.contracts]]
-name = "Analysis does not import train except the phase 0 audit"
+name = "Analysis does not import the training entry point except the phase 0 audit"
 type = "forbidden"
 source_modules = ["endzone.analysis"]
-forbidden_modules = ["endzone.train"]
+forbidden_modules = ["endzone.modeling.train", "endzone.train"]
 ignore_imports = [
+    "endzone.analysis.feature_audit -> endzone.modeling.train",
     "endzone.analysis.feature_audit -> endzone.train.train",
 ]
+unmatched_ignore_imports_alerting = "none"
 
 [[tool.importlinter.contracts]]
 name = "Config does not import the pipeline packages"
@@ -128,4 +136,5 @@ forbidden_modules = [
     "endzone.ingest",
     "endzone.features",
     "endzone.data",
+    "endzone.modeling",
 ]

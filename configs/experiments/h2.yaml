@@ -1,0 +1,31 @@
+id: h2
+phase: 2
+default: false
+aliases:
+  - h2
+  - h2-season-def-regression
+tag: h2-season-def-regression
+short_name: h2
+experiment_name: nfl_pregame/phase2_h2
+phase_tag: "2"
+output_dir: reports/phase2_h2
+title: Phase 2 H2 season defensive regression
+note: "Phase 2 hypothesis h2-season-def-regression. 2024 and 2025 are not scored. No model is promoted from this run."
+reference_model: logistic
+reference_feature_set: current
+logistic_feature_sets:
+  - current
+  - h2_def
+  - h2_full
+model_specs:
+  - model: logistic
+    feature_set: current
+  - model: logistic
+    feature_set: h2_def
+  - model: logistic
+    feature_set: h2_full
+log_shrinkage: true
+log_qb: false
+qb_subset: false
+qb_feature_set: null
+report_profile: season_regression

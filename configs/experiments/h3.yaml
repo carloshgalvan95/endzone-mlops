@@ -1,0 +1,31 @@
+id: h3
+phase: 2
+default: false
+aliases:
+  - h3
+  - h3-pass-rush-epa
+tag: h3-pass-rush-epa
+short_name: h3
+experiment_name: nfl_pregame/phase2_h3
+phase_tag: "2"
+output_dir: reports/phase2_h3
+title: Phase 2 H3 pass and rush EPA
+note: "Phase 2 hypothesis h3-pass-rush-epa. 2024 and 2025 are not scored. No model is promoted from this run."
+reference_model: logistic
+reference_feature_set: h2_full
+logistic_feature_sets:
+  - h2_full
+  - h3_split
+  - h3_replace
+model_specs:
+  - model: logistic
+    feature_set: h2_full
+  - model: logistic
+    feature_set: h3_split
+  - model: logistic
+    feature_set: h3_replace
+log_shrinkage: true
+log_qb: false
+qb_subset: false
+qb_feature_set: null
+report_profile: pass_rush

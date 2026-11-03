@@ -762,7 +762,7 @@ with mlflow.start_run():
 
 ## Metric locks
 
-Two checks guard the rolling-origin report while `endzone/train/train.py` is split. The offline check runs in CI. The warehouse check runs on a machine that can read the marts.
+Two checks guard the rolling-origin report in `endzone/modeling/`. The offline check runs in CI. The warehouse check runs on a machine that can read the marts.
 
 ### Offline golden
 

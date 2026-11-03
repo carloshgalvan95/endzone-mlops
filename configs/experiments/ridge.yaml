@@ -1,0 +1,31 @@
+id: ridge
+phase: 2
+default: false
+aliases:
+  - ridge
+  - ridge-reference
+tag: ridge-reference
+short_name: ridge
+experiment_name: nfl_pregame/phase2_ridge
+phase_tag: "2"
+output_dir: reports/phase2_ridge
+title: Phase 2 ridge reference
+note: "Phase 2 ridge reference. L2 logistic chooses C inside each training fold. 2024 and 2025 are not scored. No model is promoted from this run."
+reference_model: logistic
+reference_feature_set: h2_full
+logistic_feature_sets:
+  - h2_full
+model_specs:
+  - model: logistic
+    feature_set: h2_full
+  - model: logistic_l2
+    feature_set: h2_full
+  - model: logistic_l2
+    feature_set: h3_split
+  - model: logistic_l2
+    feature_set: h3_replace
+log_shrinkage: true
+log_qb: false
+qb_subset: false
+qb_feature_set: null
+report_profile: ridge
