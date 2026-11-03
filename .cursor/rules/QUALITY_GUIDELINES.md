@@ -134,7 +134,7 @@ If PR Guard fails, fix the reported issues and push again.
 
 ### 4.3 Design (Wilson 9/10)
 
-- Entrypoint real: `src/train/train.py`. `score.py` está planificado y no está en el repo. `src/models` es un placeholder. Config inyectada.
+- Entrypoint real: `src/train/train.py`. `score.py` está planificado y no está en el repo. Config inyectada.
 - Nombres descriptivos; retornos dict/namedtuple
 - Sin except desnudo; sin estado global mutable
 - Contratos dbt schema.yml + test de negocio

@@ -1,46 +1,11 @@
-"""
-Tests for utility modules.
-Follows DoD: smoke tests for pure functions.
-"""
+"""Tests for utility modules."""
 
 from pathlib import Path
 
 import pytest
 
-from src.utils.config import DEFAULT_MLFLOW_TRACKING_URI, Config, load_config, resolve_tracking_uri
+from src.utils.config import DEFAULT_MLFLOW_TRACKING_URI, resolve_tracking_uri
 from src.utils.logging import setup_logger
-
-
-class TestConfig:
-    """Test configuration loading."""
-
-    def test_default_config(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Config loads with defaults when no env vars set."""
-        monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
-        config = Config()
-        assert config.data_dir == Path("./data")
-        assert config.mlflow_tracking_uri == "sqlite:///mlflow.db"
-        assert config.enable_live_feed is False
-
-        loaded = load_config()
-        assert loaded.mlflow_tracking_uri == "sqlite:///mlflow.db"
-
-    def test_config_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Config respects environment variables."""
-        monkeypatch.setenv("DATA_DIR", "/tmp/test_data")
-        monkeypatch.setenv("MLFLOW_TRACKING_URI", "databricks")
-        monkeypatch.setenv("ENABLE_LIVE_FEED", "true")
-
-        config = load_config()
-        assert config.data_dir == Path("/tmp/test_data")
-        assert config.mlflow_tracking_uri == "databricks"
-        assert config.enable_live_feed is True
-
-    def test_config_immutable(self) -> None:
-        """Config is frozen after creation."""
-        config = Config()
-        with pytest.raises(Exception):
-            config.data_dir = Path("/new/path")  # type: ignore
 
 
 class TestResolveTrackingUri:

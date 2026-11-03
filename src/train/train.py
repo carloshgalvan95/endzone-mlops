@@ -22,7 +22,7 @@ import os
 import subprocess
 import tempfile
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -138,7 +138,6 @@ CV_DATASET_NAME: str = "nfl_pregame_cv"
 # Accept a set only when pooled log loss falls by at least this much.
 MIN_LOG_LOSS_IMPROVEMENT: float = 0.003
 # A requested feature column at or above this null share is not a real signal.
-# The H4 pre-rebuild run filled absent clean columns and scored a constant.
 DEFAULT_MAX_NULL_FRACTION: float = 0.5
 FEATURE_COLUMN_REBUILD_HINT: str = "run make dbt-build-databricks"
 # Published H5 comparison. make verify-reference refits these rows.
@@ -2776,7 +2775,7 @@ def parent_run_name(
     Returns:
         A name such as ``phase1-<timestamp>`` or ``phase2-h3-<timestamp>``.
     """
-    clock: datetime = timestamp if timestamp is not None else datetime.now(timezone.utc)
+    clock: datetime = timestamp if timestamp is not None else datetime.now(UTC)
     stamp: str = clock.strftime("%Y%m%dT%H%M%SZ")
     if phase != 2 or hypothesis is None:
         return f"phase1-{stamp}"

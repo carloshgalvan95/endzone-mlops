@@ -76,19 +76,17 @@ endzone-mlops demonstrates a modern lakehouse architecture for NFL analytics, co
 
 ### Container Details
 
-#### 1. Data Ingestion (`src/data/`)
+#### 1. Data Ingestion (`src/ingest/`) and mart reads (`src/data/`)
 
-**Technology**: Python (pandas, pyarrow)
+**Technology**: Python (pandas, pyarrow, Databricks SQL)
 
 **Responsibility**:
-- Download nflverse Parquet files
-- Validate checksums and schemas
-- Load to bronze layer (raw, immutable)
-- Implement HistoricalFeed interface
+- `src/ingest` downloads nflverse Parquet files and loads bronze tables
+- `src/data` reads marts through the Databricks SQL client
 
-**v0.1 Scope**: Manual or scripted download of 1-3 seasons for development.
+**v0.1 Scope**: Scripted load of games, play-by-play, and depth charts.
 
-**Future (v0.2+)**: LiveFeed adapter for BALLDONTLIE API.
+**Future (v0.2+)**: A live adapter for the BALLDONTLIE API. That code is not in the repo.
 
 #### 2. dbt Transform (`dbt/`)
 
@@ -109,7 +107,7 @@ endzone-mlops demonstrates a modern lakehouse architecture for NFL analytics, co
 - `fct_qb_dropbacks`: Passer dropbacks and EPA by game. This is history, not the starter.
 - `fct_ingame_states`: Play-level states for an in-game model (future)
 
-#### 3. ML Pipeline (`src/models/`, `src/features/`)
+#### 3. ML Pipeline (`src/train/`, `src/features/`)
 
 **Technology**: Python, MLflow, scikit-learn/statsmodels
 
@@ -200,43 +198,26 @@ sequenceDiagram
 
 ## Component Design Patterns
 
-### Ports and Adapters (Future Live Feed)
+### Future live feed
 
-**Interface**: `SportsFeed` protocol
-
-```python
-class SportsFeed(Protocol):
-    def get_games(self, season: int, week: int) -> pd.DataFrame:
-        """Fetch games for a given season and week."""
-        ...
-    
-    def get_plays(self, game_id: str) -> pd.DataFrame:
-        """Fetch plays for a specific game."""
-        ...
-```
-
-**Implementations**:
-- `HistoricalFeed` (nflverse): Reads Parquet from URLs or local cache
-- `LiveFeed` (BALLDONTLIE): Polls API (v0.2+, requires auth)
-
-**Benefit**: Train on historical, score on live, same code.
+A second vendor for in-play data is not in this repo. Bronze history comes from nflverse through `src/ingest`.
 
 ### Wilson Modularity (src/)
 
 ```
 src/
 ├── data/
-│   ├── feeds.py           # HistoricalFeed, LiveFeed interfaces
-│   └── loaders.py         # Download and validation utilities
+│   └── databricks_client.py  # SQL warehouse reads
+├── ingest/
+│   └── load_raw_nflverse.py  # Bronze load
 ├── features/
-│   ├── pregame.py         # Pregame feature engineering
-│   └── ingame.py          # In-game feature engineering (future)
-├── models/
-│   ├── train.py           # Training script (argparse, MLflow)
-│   └── score.py           # Batch scoring script
+│   └── pregame.py            # Pregame feature engineering
+├── train/
+│   └── train.py              # Training script (argparse, MLflow)
+├── analysis/                 # Input audits
 └── utils/
-    ├── config.py          # Configuration loading
-    └── logging.py         # Logging setup
+    ├── config.py             # MLflow tracking URI
+    └── logging.py            # Logging setup
 ```
 
 **Principles**:
@@ -288,7 +269,7 @@ src/
 **Requirement**: Any developer can clone repo and reproduce models.
 
 **Implementation**:
-- Pinned dependencies (`requirements.txt`)
+- Pinned dependencies (`pyproject.toml` and `uv.lock`, Python 3.12)
 - Seeds in MLflow runs
 - Data provenance documented
 - `make reproduce` command
@@ -316,8 +297,8 @@ src/
 **Requirement**: No real-time inference in v0.1.
 
 **Implementation**:
-- `score.py` writes to table, not API
-- LiveFeed is stub
+- `score.py` is planned and is not in the repo
+- Live feed code is not in the repo
 - "Eventual live" documented as roadmap
 
 ## Trade-offs

@@ -1,6 +1,4 @@
-"""Data ingestion and feed adapters for endzone-mlops"""
+"""Databricks SQL client for mart tables.
 
-from .feeds import HistoricalFeed, LiveFeed, NFLFeedProtocol
-from .nflverse_feed import NFLverseFeed
-
-__all__ = ["NFLFeedProtocol", "HistoricalFeed", "LiveFeed", "NFLverseFeed"]
+Bronze ingest lives in ``src.ingest``.
+"""

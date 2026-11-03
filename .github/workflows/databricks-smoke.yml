@@ -11,16 +11,14 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Set up Python 3.11
-      uses: actions/setup-python@v5
+    - name: Install uv and Python 3.12
+      uses: astral-sh/setup-uv@v5
       with:
-        python-version: '3.11'
-        cache: 'pip'
+        python-version: "3.12"
+        enable-cache: true
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
+    - name: Install the locked environment
+      run: uv sync --frozen
 
     - name: Configure dbt profile
       run: |
@@ -34,7 +32,7 @@ jobs:
     - name: Install dbt packages
       run: |
         cd dbt
-        dbt deps --profiles-dir .
+        uv run dbt deps --profiles-dir .
       env:
         DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
         DATABRICKS_HTTP_PATH: ${{ secrets.DATABRICKS_HTTP_PATH }}
@@ -43,7 +41,7 @@ jobs:
     - name: Test Databricks connection
       run: |
         cd dbt
-        dbt debug --profiles-dir . --target databricks
+        uv run dbt debug --profiles-dir . --target databricks
       env:
         DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
         DATABRICKS_HTTP_PATH: ${{ secrets.DATABRICKS_HTTP_PATH }}
@@ -52,7 +50,7 @@ jobs:
     - name: Compile dbt models against Databricks
       run: |
         cd dbt
-        dbt compile --profiles-dir . --target databricks
+        uv run dbt compile --profiles-dir . --target databricks
       env:
         DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
         DATABRICKS_HTTP_PATH: ${{ secrets.DATABRICKS_HTTP_PATH }}

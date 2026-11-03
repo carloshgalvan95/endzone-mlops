@@ -42,7 +42,6 @@ PHASE0_EXPERIMENT_NAME: str = "nfl_pregame/phase0_audit"
 PHASE0_TAG: str = "0-audit"
 MARKDOWN_NAME: str = "feature_audit.md"
 CSV_NAME: str = "feature_audit.csv"
-SLICE_NAMES: tuple[str, ...] = ("train", "val", "test")
 
 FEATURE_TABLE_COLUMNS: tuple[str, ...] = (
     "feature",

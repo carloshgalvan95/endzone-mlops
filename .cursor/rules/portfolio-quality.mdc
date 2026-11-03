@@ -34,7 +34,7 @@ This is Carlos Galvan's public MLOps portfolio demonstrating Databricks + dbt + 
 ### Domain
 - NFL data from nflverse (CC BY 4.0)
 - Attribution required in README and ATTRIBUTION.md
-- LiveFeed is stub in v0.1 (BALLDONTLIE documented, not active)
+- Live feed code is not in the repo. BALLDONTLIE is documented, not active.
 - No API keys, no paid subscriptions in Day 1-14
 
 ## Every Pull Request Must
@@ -54,7 +54,7 @@ This is Carlos Galvan's public MLOps portfolio demonstrating Databricks + dbt + 
 ### Wilson Modularity (src/)
 - Notebooks for exploration ONLY, not production
 - Product code in src/, dbt/, tests/
-- Entrypoint: `src/train/train.py` (argparse, config injected). `score.py` is planned and is not in the repo. `src/models` is a placeholder.
+- Entrypoint: `src/train/train.py` (argparse, config injected). `score.py` is planned and is not in the repo.
 - Small, testable functions
 - No logic in notebooks that should be in modules
 

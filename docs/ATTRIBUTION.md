@@ -60,7 +60,7 @@ Not affiliated with or endorsed by the NFL.
 
 ## Third-Party Libraries
 
-This project uses various open-source Python libraries. See `requirements.txt` and `pyproject.toml` for full dependency list. Key libraries:
+This project uses various open-source Python libraries. See `pyproject.toml` for direct dependencies and `uv.lock` for the pinned graph. Key libraries:
 
 - **pandas**: BSD 3-Clause License
 - **dbt-core**: Apache License 2.0

@@ -1,4 +1,4 @@
-.PHONY: help setup install lint test dbt-compile dbt-run dbt-test clean reproduce ingest ingest-current dbt-build-databricks train train-sweep train-cv mlflow-ui audit-features check-epa-filter verify-reference
+.PHONY: help setup install lint test vulture dbt-compile dbt-run dbt-test clean reproduce ingest ingest-current dbt-build-databricks train train-sweep train-cv mlflow-ui audit-features check-epa-filter verify-reference
 
 # Git Bash on Windows rewrites arguments that look like Unix paths.
 # DATABRICKS_HTTP_PATH starts with /sql/1.0/... and would be mangled.
@@ -7,10 +7,11 @@ export MSYS_NO_PATHCONV=1
 
 help:
 	@echo "Available targets:"
-	@echo "  setup               - Create virtualenv and install dependencies"
-	@echo "  install             - Install Python dependencies (in active environment)"
+	@echo "  setup               - Create the Python 3.12 venv from uv.lock"
+	@echo "  install             - Install the locked environment (uv sync --frozen)"
 	@echo "  lint                - Run code quality checks (ruff)"
 	@echo "  test                - Run pytest unit tests"
+	@echo "  vulture             - Fail on high-confidence unused code"
 	@echo "  dbt-compile         - Compile dbt models"
 	@echo "  dbt-run             - Run dbt models (creates tables)"
 	@echo "  dbt-test            - Run dbt tests"
@@ -30,17 +31,15 @@ help:
 	@echo "Note: Most targets expect an activated virtualenv (source .venv/bin/activate)"
 
 setup:
-	@echo "Creating virtual environment in .venv/"
-	python3 -m venv .venv
-	@echo "Installing dependencies..."
-	.venv/bin/pip install --upgrade pip
-	.venv/bin/pip install -r requirements.txt
+	@echo "Creating the Python 3.12 environment in .venv/ from uv.lock"
+	uv python install 3.12
+	uv sync --frozen
 	@echo ""
-	@echo "Setup complete! Activate the environment with:"
+	@echo "Setup complete. Activate the environment with:"
 	@echo "  source .venv/bin/activate"
 
 install:
-	pip install -r requirements.txt
+	uv sync --frozen
 
 lint:
 	ruff check src/ tests/
@@ -48,6 +47,9 @@ lint:
 
 test:
 	pytest tests/ -v
+
+vulture:
+	vulture src scripts --min-confidence 80
 
 ingest:
 	@if [ -f .env ]; then set -a && . ./.env && set +a; fi; \

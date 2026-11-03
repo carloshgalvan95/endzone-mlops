@@ -1,11 +1,9 @@
-"""
-Databricks data access layer for reading marts.
+"""Databricks SQL client for reading marts.
 
-Provides abstraction for querying Databricks SQL warehouse with fallback to local fixtures.
+Missing credentials stay in fixture mode and refuse to open a connection.
 """
 
 import os
-from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -120,7 +118,7 @@ class DatabricksClient:
     def _get_connection(self) -> Any:
         """Get or create Databricks SQL connection."""
         if self._use_fixture:
-            raise RuntimeError("Cannot connect in fixture mode. Use read_fixture() instead.")
+            raise RuntimeError("Cannot connect in fixture mode. Provide Databricks credentials.")
 
         if self._connection is None:
             try:
@@ -155,15 +153,14 @@ class DatabricksClient:
             Query results as DataFrame
 
         Raises:
-            RuntimeError: If in fixture mode (use read_fixture instead)
+            RuntimeError: If in fixture mode because credentials are missing
 
         Example:
             >>> df = client.query("SELECT * FROM fct_games WHERE season = 2024")
         """
         if self._use_fixture:
             raise RuntimeError(
-                "Cannot query Databricks in fixture mode. "
-                "Use read_fixture() for local testing or provide credentials."
+                "Cannot query Databricks in fixture mode. Provide Databricks credentials."
             )
 
         conn = self._get_connection()
@@ -207,35 +204,6 @@ class DatabricksClient:
 
         return self.query(statement)
 
-    def read_fixture(self, fixture_path: str | Path) -> pd.DataFrame:
-        """
-        Read local fixture file (parquet or CSV).
-
-        Used for testing without Databricks connection.
-
-        Args:
-            fixture_path: Path to fixture file
-
-        Returns:
-            Fixture data as DataFrame
-
-        Example:
-            >>> df = client.read_fixture("tests/fixtures/fct_games_sample.parquet")
-        """
-        fixture_path = Path(fixture_path)
-
-        if not fixture_path.exists():
-            raise FileNotFoundError(f"Fixture not found: {fixture_path}")
-
-        logger.info(f"Reading fixture: {fixture_path}")
-
-        if fixture_path.suffix == ".parquet":
-            return pd.read_parquet(fixture_path)
-        elif fixture_path.suffix == ".csv":
-            return pd.read_csv(fixture_path)
-        else:
-            raise ValueError(f"Unsupported fixture format: {fixture_path.suffix}")
-
     def close(self) -> None:
         """Close Databricks connection if open."""
         if self._connection is not None:
@@ -244,9 +212,7 @@ class DatabricksClient:
             logger.info("Databricks connection closed")
 
     def __enter__(self) -> "DatabricksClient":
-        """Context manager entry."""
         return self
 
-    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        """Context manager exit."""
+    def __exit__(self, _exc_type: Any, _exc_val: Any, _exc_tb: Any) -> None:
         self.close()
