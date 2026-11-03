@@ -37,7 +37,7 @@ Import-linter contracts match the packages as they are today:
 4. `endzone.ingest` does not import `endzone.train` or `endzone.modeling`.
 5. `endzone.analysis` does not import `endzone.modeling.train` or `endzone.train`, except `endzone.analysis.feature_audit -> endzone.modeling.train` and `endzone.analysis.feature_audit -> endzone.train.train`. The phase 0 audit calls dataset, model, and tracking helpers. Those ignores go away when the audit no longer needs the training entry point.
 
-`configs/experiments/` holds one YAML file per hypothesis. `endzone.modeling.hypotheses` loads and validates that directory. Adding a hypothesis is a new file, not a new Python constant.
+`configs/experiments/` holds one YAML file per hypothesis. `endzone.modeling.hypotheses` loads and validates that directory. Adding a hypothesis is a new file, not a new Python constant. ADR-003 records the single settings module and warehouse client. ADR-004 records the modeling package. ADR-005 records the 0.003 acceptance rule. The gates for a change are `docs/definition_of_done.md`.
 
 ## Consequences
 

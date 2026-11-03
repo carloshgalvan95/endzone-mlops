@@ -1,555 +1,126 @@
-<p align="center">
-  <img alt="endzone-mlops: NFL pregame win probability, Databricks, dbt, MLflow" src="docs/assets/header.png" width="100%">
-</p>
-
 # endzone-mlops
 
 [![CI](https://github.com/carloshgalvan95/endzone-mlops/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/carloshgalvan95/endzone-mlops/actions/workflows/ci.yml)
 
-NFL pregame prediction lakehouse demonstrating Databricks + dbt + MLflow + CI/CD patterns for MLOps portfolios.
+## Honesty
 
-## Problem Statement
+Public learning portfolio. Production analogues for CV/LinkedIn: Athena / Glue / Redshift Spectrum / Prefect (role-dependent).
+Do not invent Databricks, dbt, MLflow, or Snowflake logos on PEMEX or Kavak bullets.
 
-Build a reproducible lakehouse pipeline for NFL pregame predictions (win probability, margin, total points) that demonstrates modern MLOps practices. Target audience: hiring managers evaluating Data Engineering, ML Engineering, or MLOps capabilities.
+This is a learning project with production-shaped patterns, not production software. Batch only. No live feed in the repo.
 
-**This is a batch-first analytics platform**, not a sports betting application. The domain is NFL because the data story is rich and can become a real product later, but the primary goal is demonstrating: Databricks lakehouse architecture, dbt transformations, MLflow experiment tracking, GitHub Actions CI/CD, and modular Python design patterns.
+## Problem
 
-## Current Status
+Predict the home-team win before kickoff. The question is whether a leakage-free pregame feature set beats a fixed reference on rolling-origin log loss. Margin and total are not modeled. There is no betting product and no scoring job yet. `score.py` is not in the repo.
 
-**As of October 2026 (Day 7 done)**:
+## Data
 
-- **Databricks Free Edition**: Spike completed and passed. Serverless SQL warehouse validated with dbt-databricks locally and from GitHub Actions. MLflow tracking connectivity confirmed.
-- **Bronze ingest**: Games and play-by-play backfill is complete (1999-2026). Unity Catalog tables: `workspace.nfl_raw.games`, `workspace.nfl_raw.play_by_play` (partitioned by season). H5 adds `workspace.nfl_raw.depth_charts` (weekly charts from 2001; 1999 and 2000 were not published). Load that table before the H5 warehouse build. It is not part of the earlier games and play-by-play backfill.
-- **dbt**: 3 staging views (`stg_nflverse__games`, `stg_nflverse__pbp`, `stg_nflverse__depth_charts`), 5 marts (`fct_games`, `fct_team_game_epa`, `fct_upcoming_games`, `fct_expected_starter`, `fct_qb_dropbacks`), 3 sources, 3 seeds. The recorded Databricks build before the depth-chart models was 64/64 nodes (57 data tests). CI compiles the current graph on DuckDB. A warehouse rebuild that includes the new models has not been recorded yet.
-- **Training pipeline**: `endzone/modeling/` with MLflow tracking. The canonical command is `python -m endzone.modeling.train`. `python -m endzone.train.train` is the same entrypoint, and the commands in this file keep that path. Hypothesis definitions are `configs/experiments/*.yaml`. Supports a home baseline (constant probability equal to the training home win rate, hard home label when that rate is above one half), logistic regression (impute then standard-scale), and gradient boosting models. The default feature set is rolling EPA, win rate, rest days, and season offensive EPA (10-game lookback). `--feature-set diff` adds home-minus-away versions of those columns. `--feature-set diff_only` keeps only the differences. `--feature-set h2_def` adds season-to-date defensive EPA allowed. `--feature-set h2_full` also adds regressed season and recent EPA. `--feature-set h3_split` adds pass and rush EPA. `--feature-set h3_replace` swaps the combined recent and regressed-season EPA for those splits. `--feature-set h5_qb` adds the home and away starting-QB ratings and each rating minus that team's recent passing EPA. `--model logistic_l2` is L2 logistic regression whose C is tuned inside the training seasons and does not use the scored season to pick C. `home_games_played` and `away_games_played` are still computed and available as `--feature-set with_games_played`. Time-based split (train through 2023, validate 2024, test 2025). Logs params, metrics (log loss, Brier, accuracy, AUC), feature list, data window, git SHA. Can run against Databricks or local fixtures. Includes SimpleImputer for missing history (EPA imputed to 0, win_rate to 0.5). Tests include leakage protection and January playoff season handling. Local tracking uses `sqlite:///mlflow.db` in the repo root, with run artifacts under `mlartifacts/`.
-- **CI**: GitHub Actions runs ruff lint + format check, pytest on Python 3.12, dbt compile against DuckDB, cross-platform matrix (Ubuntu, Windows, macOS). Tests verify column references against real nflverse schema (fixtures in tests/fixtures), schema conforming logic, feature leakage protection, and end-to-end training.
-- **PR Guard**: Branch protection with freshness check, Conventional Commit titles, PR template verification, no secrets/data files, commit identity validation.
+nflverse, CC BY 4.0. Games, play-by-play, and depth charts. Credits: [docs/ATTRIBUTION.md](docs/ATTRIBUTION.md).
 
-**Next**: H5, the pregame starting-QB rating, is rejected. `h5_qb` is 0.6355 against logistic `h2_full` 0.6377 (n=2191, difference -0.0022, interval -0.0042 to -0.0003, AUC 0.6869). The interval excludes zero, which is a positive signal, but the pre-registered rule needs a gain of at least 0.003. That threshold is not changed after the result. The reference stays logistic `h2_full`. H5b is the same `h5_qb` features on the fixed starter. Its warehouse score is pending. H4, clean EPA, is rejected. `h4_clean` is 0.6398 and `h4_clean_sr` is 0.6379 on the same reference. Removing `no_play`, kneels, spikes, and garbage time adds no signal. Forecasting (batch scoring) comes after the Phase 2 feature search.
+Bronze is `workspace.nfl_raw` (`games`, `play_by_play`, `depth_charts`). dbt staging views are `workspace.nfl_dev_staging`. Marts are `workspace.nfl_dev_marts`: `fct_games`, `fct_team_game_epa`, `fct_upcoming_games`, `fct_expected_starter`, `fct_qb_dropbacks`. The target schema is `nfl_dev`, and dbt appends the custom schema, so do not query staging or marts from unsuffixed `nfl_dev`.
 
-**2024 validation** (`make train-sweep`, 285 games, feature set that included `games_played`). Rounded to 2 decimals. The 2025 test season is held out and is not reported. Phase 1 does not replace this table. `make train-cv` writes the Phase 2 H5b comparison under `reports/phase2_h5b/`. The Phase 1 report stays `python -m endzone.train.train --cv`, which writes `reports/phase1/`. Hypothesis H1 writes `reports/phase2/`. Hypothesis H2 writes `reports/phase2_h2/`. Hypothesis H3 writes `reports/phase2_h3/`. Hypothesis H4 writes `reports/phase2_h4/` from the explicit `--hypothesis h4` command. Hypothesis H5 writes `reports/phase2_h5/` from the explicit `--hypothesis h5` command. The ridge comparison writes `reports/phase2_ridge/` from the explicit `--hypothesis ridge` command.
+Train through 2023, validation 2024, test 2025. A feature for a game uses only rows with `gameday` strictly before that game. Rolling-origin CV scores seasons 2016-2023. 2024 is not a fold. 2025 is not scored.
 
-| Model | Accuracy | AUC | Brier | Log loss |
-| --- | --- | --- | --- | --- |
-| Home baseline (training prior) | 0.55 | 0.50 | 0.25 | 0.69 |
-| Logistic regression (best of C=0.1, C=10) | 0.67 | 0.73 | 0.21 | 0.61 |
-| Gradient boosting depth 3, 50 trees | 0.68 | 0.70 | 0.22 | 0.63 |
-| Gradient boosting depth 5, 100 trees | 0.52 | 0.54 | 0.27 | 0.75 |
+## Architecture
 
-## Architecture Overview
-
-**Target architecture** (components marked [done] or [planned]):
-
-```
-nflverse (historical)     BALLDONTLIE (future live, not in this repo)
-    |
-    v
-Bronze ingest (endzone/ingest) [done]
-                |
-                v
-    dbt: Staging [done] -> Marts [done]
-                |
-                v
-       Feature Engineering (Python) [done]
-                |
-                v
-    MLflow Tracking (train.py with hyperparameters) [done]
-                |
-                v
-       Model Registry + Artifacts [planned]
-                |
-                v
-         Batch Scoring (score.py) [planned]
-                |
-                v
-      Predictions Table + Monitoring [planned]
-```
-
-### Key Design Decisions
-
-- **Batch-first**: v0.1 focuses on offline training and batch scoring. Real-time inference is documented as a future adapter pattern, not implemented.
-- **Historical source**: nflverse (CC BY 4.0, play-by-play from 1999+, Parquet format)
-- **Live path (documented, not active)**: No live-feed code is in the repo. A BALLDONTLIE GOAT API (~$40/month) adapter is a post-v0.1 option and needs owner approval. No API keys in the repo, no live calls in v0.1.
-- **Primary stack**: Databricks Free Edition + dbt-databricks + MLflow + GitHub Actions
-- **Plan B**: Snowflake trial (same repo layout) if Databricks Free Edition spike fails
-
-## Databricks schema map
-
-Catalog: `workspace`.
-
-| Schema | What lands there |
-| --- | --- |
-| `nfl_raw` | Bronze. `games`, `play_by_play`, and `depth_charts`. Not built by dbt. |
-| `nfl_dev` | dbt target schema (`dbt/profiles.yml.example`). Seeds have no custom schema, so `team_franchise_map` and `known_pbp_gaps` stay here. |
-| `nfl_dev_staging` | Staging views `stg_nflverse__games`, `stg_nflverse__pbp`, and `stg_nflverse__depth_charts`. |
-| `nfl_dev_marts` | Marts `fct_games`, `fct_team_game_epa`, `fct_upcoming_games`, `fct_expected_starter`, and `fct_qb_dropbacks`. Training reads these. |
-| `nfl_dev_test_results` | Stored dbt test failures (`+store_failures`, `+schema: test_results`). |
-
-`dbt_project.yml` sets `+schema: staging`, `+schema: marts`, and `+schema: test_results`. This repo has no `generate_schema_name` macro, so dbt's default macro appends the custom schema to the target: `{target}_{custom}`. The target is `nfl_dev`, which is why the built schemas end in `_staging`, `_marts`, and `_test_results`. Do not query staging or marts from unsuffixed `nfl_dev`.
-
-Env overrides for the Python client: `DATABRICKS_CATALOG` (default `workspace`), `DATABRICKS_STAGING_SCHEMA` (default `nfl_dev_staging`), `DATABRICKS_RAW_SCHEMA` (default `nfl_raw`), `DATABRICKS_MARTS_SCHEMA` (default `nfl_dev_marts`).
-
-## Product Framing: NFLow (Optional Nickname)
-
-The optional product name "NFLow" may appear in documentation. Repository name remains `endzone-mlops`.
-
-### Two ML Products (Separate Experiments)
-
-1. **Pregame**: Predict win probability, margin, total before kickoff
-2. **In-game** (future): Update probability after each play
-
-Experiments are tracked separately in MLflow. Never mix game states between train and test splits.
-
-## Data Sources and Attribution
-
-### Historical Data: nflverse
-
-- **License**: CC BY 4.0
-- **Coverage**: NFL play-by-play data from 1999-present
-- **Format**: Parquet files (~370 columns, ~19.5 MB per season)
-- **Updates**: Clean nightly; raw available ~15 minutes after game ends
-- **Citation**: nflverse project (https://github.com/nflverse)
-
-### Future Live Data: BALLDONTLIE (Documented Only)
-
-- **Status**: Not in the repo. No active API calls.
-- **Target plan**: BALLDONTLIE NFL GOAT tier (~$39.99/month) for v0.2+
-- **Capabilities**: Play-by-play, stats, injuries, odds (near-real-time, no published SLA)
-- **Decision gate**: Activation requires explicit owner approval and is post-Day 14
-
-**No vendor API keys, no live API calls, no paid subscriptions in v0.1.**
-
-## Repository Structure
-
-```
+```text
 endzone-mlops/
-├── README.md                   # This file
-├── LICENSE                     # MIT
-├── pyproject.toml              # Direct Python dependencies
-├── uv.lock                     # Locked environment, with hashes
-├── .python-version             # Python 3.12
-├── Makefile                    # Common tasks (lint, lint-structure, test, reproduce)
-├── .env.example                # Environment template (no secrets)
-├── .github/
-│   └── workflows/
-│       └── ci.yml             # Lint, structure, pytest, dbt compile
-├── infra/
-│   └── README.md              # Databricks setup instructions
-├── dbt/
-│   ├── dbt_project.yml
-│   ├── profiles.yml.example
-│   ├── models/
-│   │   ├── staging/           # stg_* models from raw nflverse
-│   │   └── marts/             # Business logic transformations
-│   ├── tests/
-│   └── macros/
-├── endzone/                    # Python package
-│   ├── config.py              # .env, DATABRICKS_*, MLflow tracking URI
-│   ├── analysis/              # Phase 0 audit and EPA play-filter check
-│   ├── data/                  # warehouse.py: SQL reads and Volume upload
-│   ├── features/              # Feature engineering
-│   ├── ingest/                # Bronze nflverse load (cli, nflverse, schema, depth charts, volume)
-│   ├── train/                 # Training entrypoint
-│   └── utils/                 # Logging
-├── data/                       # Local cache: raw, interim, processed, external
-├── models/                     # Gitignored serialized artifacts
-├── notebooks/                  # Exploration only (not the product)
-├── references/                 # External data notes
-├── reports/figures/            # CCDS figures (.gitkeep only)
-├── scripts/                    # Sweep, dev, and structure check
-├── tests/                      # Pytest unit tests
-└── docs/
-    ├── architecture.md        # C4 diagrams, detailed architecture
-    ├── adr/                   # Architecture Decision Records
-    │   ├── ADR-001-databricks.md
-    │   └── ADR-002-ccds-layout.md
-    ├── runbook.md            # Operational procedures, CE spike status
-    └── ATTRIBUTION.md        # Full data source credits
+  MLproject  Makefile  pyproject.toml  uv.lock
+  configs/experiments/     one YAML file per hypothesis
+  data/{raw,interim,processed,external}/   local cache, git keeps .gitkeep
+  dbt/                     staging views, marts, seeds
+  docs/                    ADRs, experiments, runbook
+  endzone/                 Python package
+  models/                  gitignored serialized artifacts
+  notebooks/               exploration only
+  references/  reports/figures/  scripts/  tests/
 ```
 
-## How to Run
+Flow: nflverse -> bronze (`endzone/ingest`) -> dbt staging -> dbt marts -> `endzone/features` -> `endzone/modeling` -> local MLflow (`sqlite:///mlflow.db`, artifacts in `mlartifacts/`).
 
-### Prerequisites
+`endzone/config.py` reads `.env`. `endzone/data/warehouse.py` is the SQL and Volume client. Hypothesis files are `configs/experiments/*.yaml`. The canonical command is `python -m endzone.modeling.train`. `python -m endzone.train.train` is the same flags.
 
-- Python 3.12. `.python-version` and `requires-python` pin that release. Python 3.14 triggers pydantic v1 warnings inside dbt, so the pin stops below 3.13.
-- [uv](https://docs.astral.sh/uv/) to create `.venv` from `uv.lock`.
-- (Optional) Databricks Free Edition account. dbt-core, dbt-duckdb, and dbt-databricks are in the lock.
+MLflow experiments: `nfl_pregame` (single split), `nfl_pregame/phase1_baselines`, and `nfl_pregame/phase2_h1` through `phase2_h5b` and `phase2_ridge`. A CV run logs one parent and one nested child per model. Child tag `decision` is `accepted`, `rejected`, `reference`, `baseline`, or `inconclusive`.
 
-### Local Setup (Day 1 Path)
+## Results
 
-Cloud dev environment config (`.cursor/environment.json`) installs uv and runs `uv sync --frozen`. Ruff stays pinned at 0.17.0.
+Rolling-origin CV, seasons 2016-2023. Source: [docs/experiments/reference_metrics.json](docs/experiments/reference_metrics.json). Logistic `h2_full` also has Brier 0.2235, AUC 0.6843, accuracy 0.6426.
 
-#### macOS / Linux
+| Model | Feature set | n | Log loss |
+| --- | --- | --- | --- |
+| logistic | h2_full | 2191 | 0.6377 |
+| elo | elo | 2191 | 0.6529 |
+| market | market | 2190 | 0.6120 |
+| baseline-home | none | 2191 | 0.6888 |
 
-Install uv once if it is not already on `PATH` (`brew install uv`, or the installer below). Then recreate `.venv` on Python 3.12:
+The market is a baseline. It is not the model under test. `make verify-reference` refits these rows and fails when log loss or n moves by more than 1e-4.
+
+## Hypothesis log
+
+Same window, n=2191, unless the note says otherwise. Detail is in `docs/experiments/`.
+
+| Hypothesis | Decision | Against | What happened |
+| --- | --- | --- | --- |
+| H1 differentials | rejected | logistic `current` | `diff` 0.6414 (difference +0.0000), `diff_only` 0.6416 (+0.0002) |
+| H2 season defense and regression | accepted | logistic `current` | `h2_full` 0.6377, difference -0.0037, interval -0.0071 to -0.0003. `h2_def` rejected |
+| H3 pass and rush EPA | rejected | logistic `h2_full` | `h3_split` 0.6393 (+0.0016), `h3_replace` 0.6395 (+0.0018) |
+| Ridge, fold-tuned L2 | did not help | logistic `h2_full` | `logistic_l2` on `h2_full` 0.6386 (+0.0009, interval -0.0008 to 0.0025) |
+| H4 clean EPA | rejected | logistic `h2_full` | `h4_clean` 0.6398 (+0.0021), `h4_clean_sr` 0.6379 (+0.0002) |
+| H5 starting QB | rejected | logistic `h2_full` | `h5_qb` 0.6355, difference -0.0022, interval -0.0042 to -0.0003 |
+| H5b fixed starter | rejected | logistic `h2_full` | `h5_qb` 0.6356, difference -0.0021, interval -0.0039 to -0.0002 |
+
+H2 is why logistic `h2_full` is the reference. H5 and H5b beat it by less than 0.003. The intervals are entirely below 0, so the sign is a positive signal. The threshold was not moved. Notes: [H5](docs/experiments/phase2_h5_starting_qb.md), [H5b](docs/experiments/phase2_h5b_starter_coverage.md).
+
+## Acceptance rule
+
+On pooled out-of-fold games, accept a feature set only when `log_loss_diff` <= -0.003 and the 95% paired bootstrap interval lies entirely below 0 (1000 resamples, seed 42). Otherwise reject. The rule is [ADR-005](docs/adr/ADR-005-acceptance-rule.md).
+
+Switch the reference to `logistic_l2` on `h2_full` only when that row's `log_loss_diff` is <= 0. The ridge run did not.
+
+## Reproduce
+
+Needs `DATABRICKS_HOST`, `DATABRICKS_HTTP_PATH`, and `DATABRICKS_TOKEN` in `.env` (copy `.env.example`, do not commit it) and `dbt/profiles.yml` (copy `dbt/profiles.yml.example`, catalog `workspace`, target `databricks`). Python 3.12 from `uv.lock`.
+
+`make reproduce` installs the lock, runs `dbt build` on Databricks, and refits the reference. It does not download nflverse. It does not register a model. On an empty catalog, load bronze first. `make train-cv` scores H5b. It loads bronze and builds marts when `.stamp/` says those steps are missing or bronze is newer. Delete `.stamp` to force them. `make ingest` and `make dbt-build-databricks` still run only their own step.
+
+`scripts/train_sweep.sh` and `scripts/train_sweep.ps1` are the single-split five-config sweep (`make train-sweep`). They are not the reference comparison.
+
+macOS or Linux:
 
 ```bash
-# Clone repository
-git clone https://github.com/carloshgalvan95/endzone-mlops.git
-cd endzone-mlops
-
-# Install uv once (skip when `uv` is already on PATH)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-source "$HOME/.local/bin/env"
-
-# Recreate the virtual environment on Python 3.12
-rm -rf .venv
-uv python install 3.12
 uv sync --frozen
-source .venv/bin/activate
-
-# Copy config templates
-cp .env.example .env
-cp dbt/profiles.yml.example dbt/profiles.yml
-# Edit .env and dbt/profiles.yml with your settings.
-# profiles.yml is gitignored. After a pull, compare it to profiles.yml.example.
-# The warehouse build target must be databricks, and that output's catalog must be workspace.
-
-# Run tests
-make test
-
-# Lint and format
-make lint
-
-# dbt: install packages and compile models (loads .env automatically)
-make dbt-compile
+make data
+make reproduce
+mlflow run . -e verify_reference --env-manager local
 ```
 
-**Tip**: `make setup` runs `uv python install 3.12` and `uv sync --frozen`.
+`mlflow run . -e train_cv --env-manager local` is the H5b CV. Parameters: `hypothesis`, `reference_model`, `reference_feature_set`, `output_dir`.
 
-#### Windows (PowerShell)
-
-Install uv once if it is not already on `PATH`. Then recreate `.venv` on Python 3.12:
+Windows (PowerShell). `.\scripts\dev.ps1` matches the Make targets and also has `format`:
 
 ```powershell
-# Clone repository
-git clone https://github.com/carloshgalvan95/endzone-mlops.git
-cd endzone-mlops
-
-# Install uv once (skip when `uv` is already on PATH)
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-
-# If activation is blocked, enable scripts (one-time):
-# Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-
-# Recreate the virtual environment on Python 3.12
-if (Test-Path .venv) { Remove-Item -Recurse -Force .venv }
-uv python install 3.12
 uv sync --frozen
-.venv\Scripts\Activate.ps1
-
-# Copy config templates
-Copy-Item .env.example .env
-Copy-Item dbt\profiles.yml.example dbt\profiles.yml
-# Edit .env and dbt\profiles.yml with your settings.
-# profiles.yml is gitignored. After a pull, compare it to profiles.yml.example.
-# The warehouse build target must be databricks, and that output's catalog must be workspace.
-
-# Run tests
-.\scripts\dev.ps1 test
-
-# Lint and format
-.\scripts\dev.ps1 lint
-
-# dbt: install packages and compile models (loads .env automatically)
-.\scripts\dev.ps1 dbt-compile
+.\scripts\dev.ps1 data
+.\scripts\dev.ps1 reproduce
+mlflow run . -e verify_reference --env-manager local
 ```
 
-**Tip**: `.\scripts\dev.ps1 setup` runs `uv python install 3.12` and `uv sync --frozen`.
+Git Bash on Windows rewrites arguments that look like Unix paths. `make` exports `MSYS_NO_PATHCONV=1`. Set it yourself before a Python command outside `make`.
 
-### Training Models
+Local DuckDB compile, no warehouse: `make dbt-compile`.
 
-After setting up the environment and building dbt models, you can train prediction models. Local runs record experiments in `sqlite:///mlflow.db` (repo root) and write model artifacts under `mlartifacts/`. Both paths are gitignored. If an existing `.env` still has `MLFLOW_TRACKING_URI=./mlruns` (or `mlruns`), change it to `MLFLOW_TRACKING_URI=sqlite:///mlflow.db`. MLflow 3.16 refuses the file store. Training logs a warning and uses `sqlite:///mlflow.db` when the value is a plain local path.
+## Quality gates
 
-#### macOS / Linux
+Listed in [docs/definition_of_done.md](docs/definition_of_done.md): ruff, `make lint-structure`, vulture at confidence 80, pytest, analysis coverage 100%, the golden CV test, `make dbt-compile`, `make verify-reference` on the warehouse, the PR template, Conventional Commits, no secrets. Modules group one responsibility. Size is a smell to review, not a gate.
 
-```bash
-# Train with default settings (logistic regression, lookback=10)
-make train
+## Docs
 
-# Or specify model and hyperparameters
-python -m endzone.train.train --model logistic --lookback 10 --C 1.0 --seed 42
-python -m endzone.train.train --model gbm --n-estimators 100 --max-depth 5 --learning-rate 0.1
-python -m endzone.train.train --model baseline-home
-
-# Run training sweep (5+ configs for MLflow comparison)
-make train-sweep
-
-# View MLflow UI to compare runs
-make mlflow-ui
-# or: mlflow ui --backend-store-uri sqlite:///mlflow.db --workers 1
-# Open http://localhost:5000 in browser
-```
-
-#### Windows (PowerShell)
-
-```powershell
-# Train with default settings
-.\scripts\dev.ps1 train
-
-# Or specify model and hyperparameters
-python -m endzone.train.train --model logistic --lookback 10 --C 1.0 --seed 42
-python -m endzone.train.train --model gbm --n-estimators 100 --max-depth 5 --learning-rate 0.1
-python -m endzone.train.train --model baseline-home
-
-# Run training sweep (5+ configs for MLflow comparison)
-.\scripts\dev.ps1 train-sweep
-
-# View MLflow UI to compare runs
-.\scripts\dev.ps1 mlflow-ui
-# or: mlflow ui --backend-store-uri sqlite:///mlflow.db --workers 1
-# Open http://localhost:5000 in browser
-```
-
-`--workers 1` avoids a Windows uvicorn error (WinError 10022) when the UI starts more than one worker.
-
-#### Windows (Git Bash)
-
-Git Bash rewrites arguments that look like Unix paths, including `DATABRICKS_HTTP_PATH` (`/sql/1.0/...`). `make` exports `MSYS_NO_PATHCONV=1` for every target, including `train` and `train-sweep`. The variable is harmless on macOS and Linux. Set it yourself when you call Python outside `make`, and before `mlflow ui` so `sqlite:///` is left intact.
-
-```bash
-export MSYS_NO_PATHCONV=1
-
-# Train with default settings (logistic regression, lookback=10)
-make train
-
-# Or specify model and hyperparameters
-python -m endzone.train.train --model logistic --lookback 10 --C 1.0 --seed 42
-python -m endzone.train.train --model gbm --n-estimators 100 --max-depth 5 --learning-rate 0.1
-python -m endzone.train.train --model baseline-home
-
-# Run training sweep (5+ configs for MLflow comparison)
-make train-sweep
-
-# View MLflow UI to compare runs
-make mlflow-ui
-# or: mlflow ui --backend-store-uri sqlite:///mlflow.db --workers 1
-# Open http://localhost:5000 in browser
-```
-
-**Note**: Training requires either Databricks credentials (in .env) or local fixture files. Metrics (accuracy, Brier score, log loss, ROC AUC) are logged to MLflow along with model artifacts. The Day 7 sweep on 2024 validation is in Current Status. The 2025 test season is held out.
-
-### Feature input audit
-
-`make audit-features` (Windows: `.\scripts\dev.ps1 audit-features`) profiles the current pregame inputs and does not change them. It writes `reports/phase0/feature_audit.md` and `reports/phase0/feature_audit.csv`, and logs both on an MLflow run tagged `phase=0-audit` under experiment `nfl_pregame/phase0_audit`. Those files are local outputs. Code-reading findings are in `docs/experiments/phase0_input_audit.md`. The command uses the same Databricks credentials as training, or `--fixture-path` for a local frame. Pass extra CLI flags with `make audit-features AUDIT_ARGS="--fixture-path path/to/fixtures"`. 2025 is included in the distribution tables and is not scored.
-
-### EPA play filter check
-
-`make check-epa-filter` (Windows: `.\scripts\dev.ps1 check-epa-filter`) counts `workspace.nfl_dev_staging.stg_nflverse__pbp` rows with `play = 1` by `play_type`, which is the filter the original EPA columns in `fct_team_game_epa` use. It also counts `qb_kneel = 1` and `qb_spike = 1`. Staging now selects those flags. Until `make dbt-build-databricks` rebuilds the view, the live staging table can still lack them, and the check then counts them from `workspace.nfl_raw.play_by_play`. The command uses the same Databricks client as training and writes `reports/epa_filter_check.md` (gitignored). The frozen copy is `docs/experiments/reports/epa_filter_check.md`. It does not change dbt models.
-
-| play_type | n_plays | share |
-| --- | --- | --- |
-| pass | 528368 | 53.6% |
-| run | 388724 | 39.5% |
-| no_play | 68233 | 6.9% |
-
-No special-teams play types are in that filter. Only 36 kneels and 70 spikes have `play = 1`. The contamination is the `no_play` (penalty) rows. That is the input to H4, clean EPA.
-
-### Phase 1 baselines
-
-`python -m endzone.train.train --cv` (default `--phase 1`) runs rolling-origin cross-validation: for each season S from 2016 through 2023, models train on seasons strictly before S and score S. 2024 is not scored. 2025 is not scored. The command logs the home prior, logistic regression on feature set `current` (no `games_played`) and on `with_games_played`, a simple Elo rating, and a no-vig closing moneyline when `home_moneyline` and `away_moneyline` are on the games table. The paired comparison is log loss against the home prior. Runs go to MLflow experiment `nfl_pregame/phase1_baselines` with tag `phase=1`. The comparison is written to `reports/phase1/` (gitignored). The method and an empty decision log are in `docs/experiments/phase1_baselines.md`. This README does not add measured CV numbers.
-
-### Phase 2 H1: differential features
-
-`python -m endzone.train.train --cv --phase 2 --hypothesis h1 --reference-model logistic --reference-feature-set current --output-dir reports/phase2` uses the same 2016-2023 window and scores logistic regression on `current`, `diff`, and `diff_only`, plus the home prior, Elo, and the market. The paired comparison is log loss against logistic `current`. Pass `--reference-model` and `--reference-feature-set` to choose a different reference. Phase 1's default report is unchanged. Runs go to MLflow experiment `nfl_pregame/phase2_h1` with tags `phase=2` and `hypothesis=h1-diff`. The comparison is written to `reports/phase2/` (gitignored). A set is accepted only when pooled log loss improves by at least 0.003 and the 95% paired interval lies entirely below 0. The local result is recorded in `docs/experiments/phase2_h1_diff_features.md`: both `diff` and `diff_only` were rejected. This README does not repeat that table.
-
-### Phase 2 H2: season defense and regression
-
-`python -m endzone.train.train --cv --phase 2 --hypothesis h2 --reference-model logistic --reference-feature-set current --output-dir reports/phase2_h2` scores logistic regression on `current`, `h2_def`, and `h2_full`, plus the home prior, Elo, and the market. The paired comparison is the same bootstrap against logistic `current`, and the acceptance rule is the same 0.003 log loss gain with the 95% interval entirely below 0. Runs go to MLflow experiment `nfl_pregame/phase2_h2` with tags `phase=2` and `hypothesis=h2-season-def-regression`. The comparison is written to `reports/phase2_h2/` (gitignored). The local result is recorded in `docs/experiments/phase2_h2_season_def_regression.md`: `h2_def` was rejected and `h2_full` was accepted. The gain comes from the regressed priors. The upper bound of that interval is close to 0, so the acceptance still has to be confirmed on the 2024 final validation. This README does not repeat that table. Later Phase 2 hypotheses use `h2_full` as the reference. This H2 command stays paired to `current`.
-
-### Phase 2 H3: pass and rush EPA
-
-`python -m endzone.train.train --cv --phase 2 --hypothesis h3 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h3` scores logistic regression on `h2_full`, `h3_split`, and `h3_replace`, plus the home prior, Elo, and the market. The paired comparison is the same bootstrap against logistic `h2_full`, and the acceptance rule is the same 0.003 log loss gain with the 95% interval entirely below 0. Runs go to MLflow experiment `nfl_pregame/phase2_h3` with tags `phase=2` and `hypothesis=h3-pass-rush-epa`. The comparison is written to `reports/phase2_h3/` (gitignored). The local result is recorded in `docs/experiments/phase2_h3_pass_rush_epa.md`: both `h3_split` and `h3_replace` were rejected against logistic `h2_full` (log loss 0.6377, n=2191). `h3_split` is 0.6393 (difference +0.0016, interval -0.0009 to 0.0039) and `h3_replace` is 0.6395 (difference +0.0018, interval -0.0008 to 0.0043). Both have lower AUC (0.6801 and 0.6796) and lower accuracy. Splitting pass and rush adds noise at about 270 games per season. Combined EPA already carries the signal. This README does not repeat that table.
-
-### Phase 2 ridge reference
-
-The ridge command is `python -m endzone.train.train --cv --phase 2 --hypothesis ridge --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_ridge`. It scores fixed-C logistic regression on `h2_full` (the reference), `logistic_l2` on `h2_full`, `h3_split`, and `h3_replace`, plus the home prior, Elo, and the market. `logistic_l2` is L2 logistic regression. C is chosen inside each training fold by an expanding season split. The scored season is not used to pick C. The chosen C is logged on the MLflow child run and in the fold table. The paired comparison and the 0.003 acceptance rule are the same, against logistic `h2_full`. Runs go to MLflow experiment `nfl_pregame/phase2_ridge` with tags `phase=2` and `hypothesis=ridge-reference`. The comparison is written to `reports/phase2_ridge/` (gitignored). The frozen copy is `docs/experiments/reports/phase2_ridge_comparison.md`. This is setup work: if `logistic_l2` on `h2_full` is not worse (`log_loss_diff` <= 0), it becomes the reference for the next hypothesis, so a later rejection means the columns lacked signal. The local run did not meet that bar. Method and the full reading are in `docs/experiments/phase2_ridge_reference.md`.
-
-| model | feature_set | n | log_loss | log_loss_diff | ci_low | ci_high |
-| --- | --- | --- | --- | --- | --- | --- |
-| logistic | h2_full | 2191 | 0.6377 | 0.0000 | | |
-| logistic_l2 | h2_full | 2191 | 0.6386 | +0.0009 | -0.0008 | 0.0025 |
-| logistic_l2 | h3_split | 2191 | 0.6387 | +0.0010 | -0.0014 | 0.0032 |
-| logistic_l2 | h3_replace | 2191 | 0.6392 | +0.0015 | -0.0015 | 0.0041 |
-
-Fold-tuned L2 does not help. Plain logistic `h2_full` stays the reference. The L2 fits of `h3_split` and `h3_replace` are also worse, so the H3 rejection is not collinearity noise from an untuned penalty.
-
-The parent run name for this comparison is `phase2-ridge-<timestamp>`.
-
-### Phase 2 H4: clean EPA
-
-`python -m endzone.train.train --cv --phase 2 --hypothesis h4 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h4` scores logistic regression on `h2_full` (the reference), `h4_clean`, and `h4_clean_sr`, plus the home prior, Elo, and the market. `make train-cv` now runs H5b. `h4_clean` is `h2_full` with every EPA input taken from pass and run plays only, excluding kneels, spikes, `no_play`, and garbage time (`wp` below 0.05 or above 0.95). A missing `wp` stays in. `h4_clean_sr` adds the recent clean success rate. Shrinkage (1/3), blend (`n / (n + 4)`), the lookback, and the garbage-time cutoffs are fixed. They are not tuned on this run. The paired comparison and the 0.003 acceptance rule are the same, against logistic `h2_full`. Runs go to MLflow experiment `nfl_pregame/phase2_h4` with tags `phase=2` and `hypothesis=h4-clean-epa`. The comparison is written to `reports/phase2_h4/` (gitignored). The frozen copy is `docs/experiments/reports/phase2_h4_comparison.md`. The method is in `docs/experiments/phase2_h4_clean_epa.md`.
-
-`qb_kneel`, `qb_spike`, and `wp` are already on `workspace.nfl_raw.play_by_play`. `wp` is already staged as `win_probability`. Do not run `make ingest` for this hypothesis. `make dbt-build-databricks` runs `dbt deps` and then `dbt build --target databricks`. Chain it with training so a failed build does not score:
-
-```bash
-make dbt-build-databricks && python -m endzone.train.train --cv --phase 2 --hypothesis h4 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h4
-```
-
-Before CV, each requested feature column has to exist on the feature frame and stay under 50% null (`--max-null-fraction`, default 0.5). A failure names the feature set and the columns and says to run `make dbt-build-databricks`.
-
-Both clean sets are rejected against logistic `h2_full` 0.6377 (n=2191). `h4_clean` is 0.6398 (difference +0.0021, interval -0.0012 to 0.0053). `h4_clean_sr` is 0.6379 (difference +0.0002, interval -0.0036 to 0.0039). Removing `no_play`, kneels, spikes, and garbage time adds no signal. Averaging over many plays already absorbs that noise.
-
-| feature_set | n | log_loss | log_loss_diff | ci_low | ci_high | decision |
-| --- | --- | --- | --- | --- | --- | --- |
-| h2_full | 2191 | 0.6377 | 0.0000 | 0.0000 | 0.0000 | reference |
-| h4_clean | 2191 | 0.6398 | +0.0021 | -0.0012 | 0.0053 | rejected |
-| h4_clean_sr | 2191 | 0.6379 | +0.0002 | -0.0036 | 0.0039 | rejected |
-
-A first local run before the dbt rebuild printed the same log loss 0.6509 for both clean sets. The clean columns were absent, so the imputer filled empty features with constants. That number is not the comparison.
-
-The parent run name for this comparison is `phase2-h4-<timestamp>`.
-
-### Phase 2 H5: starting quarterback
-
-`python -m endzone.train.train --cv --phase 2 --hypothesis h5 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h5` scores logistic regression on `h2_full` (the reference) and `h5_qb`, plus the home prior, Elo, and the market. `h5_qb` is `h2_full` plus the home and away starting-QB ratings and each rating minus that team's recent passing EPA. The starter is the offense QB1 on the weekly depth chart. A missing chart uses the previous game's primary passer. The rating is prior EPA per dropback, shrunk toward 0 with weight `n / (n + 100)`, using only earlier gamedays, across teams and seasons. CPOE is stored and is not in the rating. The QB-change subset in the report is descriptive and is not an acceptance decision. Runs go to MLflow experiment `nfl_pregame/phase2_h5` with tags `phase=2` and `hypothesis=h5-starting-qb`. The comparison is written to `reports/phase2_h5/` (gitignored). The method and the local result are in `docs/experiments/phase2_h5_starting_qb.md`. The frozen copy is `docs/experiments/reports/phase2_h5_comparison.md`. `h5_qb` log loss is 0.6355 against logistic `h2_full` 0.6377 (n=2191, difference -0.0022, interval -0.0042 to -0.0003). Rejected. The interval excludes zero, and the 0.003 bar is unchanged.
-
-The parent run name for this comparison is `phase2-h5-<timestamp>`.
-
-### Phase 2 H5b: starter coverage
-
-`make train-cv` (Windows: `.\scripts\dev.ps1 train-cv`) is `--phase 2 --hypothesis h5b`. It scores the same `h5_qb` features against logistic `h2_full`, with the same shrinkage `n / (n + 100)` and the same replacement level 0. The only change is the depth-chart starter: every season file writes `week` as nullable int32, and the mart prefers a real QB `depth_position` when a team-week lists two QB1 rows. Runs go to MLflow experiment `nfl_pregame/phase2_h5b` with tags `phase=2` and `hypothesis=h5b-starter-coverage`. The comparison is written to `reports/phase2_h5b/` (gitignored). The method, the coverage tables, and the pending result are in `docs/experiments/phase2_h5b_starter_coverage.md`.
-
-On a catalog that already has games and play-by-play, reload every depth-chart season. A 2025-only load leaves the int32 week files for 2002-2006 and 2014 in the volume:
-
-```bash
-python -m endzone.ingest.load_raw_nflverse --dataset depth_charts && make dbt-build-databricks && make train-cv
-```
-
-A fresh clone uses `make ingest && make dbt-build-databricks && make train-cv`. `make dbt-build-databricks` runs `dbt deps` first.
-
-The parent run name for this comparison is `phase2-h5b-<timestamp>`. The warehouse score is pending.
-
-### Reading CV runs in the MLflow UI
-
-Every `--cv` invocation, including phase 1 and each phase 2 hypothesis, logs one parent run and one nested child per scored model. The parent name is `phase1-<timestamp>`, `phase2-h1-<timestamp>`, `phase2-h2-<timestamp>`, `phase2-h3-<timestamp>`, `phase2-h4-<timestamp>`, `phase2-h5-<timestamp>`, `phase2-h5b-<timestamp>`, or `phase2-ridge-<timestamp>`. Open the parent to read `comparison.md` and `comparison.csv`. Its tags include `phase`, `hypothesis` when the phase has one, `cv_scheme`, `git_commit`, `reference_model`, `reference_feature_set`, `best_feature_set`, and `data_digest`. The dataset input is named `nfl_pregame_cv`. Its source text says the rows are `fct_games` joined to pregame features for seasons through the CV end season. `data_n_rows` and `data_n_columns` are params on the parent and on each child. The same `data_digest` on the parent and every child means those runs compared the same matrix.
-
-Each child logs `log_loss_diff`, `log_loss_diff_ci_low`, and `log_loss_diff_ci_high` against the reference, plus a `decision` tag:
-
-- `accepted`: pooled log loss improves by at least 0.003 and `log_loss_diff_ci_high` is below 0
-- `rejected`: the candidate was scored and that rule failed
-- `inconclusive`: the paired interval is missing
-- `reference`: the reference model and feature set
-- `baseline`: the home prior, Elo, or the market, when that row is not the reference
-
-In the MLflow UI, filter with `tags.decision = 'accepted'` (or `rejected`, `reference`, `baseline`, `inconclusive`). Select the children of one parent and use Compare. `best_feature_set` on the parent is the accepted logistic set with the lowest pooled log loss. If none was accepted, it is the reference feature set.
-
-**Important .env notes**:
-- `.env` is for environment variables (e.g., Databricks credentials), not the Python virtual environment
-- Python entry points load `.env` from the working directory (`make ingest`, `make train`, `make train-cv`, `make train-sweep`, `make audit-features`, `make check-epa-filter`, `make verify-reference`). A variable already set in the shell wins, so `set -a; source .env; set +a` still works.
-- `make dbt-compile`, `make dbt-run`, and `make dbt-test` still source `.env`, because dbt does not use that loader.
-- Format: `KEY=value` with no spaces around `=`
-- DATABRICKS_HOST should NOT include `https://` prefix
-- Git Bash (MINGW) on Windows mangles paths starting with `/`, including `DATABRICKS_HTTP_PATH`. `make` already exports `MSYS_NO_PATHCONV=1`. Add the same export to `~/.bashrc` if you run commands outside `make`.
-- Migrate `MLFLOW_TRACKING_URI=./mlruns` to `MLFLOW_TRACKING_URI=sqlite:///mlflow.db`. A leftover file-store path is rewritten to sqlite with a warning.
-- Both `.venv/` and `dbt/profiles.yml` are gitignored
-
-### Databricks Free Edition Path
-
-**Spike completed**: Databricks Free Edition serverless SQL warehouse works with dbt-databricks. See `docs/runbook.md` for setup details and troubleshooting.
-
-**To run ingest and dbt against Databricks**:
-
-macOS / Linux (bash):
-```bash
-# Load environment variables from .env
-set -a; source .env; set +a
-
-# Ingest nflverse data to Unity Catalog
-make ingest       # Load games, play-by-play, and depth charts
-
-# Build dbt models on Databricks
-make dbt-build-databricks
-```
-
-Windows Git Bash:
-```bash
-export MSYS_NO_PATHCONV=1  # Prevent path conversion issues
-set -a; source .env; set +a
-make ingest
-make dbt-build-databricks
-```
-
-Windows PowerShell:
-```powershell
-# Load environment automatically via scripts
-.\scripts\dev.ps1 ingest
-.\scripts\dev.ps1 dbt-build-databricks
-```
-
-See `docs/runbook.md` for credential setup, Unity Catalog volume paths, and verification queries.
-
-## CI/CD
-
-### GitHub Actions Workflows
-
-**CI** (`.github/workflows/ci.yml`): Runs on every push and pull request:
-- **Lint**: ruff check + ruff format --check
-- **Test**: pytest on Python 3.12 (Ubuntu)
-- **dbt compile**: Validates SQL against DuckDB (no Databricks credentials in CI yet)
-- **Cross-platform**: Lint + pytest on windows-latest and macos-latest (Python 3.12)
-- Tests include verification that staging models reference real nflverse column names (fixtures in tests/fixtures)
-
-**Databricks Smoke Test** (`.github/workflows/databricks-smoke.yml`): Manual workflow_dispatch, runs dbt debug and dbt compile against Databricks using GitHub secrets (DATABRICKS_HOST, DATABRICKS_HTTP_PATH, DATABRICKS_TOKEN).
-
-**PR Guard** (`.github/workflows/pr-guard.yml`): Automated PR validation:
-- Branch must be up to date with main
-- Conventional Commit PR titles (feat, fix, docs, chore, ci, test, refactor, perf, build)
-- PR template with verification checklist
-- No secrets or data files committed
-- Commit identity checks (author/committer email validation)
-
-**Branch protection**: main requires pr-guard + CI jobs to pass, branch must be up to date, no force pushes.
-
-**Planned**: A Databricks integration job in CI that runs ingest for one season and dbt build in a separate CI schema on PRs that touch ingest or dbt.
-
-## Roadmap
-
-### v0.1 (Day 14 Target)
-- [x] Repository scaffold
-- [x] Bronze ingest to Unity Catalog Delta tables (games, play_by_play, 1999-2026 backfill complete). Depth charts are a separate ingest for H5.
-- [x] Staging dbt models from nflverse (`stg_nflverse__games`, `stg_nflverse__pbp`, `stg_nflverse__depth_charts`)
-- [x] Marts dbt models (`fct_games`, `fct_team_game_epa`, `fct_upcoming_games`, `fct_expected_starter`, `fct_qb_dropbacks`)
-- [x] dbt build on Databricks before the depth-chart models: 64/64 nodes passing (57 data tests). Rebuild before H5.
-- [x] CI with GitHub Actions (lint, tests, cross-platform, PR guard)
-- [x] MLflow experiment tracking (train.py with baseline, logistic, gradient boosting)
-- [x] Pregame feature engineering (rolling EPA, win rates, rest days; games played stays available as a legacy set)
-- [x] Training sweep (5+ configs, make train-sweep)
-- [x] First training runs on real Databricks data (2024 validation metrics above)
-- [ ] Databricks integration job in CI
-- [ ] Batch scoring pipeline (score.py)
-- [ ] Documentation and demo
-
-### v0.2+ (Post-Day 14)
-- [ ] Add a live-feed adapter for BALLDONTLIE (requires paid subscription and approval)
-- [ ] In-game prediction experiment
-- [ ] Monitoring and drift detection
-- [ ] Databricks Jobs or GitHub Actions schedule
-
-## Related Documentation
-
-- [Architecture](docs/architecture.md): Detailed C4 diagrams and component descriptions
-- [Phase 0 input audit](docs/experiments/phase0_input_audit.md): What the current features do, from the code
-- [Experiment snapshots](docs/experiments/reports/README.md): Frozen local reports for decided hypotheses. `reports/` stays gitignored scratch.
-- [ADR-001](docs/adr/ADR-001-databricks.md): Why Databricks + dbt + MLflow
-- [Runbook](docs/runbook.md): Operational procedures and spike status
-- [Attribution](docs/ATTRIBUTION.md): Full data source credits and licenses
+- [Architecture](docs/architecture.md)
+- [ADR-001 Databricks](docs/adr/ADR-001-databricks.md), [ADR-002 CCDS](docs/adr/ADR-002-ccds-layout.md), [ADR-003 config and warehouse](docs/adr/ADR-003-config-and-warehouse.md), [ADR-004 modeling](docs/adr/ADR-004-modeling-and-hypotheses.md), [ADR-005 acceptance rule](docs/adr/ADR-005-acceptance-rule.md)
+- [Experiments](docs/experiments/reports/README.md)
+- [Runbook](docs/runbook.md)
+- [Attribution](docs/ATTRIBUTION.md)
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) file.
-
-## Project Context
-
-This portfolio project was built as part of an MLOps learning path, synthesizing concepts from:
-- SWEBOK software engineering practices
-- Wilson's modularity patterns for ML
-- Databricks lakehouse architecture
-- dbt analytics engineering
-- MLflow experiment tracking
-
-Production analogues: AWS Glue + Athena + Redshift Spectrum, Prefect/Airflow orchestration, and similar cloud data platform patterns.
-
----
-
-**Important**: This is a learning project with production-shaped patterns, not production software. Batch-first design. Live streaming adapter documented but not implemented in v0.1.
+MIT. See [LICENSE](LICENSE).

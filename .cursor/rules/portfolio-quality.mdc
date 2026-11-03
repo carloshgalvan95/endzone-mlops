@@ -56,7 +56,7 @@ This is Carlos Galvan's public MLOps portfolio demonstrating Databricks + dbt + 
 - Product code in endzone/, dbt/, tests/, scripts/
 - Entrypoint: `endzone/modeling/train.py` (argparse, config injected). `python -m endzone.train.train` is the compatibility command. `score.py` is planned and is not in the repo.
 - New code respects the CCDS layout (`data/`, `models/`, `notebooks/`, `references/`, `reports/figures/`, package `endzone/`) and the import-linter contracts. See `repo-map.mdc`.
-- Small, testable functions
+- Small, testable functions. Modules group one responsibility. Size is a smell to review, not a gate.
 - No logic in notebooks that should be in modules
 
 ### Wilson 10 Standards (Gates)
@@ -118,7 +118,7 @@ A PR is Done when:
 - [x] `endzone/modeling/train.py` (argparse, 3+ hyperparameters, seed) + MLflow (5+ runs). `python -m endzone.train.train` stays the compatibility command.
 - [x] CI: pytest + dbt compile (DuckDB). dbt build stays on the Databricks target, not in CI.
 - [x] C4 L1 diagram + data flow sequence (`docs/architecture.md`)
-- [ ] `make reproduce` leaves marts + an MLflow model. Today it is only `install` and local `dbt-compile`.
+- [x] `make reproduce` installs the lock, builds Databricks marts, and refits the reference. It does not download nflverse and it does not register a model.
 
 ### Day 14 (Target)
 - [ ] score.py batch to predictions table
@@ -143,7 +143,8 @@ A PR is Done when:
 - docs/runbook.md: Operations, CE spike checklist, troubleshooting
 - docs/ATTRIBUTION.md: Data source credits (nflverse CC BY 4.0)
 - `.cursor/rules/QUALITY_GUIDELINES.md`: Full SWEBOK + Wilson + TC5062 quality bar
-- `.cursor/rules/ml-experiments.mdc`: phase status. Phase 0 and Phase 1 are done. H1 rejected. H2 accepted, logistic `h2_full` is the reference. H3 rejected. Ridge did not help. H4 clean EPA is rejected. H5 starting QB is running and not scored. Phases 3 and 4 are planned.
+- `docs/definition_of_done.md`: the gates for a change
+- `.cursor/rules/ml-experiments.mdc`: phase status. Phase 0 and Phase 1 are done. H1 rejected. H2 accepted, logistic `h2_full` is the reference. H3 rejected. Ridge did not help. H4 clean EPA is rejected. H5 and H5b are rejected. The 0.003 threshold was not moved. Phases 3 and 4 are planned.
 
 ## For AI Assistants
 
