@@ -398,6 +398,9 @@ ruff check endzone/ tests/
 
 # Format code
 ruff format endzone/ tests/
+
+# Layout and import contracts
+make lint-structure
 ```
 
 ### Data Loading (Future Step)
@@ -695,14 +698,16 @@ If using Databricks in CI:
 ### Workflow Steps
 
 1. **Lint**: `ruff check` (fails on errors)
-2. **Test**: `pytest` (fails if any test fails)
-3. **dbt compile**: Validates SQL syntax
-4. **(Future) dbt build**: Runs models and tests with data
+2. **Structure**: `scripts/check_structure.py` and `lint-imports`
+3. **Test**: `pytest` (fails if any test fails)
+4. **dbt compile**: Validates SQL syntax
+5. **(Future) dbt build**: Runs models and tests with data
 
 ### Local CI Simulation
 
 ```bash
 make lint    # Run linting
+make lint-structure  # CCDS layout and import contracts
 make test    # Run tests
 make dbt-compile  # Validate dbt models
 ```

@@ -157,9 +157,10 @@ endzone-mlops demonstrates a modern lakehouse architecture for NFL analytics, co
 1. Checkout code
 2. Install dependencies
 3. Lint (ruff)
-4. Test (pytest)
-5. dbt compile (validate SQL)
-6. (Future) dbt build with test data
+4. Structure (`scripts/check_structure.py` and `lint-imports`)
+5. Test (pytest)
+6. dbt compile (validate SQL)
+7. (Future) dbt build with test data
 
 **Badge**: Shows CI status in README.
 
@@ -167,7 +168,9 @@ endzone-mlops demonstrates a modern lakehouse architecture for NFL analytics, co
 
 **Purpose**: Exploration and prototyping ONLY. Not part of production pipeline.
 
-**Philosophy** (Wilson 9): Notebooks are for experimentation. Once patterns solidify, move to modular Python in `endzone/`.
+**Philosophy** (Wilson 9): Notebooks are for experimentation. Once patterns solidify, move to modular Python in `endzone/`. Name a notebook `N.N-initials-description.ipynb`.
+
+Local CCDS directories sit beside the package: `data/{raw,interim,processed,external}/` (git tracks `.gitkeep` only), `models/` (gitignored artifacts; there is no `endzone/models` package), `references/`, and `reports/figures/`. dbt stays a top-level project. Training still writes `reports/phase0`, `reports/phase1`, `reports/phase2*`, and `reports/epa_filter_check.md`. See ADR-002.
 
 ## Data Flow (Sequence)
 

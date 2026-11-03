@@ -53,8 +53,9 @@ This is Carlos Galvan's public MLOps portfolio demonstrating Databricks + dbt + 
 
 ### Wilson Modularity (endzone/)
 - Notebooks for exploration ONLY, not production
-- Product code in endzone/, dbt/, tests/
+- Product code in endzone/, dbt/, tests/, scripts/
 - Entrypoint: `endzone/train/train.py` (argparse, config injected). `score.py` is planned and is not in the repo.
+- New code respects the CCDS layout (`data/`, `models/`, `notebooks/`, `references/`, `reports/figures/`, package `endzone/`) and the import-linter contracts. See `repo-map.mdc`.
 - Small, testable functions
 - No logic in notebooks that should be in modules
 

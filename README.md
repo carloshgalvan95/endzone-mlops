@@ -128,11 +128,11 @@ endzone-mlops/
 ├── pyproject.toml              # Direct Python dependencies
 ├── uv.lock                     # Locked environment, with hashes
 ├── .python-version             # Python 3.12
-├── Makefile                    # Common tasks (lint, test, reproduce)
+├── Makefile                    # Common tasks (lint, lint-structure, test, reproduce)
 ├── .env.example                # Environment template (no secrets)
 ├── .github/
 │   └── workflows/
-│       └── ci.yml             # Lint, pytest, dbt compile
+│       └── ci.yml             # Lint, structure, pytest, dbt compile
 ├── infra/
 │   └── README.md              # Databricks setup instructions
 ├── dbt/
@@ -143,18 +143,25 @@ endzone-mlops/
 │   │   └── marts/             # Business logic transformations
 │   ├── tests/
 │   └── macros/
-├── endzone/
+├── endzone/                    # Python package
+│   ├── analysis/              # Phase 0 audit and EPA play-filter check
 │   ├── data/                  # Databricks SQL client for marts
 │   ├── features/              # Feature engineering
 │   ├── ingest/                # Bronze nflverse load
 │   ├── train/                 # Training entrypoint
 │   └── utils/                 # Shared utilities
-├── tests/                     # Pytest unit tests
-├── notebooks/                 # Exploration only (not the product)
+├── data/                       # Local cache: raw, interim, processed, external
+├── models/                     # Gitignored serialized artifacts
+├── notebooks/                  # Exploration only (not the product)
+├── references/                 # External data notes
+├── reports/figures/            # CCDS figures (.gitkeep only)
+├── scripts/                    # Sweep, dev, and structure check
+├── tests/                      # Pytest unit tests
 └── docs/
     ├── architecture.md        # C4 diagrams, detailed architecture
     ├── adr/                   # Architecture Decision Records
-    │   └── ADR-001-databricks.md
+    │   ├── ADR-001-databricks.md
+    │   └── ADR-002-ccds-layout.md
     ├── runbook.md            # Operational procedures, CE spike status
     └── ATTRIBUTION.md        # Full data source credits
 ```
