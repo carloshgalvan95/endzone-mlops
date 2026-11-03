@@ -453,7 +453,7 @@ The ingestion script `endzone.ingest.load_raw_nflverse` supports two datasets an
 
 **Missing Seasons**: If a season's pbp file does not exist (e.g., future season 2027), it is logged as a warning and skipped, not an error.
 
-**Note**: Databricks Free Edition does NOT have outbound internet from compute, so the script downloads data locally first, then uploads via the Files API.
+**Note**: Databricks Free Edition does NOT have outbound internet from compute, so the script downloads data locally first, then uploads via the Files API. Python loads `.env` from the working directory. A variable already set in the shell wins, including after `set -a; source .env; set +a`. `make dbt-compile`, `make dbt-run`, and `make dbt-test` still source `.env` because dbt does not use that loader.
 
 ### Commands
 

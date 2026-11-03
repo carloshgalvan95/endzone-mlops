@@ -19,6 +19,7 @@ dependencies = [
     "mlflow>=2.8.0",
     "databricks-sdk>=0.18.0",
     "databricks-sql-connector>=3.0.0",
+    "python-dotenv>=1.0.1",
     "dbt-core>=1.8.0,<2.0.0",
     "dbt-duckdb>=1.8.0,<2.0.0",
     "dbt-databricks>=1.8.0,<2.0.0",
@@ -115,4 +116,16 @@ source_modules = ["endzone.analysis"]
 forbidden_modules = ["endzone.train"]
 ignore_imports = [
     "endzone.analysis.feature_audit -> endzone.train.train",
+]
+
+[[tool.importlinter.contracts]]
+name = "Config does not import the pipeline packages"
+type = "forbidden"
+source_modules = ["endzone.config"]
+forbidden_modules = [
+    "endzone.analysis",
+    "endzone.train",
+    "endzone.ingest",
+    "endzone.features",
+    "endzone.data",
 ]

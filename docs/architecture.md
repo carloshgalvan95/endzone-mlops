@@ -209,17 +209,23 @@ A second vendor for in-play data is not in this repo. Bronze history comes from 
 
 ```
 endzone/
+├── config.py                 # .env, DATABRICKS_*, MLflow tracking URI
 ├── data/
-│   └── databricks_client.py  # SQL warehouse reads
+│   └── warehouse.py          # SQL reads and Volume upload
 ├── ingest/
-│   └── load_raw_nflverse.py  # Bronze load
+│   ├── load_raw_nflverse.py  # python -m entrypoint
+│   ├── cli.py                # Argument parsing and load steps
+│   ├── nflverse.py           # Games and play-by-play downloads
+│   ├── schema.py             # Play-by-play Arrow schema
+│   ├── depth_charts.py       # Weekly depth charts
+│   ├── snapshots.py          # 2025+ snapshot mapping
+│   └── volume.py             # Volume upload and bronze DDL
 ├── features/
 │   └── pregame.py            # Pregame feature engineering
 ├── train/
 │   └── train.py              # Training script (argparse, MLflow)
 ├── analysis/                 # Input audits
 └── utils/
-    ├── config.py             # MLflow tracking URI
     └── logging.py            # Logging setup
 ```
 

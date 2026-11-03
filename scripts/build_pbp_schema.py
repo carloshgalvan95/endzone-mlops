@@ -17,20 +17,15 @@ from pathlib import Path
 
 import pyarrow as pa
 import pyarrow.parquet as pq
-import requests
 
-NFLVERSE_PBP_URL_PATTERN = (
-    "https://github.com/nflverse/nflverse-data/releases/download/pbp/play_by_play_{season}.parquet"
-)
+from endzone.ingest.nflverse import NFLVERSE_PBP_URL_PATTERN, fetch_bytes
 
 
 def download_season(season: int) -> pa.Table:
     """Download one season's pbp parquet."""
     url = NFLVERSE_PBP_URL_PATTERN.format(season=season)
     print(f"Downloading season {season} from {url}")
-    response = requests.get(url, timeout=60)
-    response.raise_for_status()
-    return pq.read_table(pa.BufferReader(response.content))
+    return pq.read_table(pa.BufferReader(fetch_bytes(url)))
 
 
 def unify_schemas(tables: list[pa.Table]) -> pa.Schema:

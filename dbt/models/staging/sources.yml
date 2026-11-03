@@ -98,7 +98,7 @@ sources:
         identifier: "{{ 'play_by_play' if target.name == 'databricks' else 'raw_play_by_play' }}"
         description: |
           Play-by-play data with ~372 columns per play.
-          Loaded via endzone/ingest/load_raw_nflverse.py --dataset pbp.
+          Loaded via `python -m endzone.ingest.load_raw_nflverse --dataset pbp`.
         
         config:
           meta:
@@ -148,7 +148,7 @@ sources:
         identifier: "{{ 'depth_charts' if target.name == 'databricks' else 'raw_depth_charts' }}"
         description: |
           NFL.com depth charts from nflverse, 2001-present.
-          Loaded via endzone/ingest/load_raw_nflverse.py --dataset depth_charts.
+          Loaded via `python -m endzone.ingest.load_raw_nflverse --dataset depth_charts`.
           1999 and 2000 were not published. 2001-2024 are weekly. From 2025
           the release is a timestamped snapshot, and ingest assigns each
           team-game the latest snapshot strictly before kickoff.

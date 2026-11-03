@@ -13,68 +13,36 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from endzone.ingest.load_raw_nflverse import (
-    DATASET_CONFIG,
-    DEFAULT_SEASON_START,
+from endzone.ingest.depth_charts import (
     DEPTH_CHART_2025_COLUMNS,
     DEPTH_CHART_COLUMNS,
     DEPTH_CHART_FIRST_SEASON,
-    DEPTH_CHART_READ_SCHEMA_HINT,
-    NFLVERSE_GAMES_URL,
-    cleanup_stale_pbp_files,
-    conform_table_to_schema,
-    create_bronze_table,
-    create_schema_and_volume,
     download_nflverse_depth_charts,
+    load_depth_chart_club_map,
+    normalize_depth_chart_frame,
+    select_depth_chart_columns,
+)
+from endzone.ingest.nflverse import (
+    DEFAULT_SEASON_START,
+    NFLVERSE_GAMES_URL,
     download_nflverse_games,
     download_nflverse_pbp,
     download_parquet_with_validation,
     get_current_season,
-    get_databricks_config,
     get_default_season_range,
-    load_depth_chart_club_map,
-    load_target_schema,
-    normalize_depth_chart_frame,
     parse_seasons,
-    select_depth_chart_columns,
+)
+from endzone.ingest.schema import conform_table_to_schema, load_target_schema
+from endzone.ingest.volume import (
+    DATASET_CONFIG,
+    DEPTH_CHART_READ_SCHEMA_HINT,
+    cleanup_stale_pbp_files,
+    create_bronze_table,
+    create_schema_and_volume,
     upload_to_volume,
     upload_to_volume_depth_chart_season,
     upload_to_volume_pbp_season,
 )
-
-
-class TestGetDatabricksConfig:
-    """Test Databricks configuration loading."""
-
-    def test_config_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Get config when all env vars are set."""
-        monkeypatch.setenv("DATABRICKS_HOST", "test-host.databricks.com")
-        monkeypatch.setenv("DATABRICKS_HTTP_PATH", "/sql/1.0/warehouses/test")
-        monkeypatch.setenv("DATABRICKS_TOKEN", "dapi-test-token")
-
-        config = get_databricks_config()
-
-        assert config["host"] == "test-host.databricks.com"
-        assert config["http_path"] == "/sql/1.0/warehouses/test"
-        assert config["token"] == "dapi-test-token"
-
-    def test_config_missing_host(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Raise error when DATABRICKS_HOST is missing."""
-        monkeypatch.delenv("DATABRICKS_HOST", raising=False)
-        monkeypatch.setenv("DATABRICKS_HTTP_PATH", "/sql/1.0/warehouses/test")
-        monkeypatch.setenv("DATABRICKS_TOKEN", "dapi-test-token")
-
-        with pytest.raises(ValueError, match="Missing required Databricks"):
-            get_databricks_config()
-
-    def test_config_missing_token(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Raise error when DATABRICKS_TOKEN is missing."""
-        monkeypatch.setenv("DATABRICKS_HOST", "test-host.databricks.com")
-        monkeypatch.setenv("DATABRICKS_HTTP_PATH", "/sql/1.0/warehouses/test")
-        monkeypatch.delenv("DATABRICKS_TOKEN", raising=False)
-
-        with pytest.raises(ValueError, match="Missing required Databricks"):
-            get_databricks_config()
 
 
 class TestParseSeasons:
@@ -113,7 +81,7 @@ class TestParseSeasons:
 class TestGetCurrentSeason:
     """Test current season determination."""
 
-    @patch("endzone.ingest.load_raw_nflverse.download_parquet_with_validation")
+    @patch("endzone.ingest.nflverse.download_parquet_with_validation")
     def test_current_season_from_games_parquet(self, mock_download: Mock) -> None:
         """Get current season from max season in games.parquet."""
         mock_df = pd.DataFrame({"season": [2024, 2025, 2026, 2026]})
@@ -124,8 +92,8 @@ class TestGetCurrentSeason:
         assert current == 2026
         mock_download.assert_called_once_with(NFLVERSE_GAMES_URL)
 
-    @patch("endzone.ingest.load_raw_nflverse.datetime")
-    @patch("endzone.ingest.load_raw_nflverse.download_parquet_with_validation")
+    @patch("endzone.ingest.nflverse.datetime")
+    @patch("endzone.ingest.nflverse.download_parquet_with_validation")
     def test_current_season_fallback_after_march(
         self, mock_download: Mock, mock_datetime: Mock
     ) -> None:
@@ -141,8 +109,8 @@ class TestGetCurrentSeason:
 
         assert current == 2027
 
-    @patch("endzone.ingest.load_raw_nflverse.datetime")
-    @patch("endzone.ingest.load_raw_nflverse.download_parquet_with_validation")
+    @patch("endzone.ingest.nflverse.datetime")
+    @patch("endzone.ingest.nflverse.download_parquet_with_validation")
     def test_current_season_fallback_before_march(
         self, mock_download: Mock, mock_datetime: Mock
     ) -> None:
@@ -162,7 +130,7 @@ class TestGetCurrentSeason:
 class TestGetDefaultSeasonRange:
     """Test default season range generation."""
 
-    @patch("endzone.ingest.load_raw_nflverse.get_current_season")
+    @patch("endzone.ingest.nflverse.get_current_season")
     def test_default_range_uses_current_season(self, mock_current: Mock) -> None:
         """Default range is DEFAULT_SEASON_START through current season."""
         mock_current.return_value = 2026
@@ -240,7 +208,7 @@ class TestConformTableToSchema:
 class TestDownloadParquetWithValidation:
     """Test parquet download with HTTP validation."""
 
-    @patch("endzone.ingest.load_raw_nflverse.requests.get")
+    @patch("endzone.ingest.nflverse.requests.get")
     def test_successful_download(self, mock_get: Mock) -> None:
         """Download succeeds with HTTP 200."""
         mock_df = pd.DataFrame({"col1": [1, 2, 3]})
@@ -254,7 +222,7 @@ class TestDownloadParquetWithValidation:
         assert len(result) == 3
         mock_get.assert_called_once_with("https://example.com/data.parquet", timeout=60)
 
-    @patch("endzone.ingest.load_raw_nflverse.requests.get")
+    @patch("endzone.ingest.nflverse.requests.get")
     def test_http_404_raises_error(self, mock_get: Mock) -> None:
         """HTTP 404 raises ValueError with clear message."""
         mock_response = Mock()
@@ -269,7 +237,7 @@ class TestDownloadParquetWithValidation:
 class TestDownloadNflverseGames:
     """Test nflverse games data download."""
 
-    @patch("endzone.ingest.load_raw_nflverse.download_parquet_with_validation")
+    @patch("endzone.ingest.nflverse.download_parquet_with_validation")
     def test_download_and_filter_games(
         self,
         mock_download: Mock,
@@ -305,7 +273,7 @@ class TestDownloadNflverseGames:
         assert len(result_df) == 4  # Only 2022 and 2023 games
         assert set(result_df["season"]) == {2022, 2023}
 
-    @patch("endzone.ingest.load_raw_nflverse.download_parquet_with_validation")
+    @patch("endzone.ingest.nflverse.download_parquet_with_validation")
     def test_download_games_no_matches(
         self,
         mock_download: Mock,
@@ -328,9 +296,9 @@ class TestDownloadNflverseGames:
 class TestDownloadNflversePbp:
     """Test nflverse play-by-play data download."""
 
-    @patch("endzone.ingest.load_raw_nflverse.load_target_schema")
-    @patch("endzone.ingest.load_raw_nflverse.download_parquet_with_validation")
-    @patch("endzone.ingest.load_raw_nflverse.upload_to_volume_pbp_season")
+    @patch("endzone.ingest.nflverse.load_target_schema")
+    @patch("endzone.ingest.nflverse.download_parquet_with_validation")
+    @patch("endzone.ingest.nflverse.upload_to_volume_pbp_season")
     def test_download_and_conform_pbp_one_at_a_time(
         self,
         mock_upload: Mock,
@@ -360,9 +328,9 @@ class TestDownloadNflversePbp:
         assert mock_download.call_count == 2
         assert mock_upload.call_count == 2
 
-    @patch("endzone.ingest.load_raw_nflverse.load_target_schema")
-    @patch("endzone.ingest.load_raw_nflverse.download_parquet_with_validation")
-    @patch("endzone.ingest.load_raw_nflverse.upload_to_volume_pbp_season")
+    @patch("endzone.ingest.nflverse.load_target_schema")
+    @patch("endzone.ingest.nflverse.download_parquet_with_validation")
+    @patch("endzone.ingest.nflverse.upload_to_volume_pbp_season")
     def test_download_pbp_skip_missing_season(
         self,
         mock_upload: Mock,
@@ -390,8 +358,8 @@ class TestDownloadNflversePbp:
         assert len(result) == 1
         assert result == [2022]
 
-    @patch("endzone.ingest.load_raw_nflverse.load_target_schema")
-    @patch("endzone.ingest.load_raw_nflverse.download_parquet_with_validation")
+    @patch("endzone.ingest.nflverse.load_target_schema")
+    @patch("endzone.ingest.nflverse.download_parquet_with_validation")
     def test_download_pbp_all_seasons_missing(
         self,
         mock_download: Mock,
@@ -593,9 +561,9 @@ class TestDatasetConfig:
 class TestCurrentSeasonMode:
     """Test current-season mode behavior."""
 
-    @patch("endzone.ingest.load_raw_nflverse.get_current_season")
-    @patch("endzone.ingest.load_raw_nflverse.download_nflverse_games")
-    @patch("endzone.ingest.load_raw_nflverse.download_nflverse_pbp")
+    @patch("endzone.ingest.nflverse.get_current_season")
+    @patch("endzone.ingest.nflverse.download_nflverse_games")
+    @patch("endzone.ingest.nflverse.download_nflverse_pbp")
     def test_current_season_mode_games_full_range_pbp_current_only(
         self,
         mock_pbp: Mock,
@@ -605,7 +573,7 @@ class TestCurrentSeasonMode:
         """In current-season mode, games loads full range, pbp loads current only."""
         from pathlib import Path
 
-        from endzone.ingest.load_raw_nflverse import parse_seasons
+        from endzone.ingest.nflverse import parse_seasons
 
         mock_current.return_value = 2026
 
@@ -721,7 +689,7 @@ class TestDepthCharts:
             encoding="utf-8",
         )
         monkeypatch.setattr(
-            "endzone.ingest.load_raw_nflverse._depth_chart_club_map_path",
+            "endzone.ingest.depth_charts._depth_chart_club_map_path",
             lambda: bad_path,
         )
         with pytest.raises(ValueError, match="overlaps"):
@@ -745,7 +713,7 @@ class TestDepthCharts:
             return _depth_chart_frame()
 
         with patch(
-            "endzone.ingest.load_raw_nflverse.download_parquet_with_validation",
+            "endzone.ingest.depth_charts.download_parquet_with_validation",
             side_effect=fake_download,
         ) as download:
             processed = download_nflverse_depth_charts([1999, 2001, 2024], tmp_path, client)
@@ -760,7 +728,7 @@ class TestDepthCharts:
         client = MagicMock()
         broken = _depth_chart_frame().drop(columns=["gsis_id"])
         with patch(
-            "endzone.ingest.load_raw_nflverse.download_parquet_with_validation",
+            "endzone.ingest.depth_charts.download_parquet_with_validation",
             return_value=broken,
         ):
             with pytest.raises(ValueError, match="gsis_id"):
@@ -865,7 +833,7 @@ class TestDepthCharts:
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
         """An unknown pos_grp is not called Offense."""
-        with caplog.at_level("WARNING", logger="endzone.ingest.load_raw_nflverse"):
+        with caplog.at_level("WARNING", logger="endzone.ingest.snapshots"):
             selected = select_depth_chart_columns(
                 _snapshot_depth_chart_frame(), 2025, _schedule_frame()
             )
@@ -881,7 +849,7 @@ class TestDepthCharts:
             return _snapshot_depth_chart_frame()
 
         with patch(
-            "endzone.ingest.load_raw_nflverse.download_parquet_with_validation",
+            "endzone.ingest.depth_charts.download_parquet_with_validation",
             side_effect=fake_download,
         ) as download:
             processed = download_nflverse_depth_charts(
@@ -907,10 +875,10 @@ class TestDepthCharts:
             return _depth_chart_frame()
 
         with patch(
-            "endzone.ingest.load_raw_nflverse.download_parquet_with_validation",
+            "endzone.ingest.depth_charts.download_parquet_with_validation",
             side_effect=fake_download,
         ):
-            with caplog.at_level("WARNING", logger="endzone.ingest.load_raw_nflverse"):
+            with caplog.at_level("WARNING", logger="endzone.ingest.depth_charts"):
                 processed = download_nflverse_depth_charts([2024, 2025], tmp_path, client)
 
         assert processed == [2024]

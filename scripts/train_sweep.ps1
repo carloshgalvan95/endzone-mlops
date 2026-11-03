@@ -4,14 +4,7 @@
 Write-Host "Running training sweep (5 configs)..."
 Write-Host ""
 
-# Load .env if it exists
-if (Test-Path .env) {
-    Get-Content .env | ForEach-Object {
-        if ($_ -match '^([^=]+)=(.*)$' -and -not $_.StartsWith('#')) {
-            [Environment]::SetEnvironmentVariable($matches[1].Trim(), $matches[2].Trim(), 'Process')
-        }
-    }
-}
+# train reads .env. A variable already set in the process wins.
 
 # 1. Baseline
 Write-Host "1/5: Baseline (training home win rate)"

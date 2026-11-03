@@ -644,6 +644,7 @@ dependencies = [
     { name = "mlflow" },
     { name = "pandas" },
     { name = "pyarrow" },
+    { name = "python-dotenv" },
     { name = "requests" },
     { name = "scikit-learn" },
 ]
@@ -667,6 +668,7 @@ requires-dist = [
     { name = "mlflow", specifier = ">=2.8.0" },
     { name = "pandas", specifier = ">=2.0.0" },
     { name = "pyarrow", specifier = ">=12.0.0" },
+    { name = "python-dotenv", specifier = ">=1.0.1" },
     { name = "requests", specifier = ">=2.31.0" },
     { name = "scikit-learn", specifier = ">=1.3.0" },
 ]
