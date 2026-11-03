@@ -17,7 +17,7 @@ import pandas as pd
 import pytest
 from threadpoolctl import threadpool_limits
 
-from src.train.train import (
+from endzone.train.train import (
     cv_model_specs_for,
     logistic_feature_sets_for,
     make_rolling_origin_config,

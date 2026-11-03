@@ -5,7 +5,7 @@ Method note. The warehouse score is pending. Do not copy a log loss into this fi
 `make train-cv` (Windows: `.\scripts\dev.ps1 train-cv`) is:
 
 ```bash
-python -m src.train.train --cv --phase 2 --hypothesis h5b --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h5b
+python -m endzone.train.train --cv --phase 2 --hypothesis h5b --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h5b
 ```
 
 It writes `reports/phase2_h5b/comparison.md` and `reports/phase2_h5b/comparison.csv`. Those files are local outputs. Runs go to MLflow experiment `nfl_pregame/phase2_h5b` with tags `phase=2` and `hypothesis=h5b-starter-coverage`. The parent run name is `phase2-h5b-<timestamp>`.
@@ -113,7 +113,7 @@ Games and play-by-play can stay. Depth charts have to be reloaded. A 2025-only l
 On a catalog that already has games and play-by-play:
 
 ```bash
-python -m src.ingest.load_raw_nflverse --dataset depth_charts && make dbt-build-databricks && make train-cv
+python -m endzone.ingest.load_raw_nflverse --dataset depth_charts && make dbt-build-databricks && make train-cv
 ```
 
 `make dbt-build-databricks` runs `dbt deps`, then `dbt build --target databricks`. `make train-cv` then scores H5b. Chain the commands with `&&` so training does not start after a failed ingest or build.
@@ -127,7 +127,7 @@ make ingest && make dbt-build-databricks && make train-cv
 Windows PowerShell 5.1 has no `&&`:
 
 ```powershell
-python -m src.ingest.load_raw_nflverse --dataset depth_charts
+python -m endzone.ingest.load_raw_nflverse --dataset depth_charts
 if ($LASTEXITCODE -eq 0) { .\scripts\dev.ps1 dbt-build-databricks }
 if ($LASTEXITCODE -eq 0) { .\scripts\dev.ps1 train-cv }
 ```

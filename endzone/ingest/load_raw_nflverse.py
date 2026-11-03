@@ -6,8 +6,8 @@ official GitHub releases, uploads to Unity Catalog Volumes, and creates
 bronze Delta tables.
 
 Usage:
-    python -m src.ingest.load_raw_nflverse --seasons 2022 2023 2024
-    python -m src.ingest.load_raw_nflverse --seasons 2022 2023 --dataset pbp
+    python -m endzone.ingest.load_raw_nflverse --seasons 2022 2023 2024
+    python -m endzone.ingest.load_raw_nflverse --seasons 2022 2023 --dataset pbp
 
 License: nflverse data is CC BY 4.0
 Source: https://github.com/nflverse/nflverse-data
@@ -31,7 +31,7 @@ import requests
 from databricks.sdk import WorkspaceClient
 from databricks.sql import connect
 
-from src.utils.logging import setup_logger
+from endzone.utils.logging import setup_logger
 
 logger = setup_logger(__name__)
 
@@ -1197,16 +1197,16 @@ def main() -> int:
         epilog="""
 Examples:
   # Load games and pbp for all seasons (1999-2026)
-  python -m src.ingest.load_raw_nflverse --dataset all
+  python -m endzone.ingest.load_raw_nflverse --dataset all
 
   # Load games for specific range
-  python -m src.ingest.load_raw_nflverse --seasons 2020-2024 --dataset games
+  python -m endzone.ingest.load_raw_nflverse --seasons 2020-2024 --dataset games
 
   # Load pbp for specific seasons
-  python -m src.ingest.load_raw_nflverse --seasons 2022,2023,2024 --dataset pbp
+  python -m endzone.ingest.load_raw_nflverse --seasons 2022,2023,2024 --dataset pbp
 
   # Refresh current season only (weekly update)
-  python -m src.ingest.load_raw_nflverse --current-season --dataset all
+  python -m endzone.ingest.load_raw_nflverse --current-season --dataset all
 
 Environment Variables:
   DATABRICKS_HOST          Databricks workspace URL

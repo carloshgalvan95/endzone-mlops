@@ -21,20 +21,20 @@ import pandas as pd
 from sklearn.inspection import permutation_importance
 from sklearn.metrics import log_loss, roc_auc_score
 
-from src.features.pregame import (
+from endzone.features.pregame import (
     MODEL_ID_COLUMNS,
     build_pregame_features,
     prepare_training_data,
     split_by_season,
 )
-from src.train.train import (
+from endzone.train.train import (
     activate_tracking_experiment,
     get_git_sha,
     load_data,
     train_logistic_regression,
 )
-from src.utils.config import DEFAULT_MLFLOW_TRACKING_URI, resolve_tracking_uri
-from src.utils.logging import setup_logger
+from endzone.utils.config import DEFAULT_MLFLOW_TRACKING_URI, resolve_tracking_uri
+from endzone.utils.logging import setup_logger
 
 logger = setup_logger(__name__)
 

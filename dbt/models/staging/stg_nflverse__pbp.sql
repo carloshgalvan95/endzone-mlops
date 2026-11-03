@@ -23,7 +23,7 @@ Column selection focuses on features useful for pregame prediction and
 in-game modeling, excluding granular player-level data and detailed
 tackle/fumble tracking.
 
-Raw data lands in workspace.nfl_raw.play_by_play via src/ingest/load_raw_nflverse.py.
+Raw data lands in workspace.nfl_raw.play_by_play via endzone/ingest/load_raw_nflverse.py.
 */
 
 with source as (

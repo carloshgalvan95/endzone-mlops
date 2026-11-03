@@ -76,13 +76,13 @@ endzone-mlops demonstrates a modern lakehouse architecture for NFL analytics, co
 
 ### Container Details
 
-#### 1. Data Ingestion (`src/ingest/`) and mart reads (`src/data/`)
+#### 1. Data Ingestion (`endzone/ingest/`) and mart reads (`endzone/data/`)
 
 **Technology**: Python (pandas, pyarrow, Databricks SQL)
 
 **Responsibility**:
-- `src/ingest` downloads nflverse Parquet files and loads bronze tables
-- `src/data` reads marts through the Databricks SQL client
+- `endzone/ingest` downloads nflverse Parquet files and loads bronze tables
+- `endzone/data` reads marts through the Databricks SQL client
 
 **v0.1 Scope**: Scripted load of games, play-by-play, and depth charts.
 
@@ -107,7 +107,7 @@ endzone-mlops demonstrates a modern lakehouse architecture for NFL analytics, co
 - `fct_qb_dropbacks`: Passer dropbacks and EPA by game. This is history, not the starter.
 - `fct_ingame_states`: Play-level states for an in-game model (future)
 
-#### 3. ML Pipeline (`src/train/`, `src/features/`)
+#### 3. ML Pipeline (`endzone/train/`, `endzone/features/`)
 
 **Technology**: Python, MLflow, scikit-learn/statsmodels
 
@@ -157,9 +157,10 @@ endzone-mlops demonstrates a modern lakehouse architecture for NFL analytics, co
 1. Checkout code
 2. Install dependencies
 3. Lint (ruff)
-4. Test (pytest)
-5. dbt compile (validate SQL)
-6. (Future) dbt build with test data
+4. Structure (`scripts/check_structure.py` and `lint-imports`)
+5. Test (pytest)
+6. dbt compile (validate SQL)
+7. (Future) dbt build with test data
 
 **Badge**: Shows CI status in README.
 
@@ -167,7 +168,9 @@ endzone-mlops demonstrates a modern lakehouse architecture for NFL analytics, co
 
 **Purpose**: Exploration and prototyping ONLY. Not part of production pipeline.
 
-**Philosophy** (Wilson 9): Notebooks are for experimentation. Once patterns solidify, move to modular Python in `src/`.
+**Philosophy** (Wilson 9): Notebooks are for experimentation. Once patterns solidify, move to modular Python in `endzone/`. Name a notebook `N.N-initials-description.ipynb`.
+
+Local CCDS directories sit beside the package: `data/{raw,interim,processed,external}/` (git tracks `.gitkeep` only), `models/` (gitignored artifacts; there is no `endzone/models` package), `references/`, and `reports/figures/`. dbt stays a top-level project. Training still writes `reports/phase0`, `reports/phase1`, `reports/phase2*`, and `reports/epa_filter_check.md`. See ADR-002.
 
 ## Data Flow (Sequence)
 
@@ -200,12 +203,12 @@ sequenceDiagram
 
 ### Future live feed
 
-A second vendor for in-play data is not in this repo. Bronze history comes from nflverse through `src/ingest`.
+A second vendor for in-play data is not in this repo. Bronze history comes from nflverse through `endzone/ingest`.
 
-### Wilson Modularity (src/)
+### Wilson Modularity (endzone/)
 
 ```
-src/
+endzone/
 ├── data/
 │   └── databricks_client.py  # SQL warehouse reads
 ├── ingest/

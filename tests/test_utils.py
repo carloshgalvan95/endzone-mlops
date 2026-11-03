@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from src.utils.config import DEFAULT_MLFLOW_TRACKING_URI, resolve_tracking_uri
-from src.utils.logging import setup_logger
+from endzone.utils.config import DEFAULT_MLFLOW_TRACKING_URI, resolve_tracking_uri
+from endzone.utils.logging import setup_logger
 
 
 class TestResolveTrackingUri:
@@ -26,7 +26,7 @@ class TestResolveTrackingUri:
 
     def test_plain_local_path_falls_back_to_sqlite(self, caplog: pytest.LogCaptureFixture) -> None:
         """MLflow 3.16 refuses ./mlruns and mlruns, so both become sqlite."""
-        with caplog.at_level("WARNING", logger="src.utils.config"):
+        with caplog.at_level("WARNING", logger="endzone.utils.config"):
             relative_path: str = resolve_tracking_uri("./mlruns")
             bare_path: str = resolve_tracking_uri("mlruns")
 
@@ -41,7 +41,7 @@ class TestResolveTrackingUri:
         self, caplog: pytest.LogCaptureFixture, tmp_path: Path
     ) -> None:
         """Any scheme-less path is a file store and falls back to sqlite."""
-        with caplog.at_level("WARNING", logger="src.utils.config"):
+        with caplog.at_level("WARNING", logger="endzone.utils.config"):
             resolved: str = resolve_tracking_uri(str(tmp_path))
 
         assert resolved == DEFAULT_MLFLOW_TRACKING_URI

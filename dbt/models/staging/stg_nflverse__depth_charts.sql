@@ -26,7 +26,7 @@ Week is null on non-game rows such as the conference bye. Mapped 2025 rows
 are only team-games, so that season has no null week.
 
 Raw data lands in workspace.nfl_raw.depth_charts via
-src/ingest/load_raw_nflverse.py --dataset depth_charts.
+endzone/ingest/load_raw_nflverse.py --dataset depth_charts.
 */
 
 with source as (

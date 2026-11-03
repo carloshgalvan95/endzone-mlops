@@ -394,10 +394,13 @@ Use Python 3.12. `.python-version` selects it, and CI tests only 3.12. Python 3.
 pytest tests/ -v
 
 # Lint code
-ruff check src/ tests/
+ruff check endzone/ tests/
 
 # Format code
-ruff format src/ tests/
+ruff format endzone/ tests/
+
+# Layout and import contracts
+make lint-structure
 ```
 
 ### Data Loading (Future Step)
@@ -428,7 +431,7 @@ This section covers loading nflverse games and play-by-play data into Databricks
 
 ### Data Ingestion Workflow
 
-The ingestion script `src.ingest.load_raw_nflverse` supports two datasets and multi-season backfill:
+The ingestion script `endzone.ingest.load_raw_nflverse` supports two datasets and multi-season backfill:
 
 **Games** (`--dataset games`):
 1. Downloads nflverse games/schedules parquet from GitHub releases
@@ -463,20 +466,20 @@ set -a; source .env; set +a
 
 # Full backfill (games and play-by-play 1999-2026, depth charts from 2001)
 make ingest
-# Or: python -m src.ingest.load_raw_nflverse --dataset all
+# Or: python -m endzone.ingest.load_raw_nflverse --dataset all
 
 # Weekly refresh (current season only)
 make ingest-current
-# Or: python -m src.ingest.load_raw_nflverse --current-season --dataset all
+# Or: python -m endzone.ingest.load_raw_nflverse --current-season --dataset all
 
 # Custom season range
-python -m src.ingest.load_raw_nflverse --seasons 2020-2024 --dataset all
+python -m endzone.ingest.load_raw_nflverse --seasons 2020-2024 --dataset all
 
 # Build dbt models on Databricks. This runs dbt deps, then dbt build.
 # make train-cv is H5b and needs every depth-chart season reloaded.
 # Chain with && so a failed
 # ingest or build does not score.
-python -m src.ingest.load_raw_nflverse --dataset depth_charts && make dbt-build-databricks && make train-cv
+python -m endzone.ingest.load_raw_nflverse --dataset depth_charts && make dbt-build-databricks && make train-cv
 # Fresh clone, games and play-by-play included:
 # make ingest && make dbt-build-databricks && make train-cv
 # Or: cd dbt && dbt deps --profiles-dir . && dbt build --profiles-dir . --target databricks
@@ -498,13 +501,13 @@ make ingest
 make ingest-current
 
 # Custom season range
-python -m src.ingest.load_raw_nflverse --seasons 2020-2024 --dataset all
+python -m endzone.ingest.load_raw_nflverse --seasons 2020-2024 --dataset all
 
 # Build dbt models on Databricks. This runs dbt deps, then dbt build.
 # make train-cv is H5b and needs every depth-chart season reloaded.
 # Chain with && so a failed
 # ingest or build does not score.
-python -m src.ingest.load_raw_nflverse --dataset depth_charts && make dbt-build-databricks && make train-cv
+python -m endzone.ingest.load_raw_nflverse --dataset depth_charts && make dbt-build-databricks && make train-cv
 ```
 
 #### Windows PowerShell
@@ -523,13 +526,13 @@ python -m src.ingest.load_raw_nflverse --dataset depth_charts && make dbt-build-
 .\scripts\dev.ps1 ingest-current
 
 # Custom season range (PowerShell does not support Make, use Python directly)
-python -m src.ingest.load_raw_nflverse --seasons 2020-2024 --dataset all
+python -m endzone.ingest.load_raw_nflverse --seasons 2020-2024 --dataset all
 .\scripts\dev.ps1 ingest
 
 # Build dbt models on Databricks. This runs dbt deps, then dbt build.
 # make train-cv is H5b and needs every depth-chart season reloaded.
 # PowerShell 5.1 has no &&.
-python -m src.ingest.load_raw_nflverse --dataset depth_charts
+python -m endzone.ingest.load_raw_nflverse --dataset depth_charts
 if ($LASTEXITCODE -eq 0) { .\scripts\dev.ps1 dbt-build-databricks }
 if ($LASTEXITCODE -eq 0) { .\scripts\dev.ps1 train-cv }
 ```
@@ -568,19 +571,19 @@ The bronze table is still one schema. The starter join is still season, week, ga
 A catalog that already has the 2001-2024 depth-chart files and only needs the 2025 snapshot mapping does not need those seasons again for that mapping. This uploads 2025 only, then rebuilds `workspace.nfl_raw.depth_charts` from every season file already in the volume folder. H5b is different: reload every depth-chart season so `week` is one int type. A 2025-only load leaves the int32 files for 2002-2006 and 2014 in the folder, and the bronze replace reads them.
 
 ```bash
-python -m src.ingest.load_raw_nflverse --seasons 2025 --dataset depth_charts
+python -m endzone.ingest.load_raw_nflverse --seasons 2025 --dataset depth_charts
 ```
 
 Then rebuild the marts before training. Chain with `&&` so training does not start after a failed step:
 
 ```bash
-python -m src.ingest.load_raw_nflverse --dataset depth_charts && make dbt-build-databricks && make train-cv
+python -m endzone.ingest.load_raw_nflverse --dataset depth_charts && make dbt-build-databricks && make train-cv
 ```
 
 PowerShell 5.1 has no `&&`:
 
 ```powershell
-python -m src.ingest.load_raw_nflverse --dataset depth_charts
+python -m endzone.ingest.load_raw_nflverse --dataset depth_charts
 if ($LASTEXITCODE -eq 0) { .\scripts\dev.ps1 dbt-build-databricks }
 if ($LASTEXITCODE -eq 0) { .\scripts\dev.ps1 train-cv }
 ```
@@ -695,14 +698,16 @@ If using Databricks in CI:
 ### Workflow Steps
 
 1. **Lint**: `ruff check` (fails on errors)
-2. **Test**: `pytest` (fails if any test fails)
-3. **dbt compile**: Validates SQL syntax
-4. **(Future) dbt build**: Runs models and tests with data
+2. **Structure**: `scripts/check_structure.py` and `lint-imports`
+3. **Test**: `pytest` (fails if any test fails)
+4. **dbt compile**: Validates SQL syntax
+5. **(Future) dbt build**: Runs models and tests with data
 
 ### Local CI Simulation
 
 ```bash
 make lint    # Run linting
+make lint-structure  # CCDS layout and import contracts
 make test    # Run tests
 make dbt-compile  # Validate dbt models
 ```
@@ -757,7 +762,7 @@ with mlflow.start_run():
 
 ## Metric locks
 
-Two checks guard the rolling-origin report while `src/train/train.py` is split. The offline check runs in CI. The warehouse check runs on a machine that can read the marts.
+Two checks guard the rolling-origin report while `endzone/train/train.py` is split. The offline check runs in CI. The warehouse check runs on a machine that can read the marts.
 
 ### Offline golden
 
@@ -816,10 +821,10 @@ Windows: `.\scripts\dev.ps1 verify-reference`.
 - **Check**: Valid YAML? Correct indentation? No tabs? `dbt/profiles.yml` is gitignored, so a pull does not update it. Compare it to `dbt/profiles.yml.example`. The warehouse build target must be `databricks`, and that output's catalog must be `workspace`.
 
 **Problem**: `Season 2025 depth chart missing columns: season, club_code, week, ...`
-- **Solution**: That message is the pre-2025 weekly check against the timestamped file. Pull the mapping fix, then load 2025 only. The 2001-2024 files already on the volume stay. `python -m src.ingest.load_raw_nflverse --seasons 2025 --dataset depth_charts`, then `make dbt-build-databricks`. If the log says the season was skipped, `fct_expected_starter` uses the previous-game primary passer for 2025. CV (2016-2023) does not use that season.
+- **Solution**: That message is the pre-2025 weekly check against the timestamped file. Pull the mapping fix, then load 2025 only. The 2001-2024 files already on the volume stay. `python -m endzone.ingest.load_raw_nflverse --seasons 2025 --dataset depth_charts`, then `make dbt-build-databricks`. If the log says the season was skipped, `fct_expected_starter` uses the previous-game primary passer for 2025. CV (2016-2023) does not use that season.
 
 **Problem**: `dbt build` fails on a fresh clone with a missing package
-- **Solution**: Run `dbt deps --profiles-dir .` first. `make dbt-build-databricks` and `.\scripts\dev.ps1 dbt-build-databricks` do that, then build. `make train-cv` is H5b. On a catalog that already has games and play-by-play, reload every depth-chart season: `python -m src.ingest.load_raw_nflverse --dataset depth_charts && make dbt-build-databricks && make train-cv`. A 2025-only load does not fix the int32 week files. A fresh clone uses `make ingest && make dbt-build-databricks && make train-cv`.
+- **Solution**: Run `dbt deps --profiles-dir .` first. `make dbt-build-databricks` and `.\scripts\dev.ps1 dbt-build-databricks` do that, then build. `make train-cv` is H5b. On a catalog that already has games and play-by-play, reload every depth-chart season: `python -m endzone.ingest.load_raw_nflverse --dataset depth_charts && make dbt-build-databricks && make train-cv`. A 2025-only load does not fix the int32 week files. A fresh clone uses `make ingest && make dbt-build-databricks && make train-cv`.
 
 **Problem**: pydantic v1 warnings while running dbt
 - **Check**: The local venv is Python 3.12 (`uv sync --frozen`). Python 3.14 triggers those warnings.

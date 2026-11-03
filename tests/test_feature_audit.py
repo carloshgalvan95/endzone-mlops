@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.analysis.feature_audit import (
+from endzone.analysis.feature_audit import (
     FEATURE_TABLE_COLUMNS,
     PHASE0_EXPERIMENT_NAME,
     FeatureAuditConfig,
@@ -702,7 +702,7 @@ class TestOutputsAndCli:
         )
         paths = write_audit_outputs(report, tmp_path / "report")
         tracking_uri = "sqlite:///" + (tmp_path / "mlflow.db").as_posix()
-        monkeypatch.setattr("src.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
+        monkeypatch.setattr("endzone.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
         try:
             logged = log_audit_to_mlflow(report, paths, tracking_uri=tracking_uri)
             without_extra = log_audit_to_mlflow(report, paths, tracking_uri=tracking_uri)
@@ -734,7 +734,7 @@ class TestOutputsAndCli:
         epa.to_parquet(fixture_dir / "fct_team_game_epa.parquet")
         tracking_uri = "sqlite:///" + (tmp_path / "mlflow.db").as_posix()
         monkeypatch.setenv("MLFLOW_TRACKING_URI", tracking_uri)
-        monkeypatch.setattr("src.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
+        monkeypatch.setattr("endzone.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
         try:
             result = main(
                 [
@@ -784,10 +784,10 @@ class TestOutputsAndCli:
             assert fixture_path is None
             return games, epa
 
-        monkeypatch.setattr("src.analysis.feature_audit.load_data", _load)
+        monkeypatch.setattr("endzone.analysis.feature_audit.load_data", _load)
         tracking_uri = "sqlite:///" + (tmp_path / "mlflow.db").as_posix()
         monkeypatch.setenv("MLFLOW_TRACKING_URI", tracking_uri)
-        monkeypatch.setattr("src.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
+        monkeypatch.setattr("endzone.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
         try:
             result = main(
                 [
@@ -815,7 +815,7 @@ class TestPackageImport:
 
     def test_package_exports_run_feature_audit_on_demand(self) -> None:
         """The public name resolves, and an unknown name does not."""
-        import src.analysis as analysis_pkg
+        import endzone.analysis as analysis_pkg
 
         assert analysis_pkg.run_feature_audit is run_feature_audit
         with pytest.raises(AttributeError, match="not_a_real_export"):
@@ -825,7 +825,7 @@ class TestPackageImport:
         """Running the audit as a module does not double-import it."""
         repo_root: Path = Path(__file__).resolve().parents[1]
         completed = subprocess.run(
-            [sys.executable, "-m", "src.analysis.feature_audit", "--help"],
+            [sys.executable, "-m", "endzone.analysis.feature_audit", "--help"],
             capture_output=True,
             text=True,
             check=False,

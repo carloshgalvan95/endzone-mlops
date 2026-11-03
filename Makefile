@@ -1,4 +1,4 @@
-.PHONY: help setup install lint test vulture dbt-compile dbt-run dbt-test clean reproduce ingest ingest-current dbt-build-databricks train train-sweep train-cv mlflow-ui audit-features check-epa-filter verify-reference
+.PHONY: help setup install lint lint-structure test vulture dbt-compile dbt-run dbt-test clean reproduce ingest ingest-current dbt-build-databricks train train-sweep train-cv mlflow-ui audit-features check-epa-filter verify-reference
 
 # Git Bash on Windows rewrites arguments that look like Unix paths.
 # DATABRICKS_HTTP_PATH starts with /sql/1.0/... and would be mangled.
@@ -10,6 +10,7 @@ help:
 	@echo "  setup               - Create the Python 3.12 venv from uv.lock"
 	@echo "  install             - Install the locked environment (uv sync --frozen)"
 	@echo "  lint                - Run code quality checks (ruff)"
+	@echo "  lint-structure      - Check the CCDS layout and import-linter contracts"
 	@echo "  test                - Run pytest unit tests"
 	@echo "  vulture             - Fail on high-confidence unused code"
 	@echo "  dbt-compile         - Compile dbt models"
@@ -42,22 +43,26 @@ install:
 	uv sync --frozen
 
 lint:
-	ruff check src/ tests/
-	ruff format --check src/ tests/
+	ruff check endzone/ tests/
+	ruff format --check endzone/ tests/
+
+lint-structure:
+	python scripts/check_structure.py
+	lint-imports
 
 test:
 	pytest tests/ -v
 
 vulture:
-	vulture src scripts --min-confidence 80
+	vulture endzone scripts --min-confidence 80
 
 ingest:
 	@if [ -f .env ]; then set -a && . ./.env && set +a; fi; \
-	python -m src.ingest.load_raw_nflverse --dataset all
+	python -m endzone.ingest.load_raw_nflverse --dataset all
 
 ingest-current:
 	@if [ -f .env ]; then set -a && . ./.env && set +a; fi; \
-	python -m src.ingest.load_raw_nflverse --current-season --dataset all
+	python -m endzone.ingest.load_raw_nflverse --current-season --dataset all
 
 dbt-compile:
 	@if [ -f .env ]; then set -a && . ./.env && set +a; fi; \
@@ -83,29 +88,29 @@ dbt-build-databricks:
 
 train:
 	@if [ -f .env ]; then set -a && . ./.env && set +a; fi; \
-	python -m src.train.train --model logistic --lookback 10 --seed 42
+	python -m endzone.train.train --model logistic --lookback 10 --seed 42
 
 train-sweep:
 	bash scripts/train_sweep.sh
 
 train-cv:
 	@if [ -f .env ]; then set -a && . ./.env && set +a; fi; \
-	python -m src.train.train --cv --phase 2 --hypothesis h5b --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h5b
+	python -m endzone.train.train --cv --phase 2 --hypothesis h5b --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h5b
 
 mlflow-ui:
 	mlflow ui --backend-store-uri sqlite:///mlflow.db --workers 1
 
 audit-features:
 	@if [ -f .env ]; then set -a && . ./.env && set +a; fi; \
-	python -m src.analysis.feature_audit --output-dir reports/phase0 $(AUDIT_ARGS)
+	python -m endzone.analysis.feature_audit --output-dir reports/phase0 $(AUDIT_ARGS)
 
 check-epa-filter:
 	@if [ -f .env ]; then set -a && . ./.env && set +a; fi; \
-	python -m src.analysis.epa_play_filter_check --output reports/epa_filter_check.md
+	python -m endzone.analysis.epa_play_filter_check --output reports/epa_filter_check.md
 
 verify-reference:
 	@if [ -f .env ]; then set -a && . ./.env && set +a; fi; \
-	python -m src.train.train --verify-reference
+	python -m endzone.train.train --verify-reference
 
 reproduce: install dbt-compile
 	@echo "Reproduction pipeline complete (dependencies installed, dbt compiled on DuckDB)."

@@ -10,7 +10,7 @@ Critical tests:
 import pandas as pd
 import pytest
 
-from src.features.pregame import (
+from endzone.features.pregame import (
     CLEAN_SUCCESS_RATE_COLUMNS,
     DIFF_FEATURE_COLUMNS,
     FEATURE_SET_DIFF,

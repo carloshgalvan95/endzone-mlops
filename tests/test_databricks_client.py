@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
-from src.data.databricks_client import (
+from endzone.data.databricks_client import (
     DEFAULT_CATALOG,
     DEFAULT_MARTS_SCHEMA,
     DatabricksClient,

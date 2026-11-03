@@ -8,7 +8,7 @@ from typing import Any
 
 import pandas as pd
 
-from src.utils.logging import setup_logger
+from endzone.utils.logging import setup_logger
 
 logger = setup_logger(__name__)
 

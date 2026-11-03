@@ -4,7 +4,7 @@ Diagnostic only. This note records what the current code does. It does not chang
 
 No counts, rates, or model metrics are stated here. Those belong in the report the audit writes when it is run.
 
-The audit module is `src/analysis/feature_audit.py`. It calls `build_pregame_features`, `prepare_training_data`, `split_by_season`, and `train_logistic_regression`. Leakage tests live in `tests/test_feature_leakage.py` and use synthetic frames only.
+The audit module is `endzone/analysis/feature_audit.py`. It calls `build_pregame_features`, `prepare_training_data`, `split_by_season`, and `train_logistic_regression`. Leakage tests live in `tests/test_feature_leakage.py` and use synthetic frames only.
 
 `make audit-features` (or `.\scripts\dev.ps1 audit-features`) writes `reports/phase0/feature_audit.md` and `reports/phase0/feature_audit.csv`. It also logs both files to MLflow experiment `nfl_pregame/phase0_audit` on a run tagged `phase=0-audit`. 2025 is in the missingness and distribution tables only. It is not scored and it is not used to choose a model. Univariate CV defaults to seasons 2016 through 2023. Permutation importance fits the current logistic pipeline on seasons through 2023 and scores it on 2024. The frozen copy of that report is `docs/experiments/reports/phase0_feature_audit.md`. This note does not restate it.
 
