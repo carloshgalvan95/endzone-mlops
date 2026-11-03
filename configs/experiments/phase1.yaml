@@ -1,0 +1,26 @@
+id: phase1
+phase: 1
+default: true
+aliases: []
+tag: null
+short_name: phase1
+experiment_name: nfl_pregame/phase1_baselines
+phase_tag: "1"
+output_dir: reports/phase1
+title: Phase 1 baselines
+note: "Phase 1 rolling-origin baselines. 2024 and 2025 are not scored. No model is promoted from this run."
+reference_model: baseline-home
+reference_feature_set: none
+logistic_feature_sets:
+  - current
+  - with_games_played
+model_specs:
+  - model: logistic
+    feature_set: current
+  - model: logistic
+    feature_set: with_games_played
+log_shrinkage: false
+log_qb: false
+qb_subset: false
+qb_feature_set: null
+report_profile: none

@@ -17,12 +17,9 @@ import pandas as pd
 import pytest
 from threadpoolctl import threadpool_limits
 
-from endzone.train.train import (
-    cv_model_specs_for,
-    logistic_feature_sets_for,
-    make_rolling_origin_config,
-    run_phase1_baselines,
-)
+from endzone.modeling.cv import make_rolling_origin_config
+from endzone.modeling.hypotheses import cv_model_specs_for, logistic_feature_sets_for
+from endzone.modeling.pipeline import run_phase1_baselines
 
 GOLDEN_PATH: Path = Path(__file__).parent / "golden" / "cv_report.json"
 GOLDEN_SEED: int = 42

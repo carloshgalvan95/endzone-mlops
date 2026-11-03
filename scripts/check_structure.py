@@ -4,7 +4,7 @@
 The checker fails when a required directory or file is missing, when a
 top-level ``src/`` package is present, when data or model artifacts are
 tracked, or when a Python module sits outside ``endzone/``, ``tests/``,
-and ``scripts/``.
+and ``scripts/``. ``configs/experiments`` holds one YAML file per hypothesis.
 """
 
 from __future__ import annotations
@@ -29,6 +29,8 @@ REQUIRED_DIRECTORIES: tuple[str, ...] = (
     "docs/adr",
     "scripts",
     "tests",
+    "configs",
+    "configs/experiments",
 )
 
 REQUIRED_FILES: tuple[str, ...] = (

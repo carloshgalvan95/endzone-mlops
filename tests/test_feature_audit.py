@@ -702,7 +702,9 @@ class TestOutputsAndCli:
         )
         paths = write_audit_outputs(report, tmp_path / "report")
         tracking_uri = "sqlite:///" + (tmp_path / "mlflow.db").as_posix()
-        monkeypatch.setattr("endzone.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
+        monkeypatch.setattr(
+            "endzone.modeling.tracking.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts")
+        )
         try:
             logged = log_audit_to_mlflow(report, paths, tracking_uri=tracking_uri)
             without_extra = log_audit_to_mlflow(report, paths, tracking_uri=tracking_uri)
@@ -734,7 +736,9 @@ class TestOutputsAndCli:
         epa.to_parquet(fixture_dir / "fct_team_game_epa.parquet")
         tracking_uri = "sqlite:///" + (tmp_path / "mlflow.db").as_posix()
         monkeypatch.setenv("MLFLOW_TRACKING_URI", tracking_uri)
-        monkeypatch.setattr("endzone.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
+        monkeypatch.setattr(
+            "endzone.modeling.tracking.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts")
+        )
         try:
             result = main(
                 [
@@ -787,7 +791,9 @@ class TestOutputsAndCli:
         monkeypatch.setattr("endzone.analysis.feature_audit.load_data", _load)
         tracking_uri = "sqlite:///" + (tmp_path / "mlflow.db").as_posix()
         monkeypatch.setenv("MLFLOW_TRACKING_URI", tracking_uri)
-        monkeypatch.setattr("endzone.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
+        monkeypatch.setattr(
+            "endzone.modeling.tracking.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts")
+        )
         try:
             result = main(
                 [

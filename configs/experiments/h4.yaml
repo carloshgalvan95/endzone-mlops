@@ -1,0 +1,31 @@
+id: h4
+phase: 2
+default: false
+aliases:
+  - h4
+  - h4-clean-epa
+tag: h4-clean-epa
+short_name: h4
+experiment_name: nfl_pregame/phase2_h4
+phase_tag: "2"
+output_dir: reports/phase2_h4
+title: Phase 2 H4 clean EPA
+note: "Phase 2 hypothesis h4-clean-epa. Shrinkage and the blend weight are fixed. 2024 and 2025 are not scored. No model is promoted from this run."
+reference_model: logistic
+reference_feature_set: h2_full
+logistic_feature_sets:
+  - h2_full
+  - h4_clean
+  - h4_clean_sr
+model_specs:
+  - model: logistic
+    feature_set: h2_full
+  - model: logistic
+    feature_set: h4_clean
+  - model: logistic
+    feature_set: h4_clean_sr
+log_shrinkage: true
+log_qb: false
+qb_subset: false
+qb_feature_set: null
+report_profile: clean_epa

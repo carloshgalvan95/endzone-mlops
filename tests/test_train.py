@@ -21,19 +21,21 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import brier_score_loss, log_loss
 from sklearn.preprocessing import StandardScaler
 
-from endzone.train.train import (
+from endzone.modeling.cv import _logistic_l2_fold_predictor
+from endzone.modeling.dataset import load_data
+from endzone.modeling.models import (
     DEFAULT_L2_C_GRID,
-    REVIEWED_SKOPS_TRUSTED_TYPES,
-    _logistic_l2_fold_predictor,
     fit_logistic_l2,
-    get_git_sha,
-    load_data,
-    log_sklearn_model,
-    resolve_skops_trusted_types,
     select_logistic_l2_c,
     train_baseline_home,
     train_gradient_boosting,
     train_logistic_regression,
+)
+from endzone.modeling.tracking import (
+    REVIEWED_SKOPS_TRUSTED_TYPES,
+    get_git_sha,
+    log_sklearn_model,
+    resolve_skops_trusted_types,
 )
 
 # In-memory store: no SQLite file, so it cannot stay locked on Windows.
@@ -175,7 +177,7 @@ class TestTrainModels:
             prepare_training_data,
             split_by_season,
         )
-        from endzone.train.train import load_data
+        from endzone.modeling.dataset import load_data
 
         games, epa = load_data(fixture_path=str(train_fixture_path))
         features = build_pregame_features(games, epa, lookback_games=5)
@@ -217,7 +219,7 @@ class TestTrainModels:
             prepare_training_data,
             split_by_season,
         )
-        from endzone.train.train import load_data
+        from endzone.modeling.dataset import load_data
 
         games, epa = load_data(fixture_path=str(train_fixture_path))
         features = build_pregame_features(games, epa, lookback_games=5)
@@ -257,7 +259,8 @@ class TestEndToEndTraining:
             prepare_training_data,
             split_by_season,
         )
-        from endzone.train.train import load_data, train_logistic_regression
+        from endzone.modeling.dataset import load_data
+        from endzone.modeling.models import train_logistic_regression
 
         # SQLite URI with a POSIX path so the same string works on Windows.
         tracking_uri = "sqlite:///" + Path(tmp_path, "mlflow.db").as_posix()
