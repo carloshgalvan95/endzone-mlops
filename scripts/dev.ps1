@@ -53,12 +53,12 @@ function Invoke-Install {
 }
 
 function Invoke-Lint {
-    ruff check src\ tests\
-    ruff format --check src\ tests\
+    ruff check endzone\ tests\
+    ruff format --check endzone\ tests\
 }
 
 function Invoke-Format {
-    ruff format src\ tests\
+    ruff format endzone\ tests\
 }
 
 function Invoke-Test {
@@ -66,7 +66,7 @@ function Invoke-Test {
 }
 
 function Invoke-Vulture {
-    vulture src scripts --min-confidence 80
+    vulture endzone scripts --min-confidence 80
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
@@ -125,7 +125,7 @@ function Invoke-Clean {
 function Invoke-Train {
     Load-Env
     Write-Host "Training NFL pregame prediction models with MLflow..."
-    python -m src.train.train --model logistic --lookback 10 --seed 42
+    python -m endzone.train.train --model logistic --lookback 10 --seed 42
 }
 
 function Invoke-TrainSweep {
@@ -136,7 +136,7 @@ function Invoke-TrainSweep {
 function Invoke-TrainCv {
     Load-Env
     Write-Host "Running phase 2 H5b starter coverage CV..."
-    python -m src.train.train --cv --phase 2 --hypothesis h5b --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h5b
+    python -m endzone.train.train --cv --phase 2 --hypothesis h5b --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h5b
 }
 
 function Invoke-MlflowUi {
@@ -147,19 +147,19 @@ function Invoke-MlflowUi {
 function Invoke-AuditFeatures {
     Load-Env
     Write-Host "Auditing pregame inputs (features are not changed)..."
-    python -m src.analysis.feature_audit --output-dir reports/phase0
+    python -m endzone.analysis.feature_audit --output-dir reports/phase0
 }
 
 function Invoke-CheckEpaFilter {
     Load-Env
     Write-Host "Checking play types inside the EPA play filter..."
-    python -m src.analysis.epa_play_filter_check --output reports/epa_filter_check.md
+    python -m endzone.analysis.epa_play_filter_check --output reports/epa_filter_check.md
 }
 
 function Invoke-VerifyReference {
     Load-Env
     Write-Host "Checking logistic h2_full, Elo, and the market against the reference file..."
-    python -m src.train.train --verify-reference
+    python -m endzone.train.train --verify-reference
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
@@ -172,13 +172,13 @@ function Invoke-Reproduce {
 function Invoke-Ingest {
     Load-Env
     Write-Host "Loading nflverse data (all seasons 1999-2026, games and pbp)..."
-    python -m src.ingest.load_raw_nflverse --dataset all
+    python -m endzone.ingest.load_raw_nflverse --dataset all
 }
 
 function Invoke-IngestCurrent {
     Load-Env
     Write-Host "Refreshing current season only..."
-    python -m src.ingest.load_raw_nflverse --current-season --dataset all
+    python -m endzone.ingest.load_raw_nflverse --current-season --dataset all
 }
 
 function Invoke-DbtBuildDatabricks {

@@ -27,19 +27,19 @@ jobs:
       run: uv sync --frozen
 
     - name: Lint with ruff
-      run: uv run ruff check src/ tests/
+      run: uv run ruff check endzone/ tests/
 
     - name: Format check with ruff
-      run: uv run ruff format --check src/ tests/
+      run: uv run ruff format --check endzone/ tests/
 
     - name: Unused code with vulture
-      run: uv run vulture src scripts --min-confidence 80
+      run: uv run vulture endzone scripts --min-confidence 80
 
     - name: Run tests with pytest
       run: uv run pytest tests/ -v --tb=short
 
     - name: Coverage of the feature audit
-      run: uv run pytest tests/test_feature_leakage.py tests/test_feature_audit.py tests/test_epa_play_filter_check.py --cov=src/analysis --cov-report=term-missing --cov-fail-under=100
+      run: uv run pytest tests/test_feature_leakage.py tests/test_feature_audit.py tests/test_epa_play_filter_check.py --cov=endzone/analysis --cov-report=term-missing --cov-fail-under=100
 
     - name: Install dbt packages
       run: cd dbt && uv run dbt deps --profiles-dir .
@@ -83,10 +83,10 @@ jobs:
       run: uv sync --frozen
 
     - name: Lint with ruff
-      run: uv run ruff check src/ tests/
+      run: uv run ruff check endzone/ tests/
 
     - name: Format check with ruff
-      run: uv run ruff format --check src/ tests/
+      run: uv run ruff format --check endzone/ tests/
 
     - name: Run tests with pytest
       run: uv run pytest tests/ -v --tb=short

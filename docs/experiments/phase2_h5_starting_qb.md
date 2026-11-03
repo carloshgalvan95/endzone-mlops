@@ -1,6 +1,6 @@
 # Phase 2 H5: starting quarterback
 
-Method note. Reproduce this comparison with `python -m src.train.train --cv --phase 2 --hypothesis h5 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h5`. It writes `reports/phase2_h5/comparison.md` and `reports/phase2_h5/comparison.csv`. Those files are local outputs. The result section records the local H5 run. The frozen copy is `docs/experiments/reports/phase2_h5_comparison.md`. Do not copy numbers from a test fixture. `make train-cv` (Windows: `.\scripts\dev.ps1 train-cv`) now runs H5b and writes `reports/phase2_h5b/`. See `docs/experiments/phase2_h5b_starter_coverage.md`. After the depth-chart reload in that note, this same `--hypothesis h5` command reads the fixed starter. The frozen snapshot is the original decision.
+Method note. Reproduce this comparison with `python -m endzone.train.train --cv --phase 2 --hypothesis h5 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h5`. It writes `reports/phase2_h5/comparison.md` and `reports/phase2_h5/comparison.csv`. Those files are local outputs. The result section records the local H5 run. The frozen copy is `docs/experiments/reports/phase2_h5_comparison.md`. Do not copy numbers from a test fixture. `make train-cv` (Windows: `.\scripts\dev.ps1 train-cv`) now runs H5b and writes `reports/phase2_h5b/`. See `docs/experiments/phase2_h5b_starter_coverage.md`. After the depth-chart reload in that note, this same `--hypothesis h5` command reads the fixed starter. The frozen snapshot is the original decision.
 
 No model is promoted from a phase 2 run. 2024 stays the final validation. 2025 is not scored here.
 
@@ -48,7 +48,7 @@ The report also describes games where either change flag is 1: paired log loss o
 H5 adds `workspace.nfl_raw.depth_charts`. Games and play-by-play can stay. On a catalog that already has those two tables:
 
 ```bash
-python -m src.ingest.load_raw_nflverse --dataset depth_charts && make dbt-build-databricks && python -m src.train.train --cv --phase 2 --hypothesis h5 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h5
+python -m endzone.ingest.load_raw_nflverse --dataset depth_charts && make dbt-build-databricks && python -m endzone.train.train --cv --phase 2 --hypothesis h5 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h5
 ```
 
 `make dbt-build-databricks` runs `dbt deps`, then `dbt build --target databricks`. The H5 command reads `fct_games`, `fct_team_game_epa`, `fct_expected_starter`, and `fct_qb_dropbacks` from `workspace.nfl_dev_marts`. Chain the commands with `&&` so training does not start after a failed ingest or build. `make train-cv` is H5b, not this hypothesis. The reload also rewrites every depth-chart season so `week` is one int type. See `docs/experiments/phase2_h5b_starter_coverage.md`.
@@ -56,15 +56,15 @@ python -m src.ingest.load_raw_nflverse --dataset depth_charts && make dbt-build-
 A fresh clone loads every bronze table, including depth charts:
 
 ```bash
-make ingest && make dbt-build-databricks && python -m src.train.train --cv --phase 2 --hypothesis h5 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h5
+make ingest && make dbt-build-databricks && python -m endzone.train.train --cv --phase 2 --hypothesis h5 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h5
 ```
 
 Windows PowerShell 5.1 has no `&&`. After games and play-by-play are already loaded:
 
 ```powershell
-python -m src.ingest.load_raw_nflverse --dataset depth_charts
+python -m endzone.ingest.load_raw_nflverse --dataset depth_charts
 if ($LASTEXITCODE -eq 0) { .\scripts\dev.ps1 dbt-build-databricks }
-if ($LASTEXITCODE -eq 0) { python -m src.train.train --cv --phase 2 --hypothesis h5 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h5 }
+if ($LASTEXITCODE -eq 0) { python -m endzone.train.train --cv --phase 2 --hypothesis h5 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h5 }
 ```
 
 Before CV, each requested feature column has to exist and stay under 50% null. A failure names the feature set and says to run `make dbt-build-databricks`. If the depth-chart bronze table was never loaded, the warehouse read fails first. Load depth charts, then rebuild.

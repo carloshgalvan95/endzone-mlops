@@ -8,8 +8,8 @@ Rules live in `.cursor/rules/` (`git-and-commits`, `quality`, `repo-map`, `ml-ex
 uv python install 3.12
 uv sync --frozen
 . .venv/bin/activate
-ruff check src/ tests/
-ruff format --check src/ tests/
+ruff check endzone/ tests/
+ruff format --check endzone/ tests/
 pytest tests/ -v
 test -f dbt/profiles.yml || cp dbt/profiles.yml.example dbt/profiles.yml
 ( cd dbt && dbt deps --profiles-dir . && dbt seed --profiles-dir . --target local && dbt compile --profiles-dir . --target local )

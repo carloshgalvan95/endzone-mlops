@@ -21,7 +21,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import brier_score_loss, log_loss
 from sklearn.preprocessing import StandardScaler
 
-from src.train.train import (
+from endzone.train.train import (
     DEFAULT_L2_C_GRID,
     REVIEWED_SKOPS_TRUSTED_TYPES,
     _logistic_l2_fold_predictor,
@@ -170,12 +170,12 @@ class TestTrainModels:
 
     def test_train_baseline_home(self, train_fixture_path: Path) -> None:
         """Train baseline model with synthetic data."""
-        from src.features.pregame import (
+        from endzone.features.pregame import (
             build_pregame_features,
             prepare_training_data,
             split_by_season,
         )
-        from src.train.train import load_data
+        from endzone.train.train import load_data
 
         games, epa = load_data(fixture_path=str(train_fixture_path))
         features = build_pregame_features(games, epa, lookback_games=5)
@@ -212,12 +212,12 @@ class TestTrainModels:
 
     def test_train_logistic_regression(self, train_fixture_path: Path) -> None:
         """Train logistic regression with synthetic data."""
-        from src.features.pregame import (
+        from endzone.features.pregame import (
             build_pregame_features,
             prepare_training_data,
             split_by_season,
         )
-        from src.train.train import load_data
+        from endzone.train.train import load_data
 
         games, epa = load_data(fixture_path=str(train_fixture_path))
         features = build_pregame_features(games, epa, lookback_games=5)
@@ -252,12 +252,12 @@ class TestEndToEndTraining:
         """
         import mlflow
 
-        from src.features.pregame import (
+        from endzone.features.pregame import (
             build_pregame_features,
             prepare_training_data,
             split_by_season,
         )
-        from src.train.train import load_data, train_logistic_regression
+        from endzone.train.train import load_data, train_logistic_regression
 
         # SQLite URI with a POSIX path so the same string works on Windows.
         tracking_uri = "sqlite:///" + Path(tmp_path, "mlflow.db").as_posix()
@@ -309,7 +309,7 @@ def _train_val_from_fixture(
     fixture_path: Path,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
     """Build the season split used by the training tests."""
-    from src.features.pregame import (
+    from endzone.features.pregame import (
         build_pregame_features,
         prepare_training_data,
         split_by_season,

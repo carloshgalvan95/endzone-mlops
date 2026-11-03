@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.features.pregame import (
+from endzone.features.pregame import (
     DIFF_FEATURE_COLUMNS,
     PASS_RUSH_EPA_COLUMNS,
     PREGAME_FEATURE_COLUMNS,
@@ -26,7 +26,7 @@ from src.features.pregame import (
     market_home_probabilities,
     no_vig_home_probability,
 )
-from src.train.train import (
+from endzone.train.train import (
     HYPOTHESIS_H1,
     HYPOTHESIS_H2,
     HYPOTHESIS_H3,
@@ -562,7 +562,7 @@ class TestPhase1Report:
         assert set(frame["season"]).isdisjoint({2024, 2025})
         paths = write_phase1_outputs(report, tmp_path / "report")
         tracking_uri: str = "sqlite:///" + (tmp_path / "mlflow.db").as_posix()
-        monkeypatch.setattr("src.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
+        monkeypatch.setattr("endzone.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
         try:
             logged = log_phase1_to_mlflow(report, paths, tracking_uri=tracking_uri)
             client = mlflow.tracking.MlflowClient(tracking_uri=tracking_uri)
@@ -643,7 +643,7 @@ class TestPhase1Report:
         team_games.to_parquet(fixture_dir / "fct_team_game_epa.parquet")
         tracking_uri: str = "sqlite:///" + (tmp_path / "mlflow.db").as_posix()
         monkeypatch.setenv("MLFLOW_TRACKING_URI", tracking_uri)
-        monkeypatch.setattr("src.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
+        monkeypatch.setattr("endzone.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
         output_dir = tmp_path / "out"
         try:
             main(
@@ -985,7 +985,7 @@ class TestPhase2Hypothesis:
         team_games.to_parquet(fixture_dir / "fct_team_game_epa.parquet")
         tracking_uri: str = "sqlite:///" + (tmp_path / "mlflow.db").as_posix()
         monkeypatch.setenv("MLFLOW_TRACKING_URI", tracking_uri)
-        monkeypatch.setattr("src.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
+        monkeypatch.setattr("endzone.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
         output_dir = tmp_path / "phase2"
         try:
             main(
@@ -1111,7 +1111,7 @@ class TestPhase2H2Hypothesis:
         team_games.to_parquet(fixture_dir / "fct_team_game_epa.parquet")
         tracking_uri: str = "sqlite:///" + (tmp_path / "mlflow.db").as_posix()
         monkeypatch.setenv("MLFLOW_TRACKING_URI", tracking_uri)
-        monkeypatch.setattr("src.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
+        monkeypatch.setattr("endzone.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
         output_dir = tmp_path / "phase2_h2"
         try:
             main(
@@ -1244,7 +1244,7 @@ class TestPhase2H3Hypothesis:
         team_games.to_parquet(fixture_dir / "fct_team_game_epa.parquet")
         tracking_uri: str = "sqlite:///" + (tmp_path / "mlflow.db").as_posix()
         monkeypatch.setenv("MLFLOW_TRACKING_URI", tracking_uri)
-        monkeypatch.setattr("src.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
+        monkeypatch.setattr("endzone.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
         output_dir = tmp_path / "phase2_h3"
         try:
             main(
@@ -1410,7 +1410,7 @@ class TestPhase2H4Hypothesis:
         team_games.to_parquet(fixture_dir / "fct_team_game_epa.parquet")
         tracking_uri: str = "sqlite:///" + (tmp_path / "mlflow.db").as_posix()
         monkeypatch.setenv("MLFLOW_TRACKING_URI", tracking_uri)
-        monkeypatch.setattr("src.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
+        monkeypatch.setattr("endzone.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
         output_dir = tmp_path / "phase2_h4"
         try:
             main(
@@ -1681,7 +1681,7 @@ class TestPhase2RidgeReference:
         team_games.to_parquet(fixture_dir / "fct_team_game_epa.parquet")
         tracking_uri: str = "sqlite:///" + (tmp_path / "mlflow.db").as_posix()
         monkeypatch.setenv("MLFLOW_TRACKING_URI", tracking_uri)
-        monkeypatch.setattr("src.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
+        monkeypatch.setattr("endzone.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
         output_dir = tmp_path / "phase2_ridge"
         try:
             main(
@@ -1930,7 +1930,7 @@ class TestPhase2H5Hypothesis:
         dropbacks.to_parquet(fixture_dir / "fct_qb_dropbacks.parquet")
         tracking_uri: str = "sqlite:///" + (tmp_path / "mlflow.db").as_posix()
         monkeypatch.setenv("MLFLOW_TRACKING_URI", tracking_uri)
-        monkeypatch.setattr("src.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
+        monkeypatch.setattr("endzone.train.train.LOCAL_ARTIFACT_DIR", str(tmp_path / "mlartifacts"))
         output_dir = tmp_path / f"phase2_{hypothesis}"
         try:
             main(

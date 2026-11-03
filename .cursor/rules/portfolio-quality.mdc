@@ -51,10 +51,10 @@ This is Carlos Galvan's public MLOps portfolio demonstrating Databricks + dbt + 
 
 ## Code Quality Standards
 
-### Wilson Modularity (src/)
+### Wilson Modularity (endzone/)
 - Notebooks for exploration ONLY, not production
-- Product code in src/, dbt/, tests/
-- Entrypoint: `src/train/train.py` (argparse, config injected). `score.py` is planned and is not in the repo.
+- Product code in endzone/, dbt/, tests/
+- Entrypoint: `endzone/train/train.py` (argparse, config injected). `score.py` is planned and is not in the repo.
 - Small, testable functions
 - No logic in notebooks that should be in modules
 
@@ -114,7 +114,7 @@ A PR is Done when:
 
 ### Day 7 (Target)
 - [x] Staging + 2+ marts + schema tests + business test
-- [x] `src/train/train.py` (argparse, 3+ hyperparameters, seed) + MLflow (5+ runs)
+- [x] `endzone/train/train.py` (argparse, 3+ hyperparameters, seed) + MLflow (5+ runs)
 - [x] CI: pytest + dbt compile (DuckDB). dbt build stays on the Databricks target, not in CI.
 - [x] C4 L1 diagram + data flow sequence (`docs/architecture.md`)
 - [ ] `make reproduce` leaves marts + an MLflow model. Today it is only `install` and local `dbt-compile`.

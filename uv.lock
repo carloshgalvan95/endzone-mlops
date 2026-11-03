@@ -634,7 +634,7 @@ wheels = [
 [[package]]
 name = "endzone-mlops"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "databricks-sdk" },
     { name = "databricks-sql-connector" },

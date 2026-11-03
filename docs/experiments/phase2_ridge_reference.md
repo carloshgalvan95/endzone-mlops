@@ -1,12 +1,12 @@
 # Phase 2 ridge reference
 
-Method note. This file does not report warehouse metrics. Reproduce this comparison with `python -m src.train.train --cv --phase 2 --hypothesis ridge --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_ridge`. It writes the measured comparison to `reports/phase2_ridge/comparison.md` and `reports/phase2_ridge/comparison.csv`. `make train-cv` now runs H5b and writes `reports/phase2_h5b/`. See `docs/experiments/phase2_h5b_starter_coverage.md`, `docs/experiments/phase2_h5_starting_qb.md`, and `docs/experiments/phase2_h4_clean_epa.md`. Those files are local outputs. The frozen copy is `docs/experiments/reports/phase2_ridge_comparison.md`. Do not copy numbers from a test fixture.
+Method note. This file does not report warehouse metrics. Reproduce this comparison with `python -m endzone.train.train --cv --phase 2 --hypothesis ridge --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_ridge`. It writes the measured comparison to `reports/phase2_ridge/comparison.md` and `reports/phase2_ridge/comparison.csv`. `make train-cv` now runs H5b and writes `reports/phase2_h5b/`. See `docs/experiments/phase2_h5b_starter_coverage.md`, `docs/experiments/phase2_h5_starting_qb.md`, and `docs/experiments/phase2_h4_clean_epa.md`. Those files are local outputs. The frozen copy is `docs/experiments/reports/phase2_ridge_comparison.md`. Do not copy numbers from a test fixture.
 
 No model is promoted from this run. 2024 stays the final validation. 2025 is not scored here.
 
 This is setup work, not a new signal hypothesis. Fixed-C logistic regression on `h2_full` and the H3 splits fits correlated EPA columns with one C. A later rejection can then mean the columns were noisy, or it can mean the un-tuned penalty let those columns move the fit. Tuning L2 `C` inside each training fold separates those two stories. If `logistic_l2` on `h2_full` is not worse than logistic `h2_full`, it becomes the reference for later hypotheses. A rejection after that change is a lack of signal, not noise from correlated columns.
 
-Hypothesis H3 stays reproducible with `python -m src.train.train --cv --phase 2 --hypothesis h3 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h3`. H3 rejected both `h3_split` and `h3_replace` against logistic `h2_full` (0.6393 and 0.6395 versus 0.6377, n=2191). See `docs/experiments/phase2_h3_pass_rush_epa.md`.
+Hypothesis H3 stays reproducible with `python -m endzone.train.train --cv --phase 2 --hypothesis h3 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h3`. H3 rejected both `h3_split` and `h3_replace` against logistic `h2_full` (0.6393 and 0.6395 versus 0.6377, n=2191). See `docs/experiments/phase2_h3_pass_rush_epa.md`.
 
 ## What is scored
 

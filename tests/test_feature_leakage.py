@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.features.pregame import (
+from endzone.features.pregame import (
     CLEAN_EPA_FEATURE_COLUMNS,
     CLEAN_SUCCESS_RATE_COLUMNS,
     DIFF_FEATURE_COLUMNS,

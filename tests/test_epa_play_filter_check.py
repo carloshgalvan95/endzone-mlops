@@ -6,7 +6,7 @@ from typing import Any
 import pandas as pd
 import pytest
 
-from src.analysis.epa_play_filter_check import (
+from endzone.analysis.epa_play_filter_check import (
     FLAG_COLUMNS,
     column_names_from_describe,
     describe_table_sql,
@@ -323,7 +323,7 @@ class TestReportFileAndCli:
                 closed.append(True)
 
         monkeypatch.setattr(
-            "src.analysis.epa_play_filter_check.DatabricksClient",
+            "endzone.analysis.epa_play_filter_check.DatabricksClient",
             FakeClient,
         )
         output = tmp_path / "epa_filter_check.md"

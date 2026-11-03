@@ -84,7 +84,7 @@ def main() -> int:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("src/ingest/schemas/pbp_schema.json"),
+        default=Path("endzone/ingest/schemas/pbp_schema.json"),
         help="Output path for schema JSON",
     )
 

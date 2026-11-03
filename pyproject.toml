@@ -33,12 +33,23 @@ dev = [
 ]
 
 [tool.uv]
-package = false
+package = true
 default-groups = ["dev"]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["endzone*"]
 
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+src = ["endzone", "tests", "scripts"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["endzone", "scripts"]
 
 [tool.ruff.lint]
 select = [
@@ -60,3 +71,6 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
+
+[tool.coverage.run]
+source = ["endzone"]

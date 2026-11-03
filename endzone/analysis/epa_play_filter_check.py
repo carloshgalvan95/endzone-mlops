@@ -16,13 +16,13 @@ from typing import Any
 
 import pandas as pd
 
-from src.data.databricks_client import (
+from endzone.data.databricks_client import (
     DEFAULT_CATALOG,
     DatabricksClient,
     qualify_table_name,
     quote_identifier,
 )
-from src.utils.logging import setup_logger
+from endzone.utils.logging import setup_logger
 
 logger = setup_logger(__name__)
 

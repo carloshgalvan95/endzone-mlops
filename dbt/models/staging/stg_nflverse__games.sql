@@ -19,7 +19,7 @@ This model provides a cleaned view of game-level data including:
 - Betting lines (spread, total, moneyline)
 - Weather and venue information
 
-Raw data lands in workspace.nfl_raw.games via src/ingest/load_raw_nflverse.py.
+Raw data lands in workspace.nfl_raw.games via endzone/ingest/load_raw_nflverse.py.
 Cross-reference IDs are renamed to *_id here (raw columns: gsis, pfr, pff, espn).
 */
 

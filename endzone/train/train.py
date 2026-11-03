@@ -2,17 +2,17 @@
 Train NFL pregame prediction models with MLflow tracking.
 
 Usage:
-    python -m src.train.train --model logistic --lookback 10 --seed 42
-    python -m src.train.train --model gbm --max-depth 5 --n-estimators 100
-    python -m src.train.train --model baseline-home
-    python -m src.train.train --cv
-    python -m src.train.train --cv --phase 2
-    python -m src.train.train --cv --phase 2 --hypothesis h3
-    python -m src.train.train --cv --phase 2 --hypothesis h4
-    python -m src.train.train --cv --phase 2 --hypothesis h5
-    python -m src.train.train --cv --phase 2 --hypothesis h5b
-    python -m src.train.train --cv --phase 2 --hypothesis ridge
-    python -m src.train.train --verify-reference
+    python -m endzone.train.train --model logistic --lookback 10 --seed 42
+    python -m endzone.train.train --model gbm --max-depth 5 --n-estimators 100
+    python -m endzone.train.train --model baseline-home
+    python -m endzone.train.train --cv
+    python -m endzone.train.train --cv --phase 2
+    python -m endzone.train.train --cv --phase 2 --hypothesis h3
+    python -m endzone.train.train --cv --phase 2 --hypothesis h4
+    python -m endzone.train.train --cv --phase 2 --hypothesis h5
+    python -m endzone.train.train --cv --phase 2 --hypothesis h5b
+    python -m endzone.train.train --cv --phase 2 --hypothesis ridge
+    python -m endzone.train.train --verify-reference
 """
 
 import argparse
@@ -39,8 +39,8 @@ from sklearn.metrics import accuracy_score, brier_score_loss, log_loss, roc_auc_
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
-from src.data.databricks_client import DatabricksClient
-from src.features.pregame import (
+from endzone.data.databricks_client import DatabricksClient
+from endzone.features.pregame import (
     ELO_HOME_ADVANTAGE,
     ELO_K,
     ELO_MEAN_RATING,
@@ -70,8 +70,8 @@ from src.features.pregame import (
     prepare_training_data,
     split_by_season,
 )
-from src.utils.config import DEFAULT_MLFLOW_TRACKING_URI, resolve_tracking_uri
-from src.utils.logging import setup_logger
+from endzone.utils.config import DEFAULT_MLFLOW_TRACKING_URI, resolve_tracking_uri
+from endzone.utils.logging import setup_logger
 
 logger = setup_logger(__name__)
 
