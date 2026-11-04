@@ -17,6 +17,8 @@ alwaysApply: false
 
 Phase 0 and Phase 1 are done. Phase 2 decisions through H5b are recorded. Phases 3 and 4 are planned and not started. Do not invent their scope. H4 is rejected. H5 is rejected, with a positive signal. H5b is rejected. The 0.003 threshold is not changed after either result. The reference stays logistic `h2_full`.
 
+Sprint 2 is margin and total, not a new win-probability phase. The rule is ADR-007 and `configs/experiments/s2.yaml`, locked before the fit. Ridge on `h2_full` is accepted only when pooled CV MAE beats its baseline, the 95% paired bootstrap interval of (model MAE minus baseline MAE) lies entirely below 0, and the model is strictly better in at least 5 of 8 seasons (2016-2023). Margin baseline: Elo difference including home field, divided by 25. Total baseline: training-fold mean total. Market MAE, RMSE, 80% coverage, and implied win log loss versus 0.638 are reported and are not gates. Do not move those thresholds after a result. The warehouse CV numbers are not in the repo until `make train-s2` has been run and the JSON is copied to `docs/experiments/reports/sprint2_cv_report.json`. Do not hand-edit that file.
+
 | Step | State | Reference |
 | --- | --- | --- |
 | Phase 0 input audit | done | n/a. Note: `docs/experiments/phase0_input_audit.md` |
@@ -54,6 +56,7 @@ The canonical module is `python -m endzone.modeling.train`. `python -m endzone.t
 - H5: `python -m endzone.train.train --cv --phase 2 --hypothesis h5 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h5`. Scores logistic `h2_full` and `h5_qb` against logistic `h2_full`, plus the home prior, Elo, and the market. QB shrinkage (100 prior dropbacks) and replacement EPA per dropback (0) are fixed. The QB-change subset is descriptive and is not an acceptance decision. Local report `reports/phase2_h5/`. Tag `hypothesis=h5-starting-qb`. Experiment `nfl_pregame/phase2_h5`. See `docs/experiments/phase2_h5_starting_qb.md`. The frozen snapshot is the original run. After the H5b depth-chart reload, this command reads the fixed starter too.
 - H5b: `make train-cv` (Windows: `.\scripts\dev.ps1 train-cv`). Same `h5_qb` features, same shrinkage, fixed starter only. Scores against logistic `h2_full`. Local report `reports/phase2_h5b/`. Tag `hypothesis=h5b-starter-coverage`. Experiment `nfl_pregame/phase2_h5b`. Rejected: `h5_qb` 0.6356, difference -0.0021, interval -0.0039 to -0.0002, short of -0.003. The threshold is not moved. See `docs/experiments/phase2_h5b_starter_coverage.md`.
 - EPA filter: `make check-epa-filter` (Windows: `.\scripts\dev.ps1 check-epa-filter`). Writes `reports/epa_filter_check.md`. It does not change dbt models.
+- Sprint 2: `make train-s2` (Windows: `.\scripts\dev.ps1 train-s2`). `python -m endzone.modeling.points`. Scores ridge margin and ridge total against the Elo spread and the league-mean total. Local report `reports/sprint2/cv_report.json`. Tag `hypothesis=s2-margin-total`. Experiment `nfl_pregame/sprint2_score`. Registers `endzone-margin` and `endzone-total` only when that target passes. `make score` uses the same rule and writes null point estimates until both pass. See ADR-007.
 
 ## Snapshots
 
