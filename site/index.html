@@ -20,7 +20,7 @@
     <a class="brand" href="./" aria-label="endzone-mlops, home"><img src="assets/logo-horizontal-dark.svg" alt="endzone-mlops" width="168" height="40"></a>
     <nav class="nav" aria-label="Primary">
       <a href="#predictions" aria-current="page">Predictions</a>
-      <a href="#method">Method</a>
+      <a href="#accuracy">Accuracy</a>
       <a href="#record">Record</a>
       <a href="https://github.com/carloshgalvan95/endzone-mlops" rel="noopener">GitHub</a>
     </nav>
@@ -73,12 +73,10 @@
   </div>
   <p class="note">Kickoff times are America/Mexico_City. Probabilities are for the home team. Difference = model minus market, in percentage points (pp).</p>
 
-  <section class="section" id="method">
-    <h2>Estimated score <span class="soon">Sprint 2</span></h2>
-    <div class="placeholder">
-      <p class="muted">Each game will show an estimated score. For example:</p>
-      <p class="score-sample num">PIT <b>21</b> <span class="sep">·</span> <b>12</b> CLE <span class="ex">EXAMPLE</span></p>
-    </div>
+  <section class="section" id="accuracy">
+    <h2>Model accuracy</h2>
+    <p class="lede" id="accuracy-note">Open experiment. Estimated score from separate margin and total models. Not betting picks.</p>
+    <div class="accuracy" id="accuracy-block"></div>
   </section>
 
   <section class="section" id="record">

@@ -20,7 +20,11 @@
       "market_home_wp": 0.61,
       "diff": 0.03,
       "model_version": "example",
-      "generated_at": "2026-11-04T00:00:00Z"
+      "generated_at": "2026-11-04T00:00:00Z",
+      "estimated_margin": null,
+      "estimated_total": null,
+      "estimated_home_points": null,
+      "estimated_away_points": null
     },
     {
       "game_id": "EXAMPLE-02",
@@ -31,7 +35,11 @@
       "market_home_wp": 0.7,
       "diff": -0.12,
       "model_version": "example",
-      "generated_at": "2026-11-04T00:00:00Z"
+      "generated_at": "2026-11-04T00:00:00Z",
+      "estimated_margin": null,
+      "estimated_total": null,
+      "estimated_home_points": null,
+      "estimated_away_points": null
     },
     {
       "game_id": "EXAMPLE-03",
@@ -42,7 +50,11 @@
       "market_home_wp": 0.53,
       "diff": 0.02,
       "model_version": "example",
-      "generated_at": "2026-11-04T00:00:00Z"
+      "generated_at": "2026-11-04T00:00:00Z",
+      "estimated_margin": null,
+      "estimated_total": null,
+      "estimated_home_points": null,
+      "estimated_away_points": null
     },
     {
       "game_id": "EXAMPLE-04",
@@ -53,7 +65,11 @@
       "market_home_wp": 0.54,
       "diff": -0.07,
       "model_version": "example",
-      "generated_at": "2026-11-04T00:00:00Z"
+      "generated_at": "2026-11-04T00:00:00Z",
+      "estimated_margin": null,
+      "estimated_total": null,
+      "estimated_home_points": null,
+      "estimated_away_points": null
     },
     {
       "game_id": "EXAMPLE-05",
@@ -64,7 +80,11 @@
       "market_home_wp": 0.72,
       "diff": -0.01,
       "model_version": "example",
-      "generated_at": "2026-11-04T00:00:00Z"
+      "generated_at": "2026-11-04T00:00:00Z",
+      "estimated_margin": null,
+      "estimated_total": null,
+      "estimated_home_points": null,
+      "estimated_away_points": null
     },
     {
       "game_id": "EXAMPLE-06",
@@ -75,7 +95,11 @@
       "market_home_wp": 0.63,
       "diff": 0.06,
       "model_version": "example",
-      "generated_at": "2026-11-04T00:00:00Z"
+      "generated_at": "2026-11-04T00:00:00Z",
+      "estimated_margin": null,
+      "estimated_total": null,
+      "estimated_home_points": null,
+      "estimated_away_points": null
     },
     {
       "game_id": "EXAMPLE-07",
@@ -86,7 +110,30 @@
       "market_home_wp": 0.48,
       "diff": 0.02,
       "model_version": "example",
-      "generated_at": "2026-11-04T00:00:00Z"
+      "generated_at": "2026-11-04T00:00:00Z",
+      "estimated_margin": null,
+      "estimated_total": null,
+      "estimated_home_points": null,
+      "estimated_away_points": null
     }
-  ]
+  ],
+  "score_model": {
+    "feature_set": "h2_full",
+    "accepted": false,
+    "hidden_reason": "Estimate hidden because the pre-registered test has not been run.",
+    "margin": {
+      "decision": "not_run",
+      "baseline_name": "Elo/25",
+      "mae": null,
+      "baseline_mae": null,
+      "market_mae": null
+    },
+    "total": {
+      "decision": "not_run",
+      "baseline_name": "League mean",
+      "mae": null,
+      "baseline_mae": null,
+      "market_mae": null
+    }
+  }
 }

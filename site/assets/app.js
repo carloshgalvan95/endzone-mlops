@@ -40,7 +40,9 @@
       home: teamRecord(game.home),
       away: teamRecord(game.away),
       model_home: game.model_home_wp,
-      market_home: game.market_home_wp
+      market_home: game.market_home_wp,
+      estimated_home_points: game.estimated_home_points,
+      estimated_away_points: game.estimated_away_points
     };
   }
   function diffPp(game) {
@@ -85,14 +87,66 @@
     if (isWin) box.appendChild(el("span", "pick-label", "WINS"));
     return box;
   }
+  function scoreLine(game) {
+    var block = el("p", "est-score num");
+    var model = (state.data && state.data.score_model) || {};
+    if (missing(game.estimated_home_points) || missing(game.estimated_away_points)) {
+      var reason = model.hidden_reason || "Estimate hidden because it did not pass its pre-registered test.";
+      block.appendChild(el("span", "muted", reason));
+      return block;
+    }
+    block.appendChild(document.createTextNode(game.away.abbr + " "));
+    block.appendChild(el("b", null, String(Math.round(Number(game.estimated_away_points)))));
+    block.appendChild(el("span", "sep", " \u00b7 "));
+    block.appendChild(el("b", null, String(Math.round(Number(game.estimated_home_points)))));
+    block.appendChild(document.createTextNode(" " + game.home.abbr));
+    return block;
+  }
   function matchup(game) {
     var homePick = homeWins(game.model_home);
     var block = el("div", "matchup");
     var winner = homePick ? game.home.name : game.away.name;
     block.appendChild(pickBox(game.away, "away", !homePick));
     block.appendChild(pickBox(game.home, "home", homePick));
+    block.appendChild(scoreLine(game));
     block.setAttribute("aria-label", "Model pick: " + winner + " wins");
     return block;
+  }
+  function metricText(value) {
+    if (missing(value)) return "n/a";
+    return Number(value).toFixed(2);
+  }
+  function accuracyCard(title, row) {
+    var card = el("article");
+    card.appendChild(el("h3", null, title));
+    var decision = (row && row.decision) || "not_run";
+    card.appendChild(el("p", "decision", decision));
+    [
+      ["Model MAE", row && row.mae],
+      [(row && row.baseline_name) || "Baseline", row && row.baseline_mae],
+      ["Market MAE", row && row.market_mae]
+    ].forEach(function (item) {
+      var line = el("div", "metric-row");
+      line.appendChild(el("span", null, item[0]));
+      line.appendChild(el("b", "num", metricText(item[1])));
+      card.appendChild(line);
+    });
+    return card;
+  }
+  function renderAccuracy() {
+    var block = document.getElementById("accuracy-block");
+    if (!block || !state.data) return;
+    block.textContent = "";
+    var model = state.data.score_model || {};
+    block.appendChild(accuracyCard("Margin", model.margin || {}));
+    block.appendChild(accuracyCard("Total", model.total || {}));
+    var note = document.getElementById("accuracy-note");
+    if (!note) return;
+    if (model.hidden_reason) {
+      note.textContent = "Open experiment. " + model.hidden_reason + " Not betting picks.";
+    } else {
+      note.textContent = "Open experiment. Estimated score from separate margin and total models. Scores are rounded for display. Not betting picks.";
+    }
   }
   function bar(game) {
     var block = el("div", "pbar");
@@ -188,6 +242,7 @@
       card.appendChild(nums);
       cards.appendChild(card);
     });
+    renderAccuracy();
   }
 
   function isExample(data) {

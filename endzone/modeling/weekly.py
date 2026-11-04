@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import requests
 
+from endzone.modeling.points_eval import HIDDEN_NOT_RUN
 from endzone.utils.logging import setup_logger
 
 logger = setup_logger(__name__)
@@ -44,6 +45,17 @@ PREDICTION_GAME_FIELDS: tuple[str, ...] = (
     "diff",
     "model_version",
     "generated_at",
+    "estimated_margin",
+    "estimated_total",
+    "estimated_home_points",
+    "estimated_away_points",
+)
+SCORE_MODEL_TARGET_FIELDS: tuple[str, ...] = (
+    "decision",
+    "baseline_name",
+    "mae",
+    "baseline_mae",
+    "market_mae",
 )
 _SLATE_COLUMNS: tuple[str, ...] = (
     "game_id",
@@ -196,6 +208,43 @@ def _round_probability(value: float) -> float:
     return round(float(value), 6)
 
 
+def default_score_model() -> dict[str, Any]:
+    """Accuracy block used when the pre-registered test has not been run."""
+    return {
+        "feature_set": WEEKLY_FEATURE_SET,
+        "accepted": False,
+        "hidden_reason": HIDDEN_NOT_RUN,
+        "margin": _blank_score_target("not_run", "Elo/25"),
+        "total": _blank_score_target("not_run", "League mean"),
+    }
+
+
+def _blank_score_target(decision: str, baseline_name: str) -> dict[str, Any]:
+    """One target with no MAE yet."""
+    return {
+        "decision": decision,
+        "baseline_name": baseline_name,
+        "mae": None,
+        "baseline_mae": None,
+        "market_mae": None,
+    }
+
+
+def _round_points(value: object) -> float | None:
+    """Store a point estimate to 6 decimals. Display rounding is separate."""
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        return None
+    number: float = float(value)  # type: ignore[arg-type]
+    if not math.isfinite(number):
+        return None
+    return round(number, 6)
+
+
 def build_prediction_document(
     *,
     season: int,
@@ -208,16 +257,24 @@ def build_prediction_document(
     feature_set: str,
     generated_at: str,
     sample: bool = False,
+    score_lines: dict[str, dict[str, float | None]] | None = None,
+    score_model: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the weekly JSON document.
 
     ``diff`` is model home win probability minus market home win probability.
     A missing market line leaves both ``market_home_wp`` and ``diff`` null.
+    Point estimates stay null unless both Sprint 2 targets passed ADR-007.
+    Home points are ``(total + margin) / 2``. Away points are
+    ``(total - margin) / 2``.
 
     Returns:
         Document with one record per game. Each record has
         ``PREDICTION_GAME_FIELDS``.
     """
+    model: dict[str, Any] = score_model if score_model is not None else default_score_model()
+    publish_points: bool = model.get("accepted") is True
+    lines: dict[str, dict[str, float | None]] = score_lines or {}
     records: list[dict[str, Any]] = []
     for _, row in games.iterrows():
         game_id: str = str(row["game_id"])
@@ -231,6 +288,7 @@ def build_prediction_document(
             if market_probability is None
             else _round_probability(model_probability - market_probability)
         )
+        estimate: dict[str, float | None] = lines.get(game_id, {}) if publish_points else {}
         records.append(
             {
                 "game_id": game_id,
@@ -242,6 +300,10 @@ def build_prediction_document(
                 "diff": difference,
                 "model_version": model_version,
                 "generated_at": generated_at,
+                "estimated_margin": _round_points(estimate.get("estimated_margin")),
+                "estimated_total": _round_points(estimate.get("estimated_total")),
+                "estimated_home_points": _round_points(estimate.get("estimated_home_points")),
+                "estimated_away_points": _round_points(estimate.get("estimated_away_points")),
             }
         )
     return {
@@ -254,6 +316,7 @@ def build_prediction_document(
         "model_version": model_version,
         "feature_set": feature_set,
         "threshold_pp": DEFAULT_THRESHOLD_PP,
+        "score_model": model,
         "games": records,
     }
 
@@ -268,6 +331,7 @@ def validate_prediction_document(document: dict[str, Any]) -> None:
         "model_name",
         "model_version",
         "feature_set",
+        "score_model",
         "games",
     )
     missing: list[str] = [key for key in required if key not in document]
@@ -295,6 +359,44 @@ def validate_prediction_document(document: dict[str, Any]) -> None:
         expected: float = _round_probability(model_probability - market_value)
         if game["diff"] != expected:
             raise ValueError(f"diff for {game['game_id']} is {game['diff']}, expected {expected}.")
+    _validate_score_model(document["score_model"], document["games"])
+
+
+def _validate_score_model(score_model: object, games: list[dict[str, Any]]) -> None:
+    """Require the accuracy block, and null points unless both targets passed."""
+    if not isinstance(score_model, dict):
+        raise ValueError("score_model must be an object.")
+    for key in ("feature_set", "accepted", "hidden_reason", "margin", "total"):
+        if key not in score_model:
+            raise ValueError(f"score_model is missing {key}.")
+    accepted: object = score_model["accepted"]
+    if not isinstance(accepted, bool):
+        raise ValueError("score_model.accepted must be true or false.")
+    if accepted:
+        if score_model["hidden_reason"] is not None:
+            raise ValueError("An accepted score model has no hidden reason.")
+    elif not isinstance(score_model["hidden_reason"], str) or not score_model["hidden_reason"]:
+        raise ValueError("A hidden score model needs a reason.")
+    for name in ("margin", "total"):
+        target: object = score_model[name]
+        if not isinstance(target, dict):
+            raise ValueError(f"score_model.{name} must be an object.")
+        absent: list[str] = [key for key in SCORE_MODEL_TARGET_FIELDS if key not in target]
+        if absent:
+            raise ValueError(f"score_model.{name} missing keys: {', '.join(absent)}.")
+    for game in games:
+        points: list[object] = [
+            game["estimated_margin"],
+            game["estimated_total"],
+            game["estimated_home_points"],
+            game["estimated_away_points"],
+        ]
+        if accepted:
+            if any(point is None or not math.isfinite(float(point)) for point in points):
+                raise ValueError(f"Accepted score model needs points for {game['game_id']}.")
+            continue
+        if any(point is not None for point in points):
+            raise ValueError(f"Hidden score model must leave points null for {game['game_id']}.")
 
 
 def weeks_present(output_dir: Path, season: int) -> list[int]:

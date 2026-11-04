@@ -54,6 +54,15 @@ h1 .accent{color:var(--color-accent)}
 .p-model::before{content:"";display:inline-block;width:6px;height:6px;margin-right:6px;border-radius:50%;background:var(--color-model);vertical-align:middle}
 
 .matchup{display:flex;flex-direction:column;gap:var(--space-2)}
+.est-score{margin:var(--space-2) 0 0;font-size:var(--text-sm);display:flex;flex-wrap:wrap;align-items:baseline;gap:var(--space-2)}
+.est-score b{font-weight:var(--weight-medium)}
+.est-score .sep{color:var(--color-text-muted)}
+.accuracy{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-4)}
+.accuracy article{background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:var(--space-4)}
+.accuracy h3{margin:0;font-size:var(--text-lg);font-weight:var(--weight-medium)}
+.accuracy .decision{margin:var(--space-2) 0 0;font:500 var(--text-xs) var(--font-mono);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-muted)}
+.metric-row{display:flex;justify-content:space-between;gap:var(--space-3);margin-top:var(--space-2);font-size:var(--text-sm)}
+.metric-row span{color:var(--color-text-muted)}
 .team{display:flex;align-items:center;gap:var(--space-3);padding-left:var(--space-3);border-left:var(--team-accent-width) solid var(--team-accent)}
 .team-name{font-weight:var(--weight-medium)}
 .team-name small{color:var(--color-text-muted);font-weight:var(--weight-regular);font-size:var(--text-xs);margin-left:var(--space-1);font-family:var(--font-mono)}
@@ -126,7 +135,7 @@ h1 .accent{color:var(--color-accent)}
   .card-nums > div > span{font:500 var(--text-xs) var(--font-mono);text-transform:uppercase;letter-spacing:var(--tracking-wide);color:var(--color-text-muted)}
   .card-nums b{font:500 var(--text-lg) var(--font-mono)}
   .card-nums div:last-child{align-items:flex-end}
-  .grid3{grid-template-columns:1fr}
+  .grid3,.accuracy{grid-template-columns:1fr}
   .footer-inner{flex-direction:column;align-items:flex-start}
   .legend{gap:var(--space-4)}
 }
