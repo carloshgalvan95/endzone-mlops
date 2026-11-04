@@ -291,6 +291,100 @@ def test_prediction_document_schema_and_market_gap() -> None:
     assert second["kickoff"] == "2026-11-08"
     assert document["sample"] is False
     assert document["model_version"] == "3"
+    assert document["score_model"]["accepted"] is False
+    assert first["estimated_home_points"] is None
+    assert first["estimated_away_points"] is None
+
+
+def test_accepted_points_follow_margin_and_total() -> None:
+    """Home is (total + margin) / 2. A failed model cannot carry a score."""
+    games = pd.DataFrame(
+        [
+            {
+                "game_id": "G1",
+                "gameday": "2026-11-08",
+                "gametime": "13:00",
+                "home_team": "BUF",
+                "away_team": "MIA",
+            }
+        ]
+    )
+    score_model: dict[str, Any] = {
+        "feature_set": "h2_full",
+        "accepted": True,
+        "hidden_reason": None,
+        "margin": {
+            "decision": "accepted",
+            "baseline_name": "Elo/25",
+            "mae": 10.0,
+            "baseline_mae": 11.0,
+            "market_mae": 10.2,
+        },
+        "total": {
+            "decision": "accepted",
+            "baseline_name": "League mean",
+            "mae": 9.0,
+            "baseline_mae": 10.0,
+            "market_mae": 8.5,
+        },
+    }
+    document = build_prediction_document(
+        season=2026,
+        week=9,
+        games=games,
+        model_probabilities=pd.Series({"G1": 0.6}),
+        market_probabilities={"G1": 0.55},
+        model_name="endzone-winprob",
+        model_version="1",
+        feature_set="h2_full",
+        generated_at="2026-11-04T12:00:00Z",
+        score_lines={
+            "G1": {
+                "estimated_margin": 3.0,
+                "estimated_total": 45.0,
+                "estimated_home_points": 24.0,
+                "estimated_away_points": 21.0,
+            }
+        },
+        score_model=score_model,
+    )
+    validate_prediction_document(document)
+    game = document["games"][0]
+    assert game["estimated_home_points"] == pytest.approx(24.0)
+    assert game["estimated_away_points"] == pytest.approx(21.0)
+    rejected = dict(score_model)
+    rejected["accepted"] = False
+    rejected["hidden_reason"] = "Estimate hidden because it did not pass its pre-registered test."
+    hidden = build_prediction_document(
+        season=2026,
+        week=9,
+        games=games,
+        model_probabilities=pd.Series({"G1": 0.6}),
+        market_probabilities={"G1": 0.55},
+        model_name="endzone-winprob",
+        model_version="1",
+        feature_set="h2_full",
+        generated_at="2026-11-04T12:00:00Z",
+        score_lines={
+            "G1": {
+                "estimated_margin": 3.0,
+                "estimated_total": 45.0,
+                "estimated_home_points": 24.0,
+                "estimated_away_points": 21.0,
+            }
+        },
+        score_model=rejected,
+    )
+    validate_prediction_document(hidden)
+    assert hidden["games"][0]["estimated_home_points"] is None
+    leaked = dict(hidden)
+    leaked["games"] = [dict(hidden["games"][0])]
+    leaked["games"][0]["estimated_margin"] = 3.0
+    leaked["games"][0]["estimated_total"] = 45.0
+    leaked["games"][0]["estimated_home_points"] = 24.0
+    leaked["games"][0]["estimated_away_points"] = 21.0
+    with pytest.raises(ValueError, match="Hidden score model"):
+        validate_prediction_document(leaked)
 
 
 def test_team_catalog_logo_and_hex() -> None:
@@ -395,6 +489,10 @@ def test_score_week_registers_model_and_writes_json(tmp_path: Path) -> None:
     )
     assert missing_line["market_home_wp"] is None
     assert missing_line["diff"] is None
+    assert document["score_model"]["accepted"] is False
+    assert "pre-registered test has not been run" in document["score_model"]["hidden_reason"]
+    assert lined["estimated_home_points"] is None
+    assert lined["estimated_away_points"] is None
     assert lined["kickoff"] == "2024-11-03T13:00:00-05:00"
     week_file = json.loads(Path(result["paths"]["week"]).read_text(encoding="utf-8"))
     assert week_file["model_version"] == result["model_version"]
@@ -419,9 +517,12 @@ def test_shipped_sample_is_labeled_example() -> None:
         assert "2026" not in str(game["game_id"])
         assert "W09" not in str(game["game_id"])
     page = Path("site/index.html").read_text(encoding="utf-8")
+    script = Path("site/assets/app.js").read_text(encoding="utf-8")
     assert "Week 9" not in page
     assert ">2026<" not in page
-    script = Path("site/assets/app.js").read_text(encoding="utf-8")
+    assert "Model accuracy" in page
+    assert "WINS" in script
+    assert "Estimate hidden because it did not pass its pre-registered test." in script
     assert 'loadJson("data/latest.json")' in script
     assert 'loadJson("data/sample.json")' in script
     teams = json.loads(Path("site/data/teams.json").read_text(encoding="utf-8"))
