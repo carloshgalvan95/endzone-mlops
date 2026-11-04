@@ -1,0 +1,155 @@
+/* endzone-mlops design tokens. Source: branding/endzone-mlops kit. Intended path: site/assets/tokens.css */
+
+:root {
+  /* Raw palette (kit hex, exact) */
+  --cream: #F4EEDF;
+  --black: #151515;
+  --blue: #22509B;
+  --crimson: #AE2440;
+  --yellow: #EDB01A;
+  --x-gray: #9A9385;
+  --muted: #5E5950;
+  --line: #D9D1BD;
+  --dark-bg: #1B1F23;
+  --dark-ink: #F4EEDF;
+  --dark-blue: #5A86D6;
+  --dark-crimson: #D04A63;
+  --dark-x-gray: #8C877D;
+  --dark-muted: #A9A396;
+  --dark-line: #30363C;
+  --grid: #E8E0CC;
+  --dark-grid: #262B30;
+
+  /* Semantic surfaces (dark default) */
+  --color-bg: var(--dark-bg);
+  --color-surface: var(--dark-grid);
+  --color-surface-raised: var(--dark-grid);
+  --color-surface-overlay: var(--dark-line);
+  --color-border: var(--dark-line);
+  --color-border-strong: var(--dark-x-gray);
+  --color-grid: var(--dark-grid);
+
+  /* Text */
+  --color-text: var(--dark-ink);
+  --color-text-muted: var(--dark-muted);
+  --color-text-inverse: var(--black);
+
+  /* Brand accents */
+  --color-brand: var(--dark-blue);
+  --color-brand-strong: var(--blue);
+  --color-accent: var(--dark-crimson);
+  --color-accent-strong: var(--crimson);
+  --color-mark-tri: var(--yellow);
+
+  /* Model vs market vs disagreement (keep our palette for semantics) */
+  --color-model: var(--dark-blue);
+  --color-model-soft: rgba(90, 134, 214, 0.18);
+  --color-market: var(--dark-muted);
+  --color-market-soft: rgba(169, 163, 150, 0.16);
+  --color-disagreement: var(--yellow);
+  --color-disagreement-soft: rgba(237, 176, 26, 0.07);
+  --color-disagreement-ink: var(--black);
+
+  /* Positive / negative (kit only: blue up, crimson down; crimson text large only) */
+  --color-positive: var(--dark-blue);
+  --color-negative: var(--dark-crimson);
+
+  /* Honest banner */
+  --color-banner-bg: var(--color-surface-raised);
+  --color-banner-border: var(--color-accent);
+  --color-banner-text: var(--color-text);
+
+  /* Team logo chip (neutral so dark logos stay visible on #1B1F23) */
+  --logo-disc-size: 36px;
+  --logo-disc-size-lg: 44px;
+  --logo-disc-bg: var(--cream);
+  --logo-disc-border: rgba(27, 31, 35, 0.12);
+  --logo-disc-fallback-ink: var(--black);
+  --logo-disc-fallback-muted: var(--muted);
+  --team-accent: var(--dark-line);
+  --team-accent-width: 3px;
+  --team-accent-2: transparent;
+
+  /* Spacing (4 / 8 base) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --space-9: 96px;
+
+  /* Radii */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-pill: 999px;
+  --radius-disc: 50%;
+
+  /* Type */
+  --font-sans: "Jost", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "IBM Plex Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --text-3xl: 1.875rem;
+  --text-4xl: 2.25rem;
+  --leading-tight: 1.2;
+  --leading-snug: 1.35;
+  --leading-normal: 1.5;
+  --tracking-tight: -0.02em;
+  --tracking-wide: 0.04em;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-bold: 700;
+
+  /* Layout */
+  --max-width: 1120px;
+  --header-height: 64px;
+  --shadow-soft: 0 1px 0 rgba(255, 255, 255, 0.04), 0 8px 24px rgba(0, 0, 0, 0.28);
+  --focus-ring: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-brand);
+
+  /* Probability bar */
+  --prob-bar-height: 8px;
+  --prob-bar-radius: var(--radius-pill);
+}
+
+@media (prefers-color-scheme: light) {
+  :root.auto-theme {
+    --color-bg: var(--cream);
+    --color-surface: var(--cream);
+    --color-surface-raised: var(--grid);
+    --color-surface-overlay: var(--grid);
+    --color-border: var(--line);
+    --color-border-strong: var(--x-gray);
+    --color-grid: var(--grid);
+    --color-text: var(--black);
+    --color-text-muted: var(--muted);
+    --color-text-inverse: var(--cream);
+    --color-brand: var(--blue);
+    --color-brand-strong: var(--blue);
+    --color-accent: var(--crimson);
+    --color-accent-strong: var(--crimson);
+    --color-model: var(--blue);
+    --color-model-soft: rgba(34, 80, 155, 0.12);
+    --color-market: var(--muted);
+    --color-market-soft: rgba(94, 89, 80, 0.12);
+    --color-disagreement: var(--yellow);
+    --color-disagreement-soft: rgba(237, 176, 26, 0.2);
+    --color-disagreement-ink: var(--black);
+    --color-positive: var(--blue);
+    --color-negative: var(--crimson);
+    --color-banner-bg: var(--grid);
+    --color-banner-border: var(--crimson);
+    --color-banner-text: var(--black);
+    --logo-disc-bg: var(--cream);
+    --logo-disc-border: var(--line);
+    --shadow-soft: 0 1px 0 rgba(21, 21, 21, 0.04), 0 8px 24px rgba(21, 21, 21, 0.08);
+  }
+}

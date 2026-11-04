@@ -160,19 +160,17 @@ def train_baseline_home(
     return model, _validation_metrics(y_val, y_pred, y_pred_proba)
 
 
-def train_logistic_regression(
+def fit_logistic_pipeline(
     X_train: pd.DataFrame,
     y_train: pd.Series,
-    X_val: pd.DataFrame,
-    y_val: pd.Series,
     C: float = 1.0,
     max_iter: int = 1000,
     random_state: int = 42,
-) -> tuple[Pipeline, dict[str, float]]:
-    """Train logistic regression with imputation and standard scaling.
+) -> Pipeline:
+    """Fit logistic regression with imputation and standard scaling.
 
-    Scaling is applied only in this pipeline, after imputation, so lbfgs can
-    converge when ``C`` is large and feature scales differ.
+    Scaling follows imputation so lbfgs can converge when ``C`` is large and
+    the feature scales differ. The caller scores whatever rows it needs.
     """
     feature_cols: list[str] = model_feature_columns(X_train)
     pipeline = Pipeline(
@@ -191,6 +189,30 @@ def train_logistic_regression(
         ]
     )
     pipeline.fit(X_train[feature_cols], y_train)
+    return pipeline
+
+
+def train_logistic_regression(
+    X_train: pd.DataFrame,
+    y_train: pd.Series,
+    X_val: pd.DataFrame,
+    y_val: pd.Series,
+    C: float = 1.0,
+    max_iter: int = 1000,
+    random_state: int = 42,
+) -> tuple[Pipeline, dict[str, float]]:
+    """Train logistic regression and score the validation split.
+
+    The fitted pipeline is the same one ``fit_logistic_pipeline`` returns.
+    """
+    pipeline: Pipeline = fit_logistic_pipeline(
+        X_train,
+        y_train,
+        C=C,
+        max_iter=max_iter,
+        random_state=random_state,
+    )
+    feature_cols: list[str] = model_feature_columns(X_train)
     y_pred_proba: np.ndarray = pipeline.predict_proba(X_val[feature_cols])[:, 1]
     y_pred: np.ndarray = pipeline.predict(X_val[feature_cols])
     return pipeline, _validation_metrics(y_val, y_pred, y_pred_proba)

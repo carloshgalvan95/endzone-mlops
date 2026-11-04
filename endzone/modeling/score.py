@@ -1,0 +1,310 @@
+"""Score one unplayed week with the reference logistic model.
+
+Canonical command: ``python -m endzone.modeling.score``.
+Fits ``h2_full`` on every completed game, logs the pipeline with a signature,
+registers ``endzone-winprob``, and writes the week JSON under ``site/data``.
+"""
+
+from __future__ import annotations
+
+import argparse
+import math
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any, NamedTuple
+
+import mlflow
+import pandas as pd
+from mlflow.models import infer_signature
+from sklearn.pipeline import Pipeline
+
+from endzone.config import configured_tracking_uri
+from endzone.features.pregame import (
+    build_pregame_features,
+    feature_columns_for,
+    market_home_probabilities,
+    prepare_training_data,
+)
+from endzone.modeling.dataset import load_data, load_upcoming_games, validate_feature_columns
+from endzone.modeling.models import fit_logistic_pipeline
+from endzone.modeling.tracking import (
+    RegisteredModelLog,
+    activate_tracking_experiment,
+    get_git_sha,
+    log_registered_sklearn_model,
+)
+from endzone.modeling.weekly import (
+    DEFAULT_OUTPUT_DIR,
+    REGISTERED_MODEL_NAME,
+    WEEKLY_EXPERIMENT_NAME,
+    WEEKLY_FEATURE_SET,
+    build_prediction_document,
+    completed_games,
+    load_team_catalog,
+    parse_optional_int,
+    select_slate,
+    slate_for_features,
+    team_catalog_document,
+    write_prediction_bundle,
+)
+from endzone.utils.logging import setup_logger
+
+logger = setup_logger(__name__)
+
+
+class WeeklyScoreSettings(NamedTuple):
+    """Knobs for one weekly fit. Defaults match the reference logistic model."""
+
+    season: int | None = None
+    week: int | None = None
+    lookback_games: int = 10
+    logistic_c: float = 1.0
+    logistic_max_iter: int = 1000
+    random_state: int = 42
+    output_dir: Path = DEFAULT_OUTPUT_DIR
+    tracking_uri: str | None = None
+    model_name: str = REGISTERED_MODEL_NAME
+    generated_at: datetime | None = None
+
+
+def score_upcoming_week(
+    games: pd.DataFrame,
+    team_games: pd.DataFrame,
+    upcoming: pd.DataFrame,
+    team_catalog: pd.DataFrame,
+    settings: WeeklyScoreSettings,
+) -> dict[str, Any]:
+    """Fit ``h2_full`` on completed games and score one unplayed week.
+
+    Features for every row use only games with ``gameday`` strictly before
+    that game. Unplayed rows are not treated as results.
+
+    Returns:
+        Dict with ``document``, ``paths``, ``model_version``, and ``run_id``.
+    """
+    chosen: dict[str, Any] = select_slate(upcoming, settings.season, settings.week)
+    history: pd.DataFrame = completed_games(games)
+    slate: pd.DataFrame = slate_for_features(chosen["games"])
+    features: pd.DataFrame = build_pregame_features(
+        pd.concat([history, slate], ignore_index=True),
+        team_games,
+        lookback_games=settings.lookback_games,
+    )
+    history_ids: set[str] = set(history["game_id"].astype(str))
+    history_features: pd.DataFrame = features.loc[
+        features["game_id"].astype(str).isin(history_ids)
+    ].copy()
+    validate_feature_columns(history_features, (WEEKLY_FEATURE_SET,))
+    train_x, train_y = prepare_training_data(
+        history,
+        features,
+        feature_set=WEEKLY_FEATURE_SET,
+    )
+    labeled: pd.Series = train_y.notna()
+    train_x = train_x.loc[labeled].reset_index(drop=True)
+    train_y = train_y.loc[labeled].astype(int).reset_index(drop=True)
+    if train_y.nunique() < 2:
+        raise ValueError("Completed games need both home wins and home losses to fit h2_full.")
+
+    columns: list[str] = list(feature_columns_for(WEEKLY_FEATURE_SET))
+    # Float columns keep a missing value representable in the model signature.
+    train_x[columns] = train_x[columns].astype(float)
+    pipeline: Pipeline = fit_logistic_pipeline(
+        train_x,
+        train_y,
+        C=settings.logistic_c,
+        max_iter=settings.logistic_max_iter,
+        random_state=settings.random_state,
+    )
+    score_frame: pd.DataFrame = _score_frame(slate, features, columns)
+    score_frame[columns] = score_frame[columns].astype(float)
+    probabilities: pd.Series = pd.Series(
+        pipeline.predict_proba(score_frame[columns])[:, 1],
+        index=score_frame["game_id"].astype(str),
+    )
+    example: pd.DataFrame = train_x[columns].head(1)
+    signature = infer_signature(example, pipeline.predict_proba(example)[:, 1])
+    tracking_uri: str = settings.tracking_uri or configured_tracking_uri()
+    activate_tracking_experiment(WEEKLY_EXPERIMENT_NAME, tracking_uri)
+    generated_at: str = _generated_at(settings.generated_at)
+    with mlflow.start_run(run_name=f"score-{chosen['season']}-w{chosen['week']}"):
+        _log_score_params(settings, chosen, train_x, slate, columns)
+        mlflow.set_tag("git_commit", get_git_sha())
+        mlflow.set_tag("feature_set", WEEKLY_FEATURE_SET)
+        mlflow.set_tag("stage", "weekly")
+        logged: RegisteredModelLog = log_registered_sklearn_model(
+            pipeline,
+            signature=signature,
+            input_example=example,
+            registered_model_name=settings.model_name,
+        )
+    document: dict[str, Any] = build_prediction_document(
+        season=chosen["season"],
+        week=chosen["week"],
+        games=slate,
+        model_probabilities=probabilities,
+        market_probabilities=_market_by_game(slate),
+        model_name=settings.model_name,
+        model_version=logged.model_version,
+        feature_set=WEEKLY_FEATURE_SET,
+        generated_at=generated_at,
+    )
+    teams: dict[str, Any] = team_catalog_document(team_catalog)
+    paths: dict[str, str] = write_prediction_bundle(document, teams, Path(settings.output_dir))
+    logger.info(
+        "Registered %s version %s for %s week %s (%s games).",
+        settings.model_name,
+        logged.model_version,
+        chosen["season"],
+        chosen["week"],
+        len(document["games"]),
+    )
+    return {
+        "document": document,
+        "paths": paths,
+        "model_version": logged.model_version,
+        "run_id": logged.run_id,
+    }
+
+
+def _score_frame(
+    slate: pd.DataFrame,
+    features: pd.DataFrame,
+    columns: list[str],
+) -> pd.DataFrame:
+    """Return feature rows for the slate, in slate order."""
+    ordered_ids: list[str] = [str(game_id) for game_id in slate["game_id"].tolist()]
+    feature_rows: pd.DataFrame = features.copy()
+    feature_rows["game_id"] = feature_rows["game_id"].astype(str)
+    found: set[str] = set(feature_rows["game_id"])
+    missing: list[str] = [game_id for game_id in ordered_ids if game_id not in found]
+    if missing:
+        missing_list: str = ", ".join(missing)
+        raise ValueError(f"Feature build did not return every upcoming game: {missing_list}.")
+    merged: pd.DataFrame = pd.DataFrame({"game_id": ordered_ids}).merge(
+        feature_rows,
+        on="game_id",
+        how="left",
+    )
+    return merged.loc[:, ["game_id", *columns]].reset_index(drop=True)
+
+
+def _market_by_game(slate: pd.DataFrame) -> dict[str, float | None]:
+    """No-vig home probability for each slate game, or None when the line is absent."""
+    market: dict[str, Any] = market_home_probabilities(slate)
+    probabilities: pd.Series | None = market["probabilities"]
+    mapped: dict[str, float | None] = {}
+    game_ids: list[str] = [str(game_id) for game_id in slate["game_id"].tolist()]
+    if probabilities is None:
+        return {game_id: None for game_id in game_ids}
+    for game_id, value in zip(game_ids, probabilities.tolist(), strict=True):
+        if value is None or (isinstance(value, float) and math.isnan(value)):
+            mapped[game_id] = None
+        else:
+            mapped[game_id] = float(value)
+    return mapped
+
+
+def _generated_at(clock: datetime | None) -> str:
+    """UTC timestamp with a ``Z`` suffix."""
+    moment: datetime = clock if clock is not None else datetime.now(UTC)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _log_score_params(
+    settings: WeeklyScoreSettings,
+    chosen: dict[str, Any],
+    train_x: pd.DataFrame,
+    slate: pd.DataFrame,
+    columns: list[str],
+) -> None:
+    """Log the fit settings on the active run. No held-out test metric is read."""
+    mlflow.log_param("model_type", "logistic")
+    mlflow.log_param("feature_set", WEEKLY_FEATURE_SET)
+    mlflow.log_param("model_name", settings.model_name)
+    mlflow.log_param("C", settings.logistic_c)
+    mlflow.log_param("max_iter", settings.logistic_max_iter)
+    mlflow.log_param("random_state", settings.random_state)
+    mlflow.log_param("lookback_games", settings.lookback_games)
+    mlflow.log_param("season", chosen["season"])
+    mlflow.log_param("week", chosen["week"])
+    mlflow.log_param("n_train", len(train_x))
+    mlflow.log_param("n_scored", len(slate))
+    mlflow.log_param("train_season_min", int(train_x["season"].min()))
+    mlflow.log_param("train_season_max", int(train_x["season"].max()))
+    mlflow.log_param("features", ",".join(columns))
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Build the weekly scoring parser."""
+    parser = argparse.ArgumentParser(
+        description="Score the next unplayed week with logistic h2_full."
+    )
+    parser.add_argument(
+        "--season",
+        type=str,
+        default="auto",
+        help="Season to score. auto uses the earliest season that still has an unplayed game.",
+    )
+    parser.add_argument(
+        "--week",
+        type=str,
+        default="auto",
+        help="Week to score. auto uses the earliest unplayed week in that season.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=str(DEFAULT_OUTPUT_DIR),
+        help="Directory for latest.json, teams.json, and predictions/<season>-w<week>.json.",
+    )
+    parser.add_argument("--lookback", type=int, default=10)
+    parser.add_argument("--C", type=float, default=1.0)
+    parser.add_argument("--max-iter", type=int, default=1000)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--fixture-path",
+        type=str,
+        default=None,
+        help="Parquet fixture directory. Omit it to read the warehouse.",
+    )
+    parser.add_argument(
+        "--teams-path",
+        type=str,
+        default=None,
+        help="Local teams_colors_logos CSV or teams.json. Omit it to download nflverse.",
+    )
+    parser.add_argument(
+        "--tracking-uri",
+        type=str,
+        default=None,
+        help="MLflow tracking URI. The default is the configured sqlite or Databricks URI.",
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> dict[str, Any]:
+    """Score one week and return the written document summary."""
+    args: argparse.Namespace = build_parser().parse_args(argv)
+    fixture_path: str | None = args.fixture_path if args.fixture_path else None
+    games, team_games = load_data(fixture_path)
+    upcoming: pd.DataFrame = load_upcoming_games(fixture_path)
+    teams_path: Path | None = Path(args.teams_path) if args.teams_path else None
+    catalog: pd.DataFrame = load_team_catalog(teams_path)
+    settings = WeeklyScoreSettings(
+        season=parse_optional_int(args.season),
+        week=parse_optional_int(args.week),
+        lookback_games=args.lookback,
+        logistic_c=args.C,
+        logistic_max_iter=args.max_iter,
+        random_state=args.seed,
+        output_dir=Path(args.output_dir),
+        tracking_uri=args.tracking_uri,
+    )
+    return score_upcoming_week(games, team_games, upcoming, catalog, settings)
+
+
+if __name__ == "__main__":
+    main()

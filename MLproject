@@ -14,3 +14,10 @@ entry_points:
 
   verify_reference:
     command: "python -m endzone.train.train --verify-reference"
+
+  score:
+    parameters:
+      season: {type: string, default: auto}
+      week: {type: string, default: auto}
+      output_dir: {type: string, default: site/data}
+    command: "python -m endzone.modeling.score --season {season} --week {week} --output-dir {output_dir}"

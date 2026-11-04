@@ -1,0 +1,9 @@
+<svg role="img" aria-label="endzone-mlops" xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+<rect width="64" height="64" rx="10" fill="#1B1F23"/><g transform="translate(-15.316,0.799) scale(0.058704)">
+<g transform="scale(62.5)">
+<path d="M 11.4853 8.0000 L 9.6878 6.2025 L 18.7970 4.2030 L 17.9635 8.0000 L 20.8000 8.0000 L 20.8000 2.0000 L 5.0000 2.0000 L 5.0000 8.0000 Z" fill="#D04A63" fill-rule="evenodd"/>
+<path d="M 7.000 14.000 L 9.000 14.000 L 13.950 9.050" fill="none" stroke="#F4EEDF" stroke-width="2.0" stroke-linejoin="miter" stroke-linecap="butt"/>
+<polygon points="17.485,5.515 16.212,11.313 11.687,6.788" fill="#EDB01A"/>
+</g>
+</g>
+</svg>

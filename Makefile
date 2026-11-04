@@ -1,4 +1,4 @@
-.PHONY: help setup install lint lint-structure test vulture dbt-compile dbt-run dbt-test clean reproduce data ingest ingest-current marts dbt-build-databricks train train-sweep train-cv mlflow-ui audit-features check-epa-filter verify-reference
+.PHONY: help setup install lint lint-structure test vulture dbt-compile dbt-run dbt-test clean reproduce data ingest ingest-current marts dbt-build-databricks train train-sweep train-cv mlflow-ui audit-features check-epa-filter verify-reference score
 
 # Finished bronze and mart steps. Gitignored. A second train-cv does not
 # reload bronze when these stamps are current.
@@ -32,6 +32,7 @@ help:
 	@echo "  audit-features      - Profile current pregame inputs (no feature changes)"
 	@echo "  check-epa-filter    - Count play types in the EPA filter, plus kneel and spike rows"
 	@echo "  verify-reference    - Refit logistic h2_full and fail if it drifts from the reference file"
+	@echo "  score               - Fit logistic h2_full, register it, and score one unplayed week"
 	@echo "  reproduce           - install, Databricks dbt build, verify-reference"
 	@echo "  clean               - Remove build artifacts"
 	@echo ""
@@ -132,6 +133,12 @@ check-epa-filter:
 
 verify-reference:
 	python -m endzone.train.train --verify-reference
+
+# Fit logistic h2_full on completed games and score one unplayed week.
+# make score SEASON=2026 WEEK=9
+# Generated JSON under site/data is not committed. See ADR-006.
+score:
+	python -m endzone.modeling.score $(if $(SEASON),--season $(SEASON),) $(if $(WEEK),--week $(WEEK),)
 
 # Installs the lock, builds Databricks marts from bronze already in the
 # warehouse, and refits the reference. It does not download nflverse and it

@@ -1280,6 +1280,8 @@ def build_pregame_features(
         - diff_rest_days: Home rest days minus away rest days
 
     Missing history handling: Features use NaN (not 0) when insufficient prior games exist.
+    A row with a missing ``home_won`` is an unplayed game. It is not history
+    for the win rate. Team EPA still comes only from ``fct_team_game_epa``.
     A difference is NaN when either side is NaN. Use sklearn
     SimpleImputer(strategy='constant', fill_value=0) for EPA features and for
     difference columns, and SimpleImputer(strategy='constant', fill_value=0.5)
@@ -1375,17 +1377,21 @@ def build_pregame_features(
         home_prior = prior_games[prior_games["team_franchise"] == home_team].copy()
         away_prior = prior_games[prior_games["team_franchise"] == away_team].copy()
 
-        # Rolling win rate (from fct_games via team_franchise)
-        home_recent_games = fct_games[
-            (fct_games["gameday"] < game_date)
+        # Rolling win rate (from fct_games via team_franchise).
+        # Unplayed rows have no home_won and are not results.
+        played_games = fct_games["home_won"].notna()
+        home_recent_games = fct_games.loc[
+            played_games
+            & (fct_games["gameday"] < game_date)
             & (
                 (fct_games["home_team_franchise"] == home_team)
                 | (fct_games["away_team_franchise"] == home_team)
             )
         ].tail(lookback_games)
 
-        away_recent_games = fct_games[
-            (fct_games["gameday"] < game_date)
+        away_recent_games = fct_games.loc[
+            played_games
+            & (fct_games["gameday"] < game_date)
             & (
                 (fct_games["home_team_franchise"] == away_team)
                 | (fct_games["away_team_franchise"] == away_team)

@@ -31,6 +31,7 @@ function Show-Help {
     Write-Host "  audit-features      - Profile current pregame inputs (no feature changes)"
     Write-Host "  check-epa-filter    - Count play types in the EPA filter, plus kneel and spike rows"
     Write-Host "  verify-reference    - Refit logistic h2_full and fail if it drifts from the reference file"
+    Write-Host "  score               - Fit logistic h2_full, register it, and score one unplayed week"
     Write-Host "  clean               - Remove build artifacts"
     Write-Host "  reproduce           - install, Databricks dbt build, verify-reference"
     Write-Host ""
@@ -192,6 +193,15 @@ function Invoke-VerifyReference {
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
+function Invoke-Score {
+    Write-Host "Scoring one unplayed week with logistic h2_full..."
+    $scoreArgs = @("-m", "endzone.modeling.score")
+    if ($env:SEASON) { $scoreArgs += @("--season", $env:SEASON) }
+    if ($env:WEEK) { $scoreArgs += @("--week", $env:WEEK) }
+    python @scoreArgs
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
 function Invoke-Reproduce {
     Invoke-Install
     Invoke-DbtBuildDatabricks
@@ -263,6 +273,7 @@ switch ($Target.ToLower()) {
     "audit-features" { Invoke-AuditFeatures }
     "check-epa-filter" { Invoke-CheckEpaFilter }
     "verify-reference" { Invoke-VerifyReference }
+    "score" { Invoke-Score }
     "clean" { Invoke-Clean }
     "reproduce" { Invoke-Reproduce }
     default {

@@ -49,6 +49,33 @@ def load_data(
     return fct_games, fct_team_game_epa
 
 
+def load_upcoming_games(fixture_path: str | None = None) -> pd.DataFrame:
+    """Load ``fct_upcoming_games`` from Databricks or a fixture directory.
+
+    Args:
+        fixture_path: Optional directory containing ``fct_upcoming_games.parquet``.
+            None reads the warehouse.
+
+    Returns:
+        One row per scheduled game that has no final score.
+
+    Raises:
+        FileNotFoundError: The fixture directory has no upcoming-games file.
+    """
+    if fixture_path:
+        fixture_dir = Path(fixture_path)
+        upcoming_file = fixture_dir / "fct_upcoming_games.parquet"
+        if not upcoming_file.exists():
+            raise FileNotFoundError(
+                f"Fixtures not found in {fixture_dir}. Expected: {upcoming_file.name}"
+            )
+        logger.info("Loading upcoming games from fixtures: %s", fixture_dir)
+        return pd.read_parquet(upcoming_file)
+    logger.info("Loading upcoming games from Databricks")
+    with DatabricksClient() as client:
+        return client.read_table("fct_upcoming_games")
+
+
 def load_qb_inputs(
     fixture_path: str | None = None,
 ) -> tuple[pd.DataFrame | None, pd.DataFrame | None]:

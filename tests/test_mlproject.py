@@ -6,6 +6,7 @@ from pathlib import Path
 from mlflow.projects._project_spec import load_project
 
 from endzone.ingest.cli import _build_parser as build_ingest_parser
+from endzone.modeling.score import build_parser as build_score_parser
 from endzone.modeling.train import build_parser as build_train_parser
 
 _REPO_ROOT: Path = Path(__file__).resolve().parents[1]
@@ -27,10 +28,25 @@ def _option_strings(parser: argparse.ArgumentParser) -> set[str]:
 
 
 def test_mlflow_loads_entry_points() -> None:
-    """MLflow reads ingest, train_cv, and verify_reference from MLproject."""
+    """MLflow reads ingest, train_cv, verify_reference, and score from MLproject."""
     project = load_project(str(_REPO_ROOT))
     names: set[str] = set(project._entry_points)
-    assert names == {"ingest", "train_cv", "verify_reference"}
+    assert names == {"ingest", "train_cv", "verify_reference", "score"}
+
+
+def test_score_parameters_match_the_cli() -> None:
+    """The score entry point passes season, week, and the output directory."""
+    project = load_project(str(_REPO_ROOT))
+    entry = project.get_entry_point("score")
+    rendered: str = entry.compute_command({}, None)
+    score_flags: set[str] = _option_strings(build_score_parser())
+    assert "endzone.modeling.score" in rendered
+    for flag in ("--season", "--week", "--output-dir"):
+        assert flag in score_flags
+        assert flag in rendered
+    assert entry.parameters["season"].default == "auto"
+    assert entry.parameters["week"].default == "auto"
+    assert entry.parameters["output_dir"].default == "site/data"
 
 
 def test_train_cv_parameters_match_cli_flags() -> None:
