@@ -36,7 +36,7 @@ Each game: `game_id`, `kickoff`, `home`, `away`, `model_home_wp`, `market_home_w
 
 ### Later sprints
 
-Sprint 2 adds margin and total regressions. The acceptance threshold is fixed before the fit, in the same spirit as ADR-005. The number is chosen then, not after the result. The page keeps a labeled example slot for an estimated score until that model clears its bar.
+Sprint 2 is ADR-007. The acceptance rule was fixed before the fit. Home points are `(total + margin) / 2` and away points are `(total - margin) / 2`, rounded on the page only. Until both targets pass, the page leaves the estimate null and says it did not pass its pre-registered test. The win-probability box is unchanged.
 
 The weekly Pages job is the publish step. A track record of past weeks, beyond keeping the week files the job already wrote, is still later work. The 0.003 rule is not moved because a page exists.
 

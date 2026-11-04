@@ -20,3 +20,5 @@ Modules group one responsibility. Size is a smell to review, not a gate.
 ## Consequences
 
 Import-linter keeps the layer order in `pyproject.toml`. A new file has to sit on that graph. The golden CV file and the CLI flags stay as they are.
+
+Sprint 2 margin and total is ADR-007. It adds `points_spec.py` (the score YAML), `points_eval.py` (MAE and the acceptance rule), and `points.py` (the rolling-origin fit). The classification catalog skips `task: score` files.
