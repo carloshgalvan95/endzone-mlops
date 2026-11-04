@@ -47,6 +47,9 @@
     if (missing(game.model_home) || missing(game.market_home)) return null;
     return Math.round((Number(game.model_home) - Number(game.market_home)) * 100);
   }
+  function homeWins(modelHome) {
+    return Number(modelHome) >= 0.5;
+  }
 
   function disc(team) {
     var chip = el("span", "disc");
@@ -76,10 +79,19 @@
     row.appendChild(name);
     return row;
   }
+  function pickBox(team, role, isWin) {
+    var box = el("div", "pick-box" + (isWin ? " win" : ""));
+    box.appendChild(teamRow(team, role));
+    if (isWin) box.appendChild(el("span", "pick-label", "WINS"));
+    return box;
+  }
   function matchup(game) {
+    var homePick = homeWins(game.model_home);
     var block = el("div", "matchup");
-    block.appendChild(teamRow(game.away, "away"));
-    block.appendChild(teamRow(game.home, "home"));
+    var winner = homePick ? game.home.name : game.away.name;
+    block.appendChild(pickBox(game.away, "away", !homePick));
+    block.appendChild(pickBox(game.home, "home", homePick));
+    block.setAttribute("aria-label", "Model pick: " + winner + " wins");
     return block;
   }
   function bar(game) {
@@ -162,7 +174,9 @@
         ["Diff.", null, ""]
       ].forEach(function (item) {
         var column = el("div");
-        column.appendChild(el("span", null, item[0]));
+        var label = el("span", null, item[0]);
+        if (item[0] === "Model") label.title = "Home team's win probability";
+        column.appendChild(label);
         if (item[1]) column.appendChild(el("b", item[2], item[1]));
         else {
           var value = el("b");

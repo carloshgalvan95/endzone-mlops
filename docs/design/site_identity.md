@@ -2,6 +2,8 @@
 
 The page in `site/` is English. Two strings differ from the Spanish draft below. The honest banner reads: "Open experiment. Model log loss 0.6377 vs market 0.6120 (the market wins). Not betting picks." The disagreement badge reads "DISAGREES". The example flag reads "EXAMPLE".
 
+The model always picks one team. Home wins when `model_home_wp` is at least 0.5. Otherwise the away team wins. The box uses `--pick-win` and `--pick-win-label` (kit yellow, `#EDB01A`), fill `--pick-win-fill`, stroke `--pick-stroke` (1.5 px), radius `--pick-radius`, and padding `--pick-pad` (4 px), so the 3 px team-color border sits inside the outline. On a disagreement row the box keeps the dark fill and a 2 px halo in that same fill. The disagreement badge stays in the Diff. column. The light theme sets the outline and the WINS label to `--black` on a cream fill. The Model legend and column tooltip say the percentage is the home team's win probability.
+
 The rest of this note is the design specification, copied as delivered.
 
 ---

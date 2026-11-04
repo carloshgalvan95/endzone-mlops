@@ -79,6 +79,12 @@ h1 .accent{color:var(--color-accent)}
 .diff .v.neg{color:var(--color-text)}
 .diff .v.neg::after{content:"";display:inline-block;width:6px;height:6px;margin-left:6px;border-radius:50%;background:var(--color-negative);vertical-align:middle}
 
+.pick-box{display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);padding:var(--pick-pad) var(--space-2) var(--pick-pad) var(--pick-pad);margin:calc(-1 * var(--pick-pad) - var(--pick-stroke)) 0;border:var(--pick-stroke) solid transparent;border-radius:var(--pick-radius)}
+.pick-box.win{border-color:var(--pick-win);background:var(--pick-win-fill)}
+.pick-label{font:600 var(--text-xs) var(--font-mono);letter-spacing:var(--tracking-wide);text-transform:uppercase;line-height:1}
+.pick-box.win .pick-label{color:var(--pick-win-label)}
+.games .matchup{max-width:280px}
+.dis .pick-box.win{box-shadow:0 0 0 2px var(--pick-win-fill)}
 .cards{display:none;list-style:none;margin:0;padding:0}
 .note{font-size:var(--text-sm);color:var(--color-text-muted);margin:var(--space-3) 0 0}
 

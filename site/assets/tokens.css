@@ -50,6 +50,14 @@
   --color-disagreement-soft: rgba(237, 176, 26, 0.07);
   --color-disagreement-ink: var(--black);
 
+  /* Model pick in the Game column. Reuses kit yellow. */
+  --pick-win: var(--yellow);
+  --pick-win-label: var(--yellow);
+  --pick-win-fill: var(--dark-bg);
+  --pick-stroke: 1.5px;
+  --pick-radius: var(--radius-md);
+  --pick-pad: 4px;
+
   /* Positive / negative (kit only: blue up, crimson down; crimson text large only) */
   --color-positive: var(--dark-blue);
   --color-negative: var(--dark-crimson);
@@ -144,6 +152,9 @@
     --color-disagreement-soft: rgba(237, 176, 26, 0.2);
     --color-disagreement-ink: var(--black);
     --color-positive: var(--blue);
+    --pick-win: var(--black);
+    --pick-win-label: var(--black);
+    --pick-win-fill: var(--cream);
     --color-negative: var(--crimson);
     --color-banner-bg: var(--grid);
     --color-banner-border: var(--crimson);
