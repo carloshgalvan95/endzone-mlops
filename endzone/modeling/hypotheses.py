@@ -297,7 +297,12 @@ def _load_catalog(directory: Path) -> ExperimentCatalog:
     experiments: list[ExperimentSpec] = []
     for path in paths:
         payload: object = yaml.safe_load(path.read_text(encoding="utf-8"))
+        # Sprint 2 margin and total is a separate file. ADR-007.
+        if isinstance(payload, dict) and payload.get("task") == "score":
+            continue
         experiments.append(_parse_experiment(_require_mapping(payload, path), path))
+    if not experiments:
+        raise ValueError(f"No classification experiment YAML files in {directory}")
     by_id: dict[str, ExperimentSpec] = {}
     by_alias: dict[str, ExperimentSpec] = {}
     by_tag: dict[str, ExperimentSpec] = {}

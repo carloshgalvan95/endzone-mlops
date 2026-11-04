@@ -1,0 +1,29 @@
+id: s2
+task: score
+feature_set: h2_full
+model: ridge
+ridge_alpha: 1.0
+random_state: 42
+cv_start_season: 2016
+cv_end_season: 2023
+n_bootstrap: 1000
+bootstrap_seed: 42
+min_seasons_improved: 5
+season_count: 8
+elo_points_per_spread: 25
+interval_coverage: 0.8
+winprob_log_loss_benchmark: 0.638
+market_margin_multiplier: -1
+experiment_name: nfl_pregame/sprint2_score
+phase_tag: sprint2
+hypothesis_tag: s2-margin-total
+output_dir: reports/sprint2
+title: Sprint 2 margin and total
+note: "Sprint 2 ridge on h2_full for home margin and total points. Acceptance is ADR-007. 2024 and 2025 are not scored. A target is registered only when it passes."
+targets:
+  - name: margin
+    baseline: elo_spread
+    registered_model_name: endzone-margin
+  - name: total
+    baseline: league_mean
+    registered_model_name: endzone-total
