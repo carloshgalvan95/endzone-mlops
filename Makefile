@@ -137,8 +137,14 @@ verify-reference:
 # Fit logistic h2_full on completed games and score one unplayed week.
 # make score SEASON=2026 WEEK=9
 # Generated JSON under site/data is not committed. See ADR-006.
+# Margin and total stay null unless both pass ADR-007.
 score:
 	python -m endzone.modeling.score $(if $(SEASON),--season $(SEASON),) $(if $(WEEK),--week $(WEEK),)
+
+# Sprint 2 margin and total CV. Writes reports/sprint2/cv_report.json.
+# Registers endzone-margin and endzone-total only when each target passes.
+train-s2:
+	python -m endzone.modeling.points
 
 # Installs the lock, builds Databricks marts from bronze already in the
 # warehouse, and refits the reference. It does not download nflverse and it

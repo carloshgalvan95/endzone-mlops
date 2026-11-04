@@ -1,4 +1,4 @@
-"""Model factories for the home prior, logistic regression, fold-tuned L2, and GBM."""
+"""Model factories for the home prior, logistic regression, fold-tuned L2, ridge, and GBM."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.dummy import DummyClassifier
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.impute import SimpleImputer
-from sklearn.linear_model import LogisticRegression
+from sklearn.linear_model import LogisticRegression, Ridge
 from sklearn.metrics import accuracy_score, brier_score_loss, log_loss, roc_auc_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -186,6 +186,33 @@ def fit_logistic_pipeline(
                     random_state=random_state,
                 ),
             ),
+        ]
+    )
+    pipeline.fit(X_train[feature_cols], y_train)
+    return pipeline
+
+
+def fit_ridge_pipeline(
+    X_train: pd.DataFrame,
+    y_train: pd.Series,
+    alpha: float = 1.0,
+) -> Pipeline:
+    """Fit ridge regression with the logistic imputation groups and scaling.
+
+    ``alpha`` is the L2 penalty on the standardized coefficients. The caller
+    chooses it before seeing the scored season. ADR-007 fixes it at 1.
+
+    Raises:
+        ValueError: ``alpha`` is not positive, or the matrix has no columns.
+    """
+    if alpha <= 0.0:
+        raise ValueError("ridge alpha must be positive")
+    feature_cols: list[str] = model_feature_columns(X_train)
+    pipeline = Pipeline(
+        [
+            ("preprocessor", _imputation_preprocessor(feature_cols)),
+            ("scaler", StandardScaler()),
+            ("regressor", Ridge(alpha=float(alpha), solver="cholesky")),
         ]
     )
     pipeline.fit(X_train[feature_cols], y_train)
