@@ -9,7 +9,7 @@ The page shows a home win probability. Sprint 2 adds an estimated score: home po
 
 The win-probability reference stays logistic `h2_full`. Its rolling-origin log loss on seasons 2016-2023 is 0.6377. This ADR does not move the 0.003 rule in ADR-005. The comparison value reported for an implied win probability is 0.638, the one-decimal figure named before the fit. It is a report, not a gate.
 
-Closing lines are a hard benchmark. This model does not use `spread_line` or `total_line` as features. nflverse stores `spread_line` as the home line, and a negative number means the home team is favored (`dbt/models/staging/sources.yml`). The market margin used for MAE is therefore `-spread_line`. `total_line` is the market total.
+Closing lines are a hard benchmark. This model does not use `spread_line` or `total_line` as features. nflverse stores `spread_line` as the expected home margin: a positive number means the home team is favored. The market margin used for MAE is therefore `spread_line`. `total_line` is the market total.
 
 ## Decision
 
@@ -42,7 +42,7 @@ Anything else is rejected. A missing interval, or fewer than 8 scored seasons, i
 
 ### Always reported, never required
 
-- Market MAE against `-spread_line` and `total_line`. Rows with a missing line are left out of the market MAE only.
+- Market MAE against `spread_line` and `total_line`. Rows with a missing line are left out of the market MAE only.
 - RMSE.
 - 80% interval coverage. For each fold, sigma is the training residual standard deviation (`ddof=1`). The interval is the prediction plus or minus `z * sigma`, where `z` is the standard normal quantile for a central 80% interval. Coverage is the share of eval games inside that interval.
 - Implied home win probability `Phi(mu / sigma)` from the margin model, and its log loss next to 0.638. Sigma is the same per-fold training residual sigma.
@@ -52,3 +52,8 @@ Anything else is rejected. A missing interval, or fewer than 8 scored seasons, i
 `python -m endzone.modeling.points` runs the comparison and writes `reports/sprint2/cv_report.json`. That directory is local scratch. Copy the JSON into `docs/experiments/reports/` only after the warehouse run, and do not hand-edit the numbers. `make score` uses the same rule. Until both targets pass, the page hides the estimate and says it did not pass its pre-registered test.
 
 The win-probability golden file is unchanged. This run does not promote a new win-probability reference.
+
+
+## Correction
+
+The first draft of this ADR read the `spread_line` sign backwards, which inflated the reported market margin MAE (14.21 instead of 9.80 on 2016-2023). Market MAE is reported only and is not a gate, so the acceptance decisions and thresholds are unchanged. The sign was checked against the public nflverse games file: `spread_line` correlates positively with the home result.

@@ -34,7 +34,7 @@ def test_preregistered_thresholds_match_adr_007() -> None:
     assert spec.elo_points_per_spread == pytest.approx(25.0)
     assert spec.interval_coverage == pytest.approx(0.8)
     assert spec.winprob_log_loss_benchmark == pytest.approx(0.638)
-    assert spec.market_margin_multiplier == pytest.approx(-1.0)
+    assert spec.market_margin_multiplier == pytest.approx(1.0)
     assert spec.experiment_name == "nfl_pregame/sprint2_score"
     assert spec.hypothesis_tag == "s2-margin-total"
     assert spec.output_dir == "reports/sprint2"

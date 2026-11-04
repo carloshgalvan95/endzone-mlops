@@ -72,7 +72,7 @@ sources:
             description: "Final home team score"
           
           - name: spread_line
-            description: "Closing point spread (negative = home favored)"
+            description: "Closing point spread (positive = home favored)"
           
           - name: total_line
             description: "Closing over/under total points"

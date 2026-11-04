@@ -141,11 +141,11 @@ def test_paired_mae_interval_is_negative_when_the_model_is_closer() -> None:
     assert float(paired["mae_diff_ci_high"]) < 0.0
 
 
-def test_market_margin_uses_the_negated_home_line() -> None:
-    """A home favorite of 3 is spread_line -3, so the market margin is +3."""
+def test_market_margin_uses_the_home_line_as_is() -> None:
+    """nflverse spread_line is the expected home margin: a home favorite of 3 is +3."""
     spec = load_score_spec()
-    assert spec.market_margin_multiplier == pytest.approx(-1.0)
-    spread_line = np.array([-3.0, 7.0, np.nan])
+    assert spec.market_margin_multiplier == pytest.approx(1.0)
+    spread_line = np.array([3.0, -7.0, np.nan])
     market = spread_line * spec.market_margin_multiplier
     assert market[0] == pytest.approx(3.0)
     assert market[1] == pytest.approx(-7.0)
