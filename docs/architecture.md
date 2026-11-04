@@ -116,7 +116,8 @@ endzone-mlops demonstrates a modern lakehouse architecture for NFL analytics, co
 - Model training (`python -m endzone.modeling.train`, argparse + seed + hyperparameters; `python -m endzone.train.train` is the same command)
 - Experiment tracking (MLflow: params, metrics, artifacts, models)
 - Batch scoring (`python -m endzone.modeling.score` fits logistic `h2_full`, registers it, and writes one week of JSON)
-- Evaluation (metrics: log loss, Brier score, calibration)
+- Margin and total (`python -m endzone.modeling.points`, ADR-007). Registered only when the pre-registered MAE rule passes
+- Evaluation (metrics: log loss, Brier score, calibration, MAE, RMSE)
 
 **v0.1 Scope**: Pregame win probability model (logistic regression baseline).
 
@@ -307,6 +308,7 @@ endzone/
 
 **Implementation**:
 - `python -m endzone.modeling.score` writes one week of JSON under `site/data`
+- Margin and total points are null until both targets pass ADR-007
 - Live feed code is not in the repo
 - "Eventual live" documented as roadmap
 

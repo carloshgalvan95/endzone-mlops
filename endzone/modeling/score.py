@@ -3,6 +3,7 @@
 Canonical command: ``python -m endzone.modeling.score``.
 Fits ``h2_full`` on every completed game, logs the pipeline with a signature,
 registers ``endzone-winprob``, and writes the week JSON under ``site/data``.
+Margin and total estimates are included only when both pass ADR-007.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ from endzone.features.pregame import (
 )
 from endzone.modeling.dataset import load_data, load_upcoming_games, validate_feature_columns
 from endzone.modeling.models import fit_logistic_pipeline
+from endzone.modeling.points import attach_score_estimates
 from endzone.modeling.tracking import (
     RegisteredModelLog,
     activate_tracking_experiment,
@@ -130,6 +132,13 @@ def score_upcoming_week(
     example: pd.DataFrame = train_x[columns].head(1)
     signature = infer_signature(example, pipeline.predict_proba(example)[:, 1])
     tracking_uri: str = settings.tracking_uri or configured_tracking_uri()
+    # Sprint 2 opens its own run. It has to finish before the win-prob run.
+    score_attachment: dict[str, Any] = attach_score_estimates(
+        history,
+        features,
+        slate,
+        tracking_uri=tracking_uri,
+    )
     activate_tracking_experiment(WEEKLY_EXPERIMENT_NAME, tracking_uri)
     generated_at: str = _generated_at(settings.generated_at)
     with mlflow.start_run(run_name=f"score-{chosen['season']}-w{chosen['week']}"):
@@ -154,6 +163,8 @@ def score_upcoming_week(
         model_version=logged.model_version,
         feature_set=WEEKLY_FEATURE_SET,
         generated_at=generated_at,
+        score_lines=score_attachment["lines"],
+        score_model=score_attachment["score_model"],
     )
     teams: dict[str, Any] = team_catalog_document(team_catalog)
     paths: dict[str, str] = write_prediction_bundle(document, teams, Path(settings.output_dir))
