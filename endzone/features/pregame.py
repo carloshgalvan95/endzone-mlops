@@ -339,6 +339,9 @@ ELO_HOME_ADVANTAGE: float = 65.0
 ELO_MEAN_RATING: float = 1505.0
 ELO_SEASON_REVERSION: float = 1.0 / 3.0
 ELO_SCALE: float = 400.0
+# FiveThirtyEight maps a rating gap, including home field, to a point spread
+# by dividing by 25. ADR-007. This does not change the win-probability curve.
+ELO_POINTS_PER_SPREAD: float = 25.0
 
 # One third of the gap to the prior-season league mean is removed.
 # The same fraction Elo uses between seasons.
@@ -1740,6 +1743,7 @@ def elo_home_probabilities(
     mean_rating: float = ELO_MEAN_RATING,
     season_reversion: float = ELO_SEASON_REVERSION,
     scale: float = ELO_SCALE,
+    points_per_spread: float = ELO_POINTS_PER_SPREAD,
 ) -> dict[str, Any]:
     """Home win probabilities from games strictly before each kickoff.
 
@@ -1747,7 +1751,9 @@ def elo_home_probabilities(
     scored from the same ratings, then updated together, so one game cannot
     see a same-day result. The first time a later season appears, every
     stored rating moves ``season_reversion`` of the way back to the mean.
-    Home advantage is added in the probability only.
+    Home advantage is added in the probability and in the point spread.
+    It is not stored on the team rating. The point spread is
+    ``(home rating + home advantage - away rating) / points_per_spread``.
 
     Args:
         games: One row per game. Needs identifiers, franchises, and ``home_won``.
@@ -1757,10 +1763,11 @@ def elo_home_probabilities(
         mean_rating: Starting rating and the season-regression target.
         season_reversion: Fraction of the gap to the mean removed between seasons.
         scale: Denominator in the logistic rating curve.
+        points_per_spread: Elo points per point of margin. 25 matches FiveThirtyEight.
 
     Returns:
-        Dict with ``probabilities`` (a Series aligned to ``games.index``) and
-        the settings that were used.
+        Dict with ``probabilities`` and ``point_spreads`` (each a Series
+        aligned to ``games.index``) and the settings that were used.
 
     Raises:
         ValueError: A required column is missing or a setting is out of range.
@@ -1769,6 +1776,8 @@ def elo_home_probabilities(
         raise ValueError("k must be positive")
     if scale <= 0:
         raise ValueError("scale must be positive")
+    if points_per_spread <= 0:
+        raise ValueError("points_per_spread must be positive")
     if not 0.0 <= season_reversion <= 1.0:
         raise ValueError("season_reversion must be in [0, 1]")
 
@@ -1792,6 +1801,7 @@ def elo_home_probabilities(
         kind="mergesort",
     )
     probabilities: pd.Series = pd.Series(np.nan, index=frame.index, dtype=float)
+    point_spreads: pd.Series = pd.Series(np.nan, index=frame.index, dtype=float)
     ratings: dict[str, float] = {}
     pending: list[tuple[str, str, float, float]] = []
     current_season: int | None = None
@@ -1830,6 +1840,8 @@ def elo_home_probabilities(
                     home_rating, away_rating, home_advantage, scale
                 )
                 probabilities.loc[row_index] = expected
+                rating_gap: float = (home_rating + home_advantage) - away_rating
+                point_spreads.loc[row_index] = rating_gap / points_per_spread
                 ratings.setdefault(home_team, mean_rating)
                 ratings.setdefault(away_team, mean_rating)
                 outcome: float | None = _elo_outcome(row, score_columns)
@@ -1839,11 +1851,13 @@ def elo_home_probabilities(
 
     return {
         "probabilities": probabilities,
+        "point_spreads": point_spreads,
         "k": k,
         "home_advantage": home_advantage,
         "mean_rating": mean_rating,
         "season_reversion": season_reversion,
         "scale": scale,
+        "points_per_spread": points_per_spread,
     }
 
 

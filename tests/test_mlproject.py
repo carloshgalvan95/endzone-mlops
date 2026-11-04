@@ -28,10 +28,12 @@ def _option_strings(parser: argparse.ArgumentParser) -> set[str]:
 
 
 def test_mlflow_loads_entry_points() -> None:
-    """MLflow reads ingest, train_cv, verify_reference, and score from MLproject."""
+    """MLflow reads ingest, train_cv, verify_reference, score, and score_cv."""
     project = load_project(str(_REPO_ROOT))
     names: set[str] = set(project._entry_points)
-    assert names == {"ingest", "train_cv", "verify_reference", "score"}
+    assert names == {"ingest", "train_cv", "verify_reference", "score", "score_cv"}
+    score_cv = project.get_entry_point("score_cv")
+    assert "endzone.modeling.points" in score_cv.compute_command({}, None)
 
 
 def test_score_parameters_match_the_cli() -> None:
