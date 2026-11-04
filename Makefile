@@ -1,4 +1,8 @@
-.PHONY: help setup install lint lint-structure test vulture dbt-compile dbt-run dbt-test clean reproduce ingest ingest-current dbt-build-databricks train train-sweep train-cv mlflow-ui audit-features check-epa-filter verify-reference
+.PHONY: help setup install lint lint-structure test vulture dbt-compile dbt-run dbt-test clean reproduce data ingest ingest-current marts dbt-build-databricks train train-sweep train-cv mlflow-ui audit-features check-epa-filter verify-reference
+
+# Finished bronze and mart steps. Gitignored. A second train-cv does not
+# reload bronze when these stamps are current.
+STAMP_DIR := .stamp
 
 # Git Bash on Windows rewrites arguments that look like Unix paths.
 # DATABRICKS_HTTP_PATH starts with /sql/1.0/... and would be mangled.
@@ -16,17 +20,19 @@ help:
 	@echo "  dbt-compile         - Compile dbt models"
 	@echo "  dbt-run             - Run dbt models (creates tables)"
 	@echo "  dbt-test            - Run dbt tests"
+	@echo "  data                - Load bronze (same as ingest) and record .stamp/data"
 	@echo "  ingest              - Load nflverse games, play-by-play, and depth charts"
 	@echo "  ingest-current      - Refresh current season only (for weekly update)"
+	@echo "  marts               - Build Databricks marts after bronze is loaded"
 	@echo "  dbt-build-databricks - dbt deps, then build models on the Databricks target"
-	@echo "  train               - Train NFL pregame prediction models with MLflow"
-	@echo "  train-sweep         - Run training sweep (5+ configs for MLflow comparison)"
-	@echo "  train-cv            - Phase 2 H5b starter coverage CV against logistic h2_full"
+	@echo "  train               - Train one holdout model with MLflow"
+	@echo "  train-sweep         - Single-split sweep (5 configs). Not the reference CV"
+	@echo "  train-cv            - H5b CV. Builds data and marts when .stamp says they are stale"
 	@echo "  mlflow-ui           - Open MLflow UI against the local SQLite store"
 	@echo "  audit-features      - Profile current pregame inputs (no feature changes)"
 	@echo "  check-epa-filter    - Count play types in the EPA filter, plus kneel and spike rows"
 	@echo "  verify-reference    - Refit logistic h2_full and fail if it drifts from the reference file"
-	@echo "  reproduce           - Full reproduction pipeline (install -> dbt compile)"
+	@echo "  reproduce           - install, Databricks dbt build, verify-reference"
 	@echo "  clean               - Remove build artifacts"
 	@echo ""
 	@echo "Note: Most targets expect an activated virtualenv (source .venv/bin/activate)"
@@ -57,11 +63,19 @@ test:
 vulture:
 	vulture endzone scripts --min-confidence 80
 
+# data and ingest are the bronze load. The stamp lets marts and train-cv
+# skip a second download.
+data: ingest
+
 ingest:
 	python -m endzone.ingest.load_raw_nflverse --dataset all
+	mkdir -p $(STAMP_DIR)
+	touch $(STAMP_DIR)/data
 
 ingest-current:
 	python -m endzone.ingest.load_raw_nflverse --current-season --dataset all
+	mkdir -p $(STAMP_DIR)
+	touch $(STAMP_DIR)/data
 
 dbt-compile:
 	@if [ -f .env ]; then set -a && . ./.env && set +a; fi; \
@@ -84,6 +98,13 @@ clean:
 dbt-build-databricks:
 	@echo "Installing dbt packages, then building on the Databricks target..."
 	cd dbt && dbt deps --profiles-dir . && dbt build --profiles-dir . --target databricks
+	mkdir -p $(STAMP_DIR)
+	touch $(STAMP_DIR)/marts
+
+# marts depends on bronze. A data stamp already on disk is not reloaded.
+marts:
+	@if [ ! -f $(STAMP_DIR)/data ]; then $(MAKE) data; fi
+	$(MAKE) dbt-build-databricks
 
 train:
 	python -m endzone.train.train --model logistic --lookback 10 --seed 42
@@ -91,7 +112,13 @@ train:
 train-sweep:
 	bash scripts/train_sweep.sh
 
+# data -> marts -> train-cv. A missing marts stamp builds both. A data stamp
+# newer than the marts stamp rebuilds marts only. A marts stamp with no data
+# stamp (depth charts loaded outside make data) does not reload bronze.
 train-cv:
+	@if [ ! -f $(STAMP_DIR)/marts ] || { [ -f $(STAMP_DIR)/data ] && [ $(STAMP_DIR)/data -nt $(STAMP_DIR)/marts ]; }; then \
+		$(MAKE) marts; \
+	fi
 	python -m endzone.train.train --cv --phase 2 --hypothesis h5b --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h5b
 
 mlflow-ui:
@@ -106,5 +133,11 @@ check-epa-filter:
 verify-reference:
 	python -m endzone.train.train --verify-reference
 
-reproduce: install dbt-compile
-	@echo "Reproduction pipeline complete (dependencies installed, dbt compiled on DuckDB)."
+# Installs the lock, builds Databricks marts from bronze already in the
+# warehouse, and refits the reference. It does not download nflverse and it
+# does not register a model. Run `make data` first on an empty catalog.
+# Local DuckDB compile stays `make dbt-compile`.
+reproduce: install
+	$(MAKE) dbt-build-databricks
+	$(MAKE) verify-reference
+	@echo "Reference check finished. Marts were built on Databricks. No model was registered."

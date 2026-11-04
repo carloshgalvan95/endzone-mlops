@@ -5,6 +5,8 @@ alwaysApply: true
 
 # Quality
 
+- Gates for a change are `docs/definition_of_done.md`. The PR template points at that file.
+- Modules group one responsibility. Size is a smell to review, not a gate. Do not add a line-count check.
 - Use the repo `.venv`. Ruff is pinned at `ruff==0.17.0`.
 - Before finishing, run `ruff format endzone/ tests/`, then `ruff check endzone/ tests/` and `ruff format --check endzone/ tests/`. Full `pytest tests/ -v` must pass. Paste the real command output in the final report.
 - `endzone/analysis` coverage stays at 100%. The CI command is `pytest tests/test_feature_leakage.py tests/test_feature_audit.py tests/test_epa_play_filter_check.py --cov=endzone/analysis --cov-report=term-missing --cov-fail-under=100`.

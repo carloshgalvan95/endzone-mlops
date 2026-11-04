@@ -102,6 +102,9 @@ htmlcov/
 # Databricks
 .databricks/
 
+# Make stamps for bronze and marts. Not data.
+.stamp/
+
 # macOS
 .DS_Store
 dbt/.user.yml

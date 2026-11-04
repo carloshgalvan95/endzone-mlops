@@ -281,7 +281,7 @@ endzone/
 - Pinned dependencies (`pyproject.toml` and `uv.lock`, Python 3.12)
 - Seeds in MLflow runs
 - Data provenance documented
-- `make reproduce` command
+- `make reproduce` installs the lock, builds Databricks marts, and refits the reference. It does not download nflverse and it does not register a model. Load bronze with `make data` on an empty catalog.
 
 ### Modularity
 

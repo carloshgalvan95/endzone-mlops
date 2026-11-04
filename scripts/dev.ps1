@@ -19,18 +19,20 @@ function Show-Help {
     Write-Host "  dbt-compile         - Compile dbt models"
     Write-Host "  dbt-run             - Run dbt models (creates tables)"
     Write-Host "  dbt-test            - Run dbt tests"
+    Write-Host "  data                - Load bronze (same as ingest) and record .stamp/data"
     Write-Host "  ingest              - Load all seasons (games, pbp, depth charts from 2001)"
     Write-Host "  ingest-current      - Refresh current season only (for weekly update)"
+    Write-Host "  marts               - Build Databricks marts after bronze is loaded"
     Write-Host "  dbt-build-databricks - dbt deps, then build models on the Databricks target"
-    Write-Host "  train               - Train NFL pregame prediction models with MLflow"
-    Write-Host "  train-sweep         - Run training sweep (5+ configs for MLflow comparison)"
-    Write-Host "  train-cv            - Phase 2 H5b starter coverage CV against logistic h2_full"
+    Write-Host "  train               - Train one holdout model with MLflow"
+    Write-Host "  train-sweep         - Single-split sweep (5 configs). Not the reference CV"
+    Write-Host "  train-cv            - H5b CV. Builds data and marts when .stamp says they are stale"
     Write-Host "  mlflow-ui           - Open MLflow UI against the local SQLite store"
     Write-Host "  audit-features      - Profile current pregame inputs (no feature changes)"
     Write-Host "  check-epa-filter    - Count play types in the EPA filter, plus kneel and spike rows"
     Write-Host "  verify-reference    - Refit logistic h2_full and fail if it drifts from the reference file"
     Write-Host "  clean               - Remove build artifacts"
-    Write-Host "  reproduce           - Full reproduction pipeline"
+    Write-Host "  reproduce           - install, Databricks dbt build, verify-reference"
     Write-Host ""
     Write-Host "Note: Most targets expect an activated virtualenv"
     Write-Host "      Python targets load .env. A shell variable already set wins. dbt targets still source .env."
@@ -140,9 +142,33 @@ function Invoke-TrainSweep {
     & ".\scripts\train_sweep.ps1"
 }
 
+function Update-Stamp {
+    param([string]$Name)
+    New-Item -ItemType Directory -Force -Path .stamp | Out-Null
+    $path = Join-Path .stamp $Name
+    if (Test-Path $path) {
+        (Get-Item $path).LastWriteTime = Get-Date
+    }
+    else {
+        New-Item -ItemType File -Path $path | Out-Null
+    }
+}
+
+function Test-TrainCvNeedsMarts {
+    $marts = Join-Path .stamp "marts"
+    $data = Join-Path .stamp "data"
+    if (-not (Test-Path $marts)) { return $true }
+    if ((Test-Path $data) -and ((Get-Item $data).LastWriteTimeUtc -gt (Get-Item $marts).LastWriteTimeUtc)) {
+        return $true
+    }
+    return $false
+}
+
 function Invoke-TrainCv {
+    if (Test-TrainCvNeedsMarts) { Invoke-Marts }
     Write-Host "Running phase 2 H5b starter coverage CV..."
     python -m endzone.train.train --cv --phase 2 --hypothesis h5b --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h5b
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
 function Invoke-MlflowUi {
@@ -168,18 +194,28 @@ function Invoke-VerifyReference {
 
 function Invoke-Reproduce {
     Invoke-Install
-    Invoke-DbtCompile
-    Write-Host "Reproduction pipeline complete (dependencies installed, dbt compiled on DuckDB)."
+    Invoke-DbtBuildDatabricks
+    Invoke-VerifyReference
+    Write-Host "Reference check finished. Marts were built on Databricks. No model was registered."
+    Write-Host "reproduce does not download nflverse. Run .\scripts\dev.ps1 data first on an empty catalog."
 }
 
 function Invoke-Ingest {
-    Write-Host "Loading nflverse data (all seasons 1999-2026, games and pbp)..."
+    Write-Host "Loading nflverse data (all seasons 1999-2026, games, pbp, and depth charts)..."
     python -m endzone.ingest.load_raw_nflverse --dataset all
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    Update-Stamp data
+}
+
+function Invoke-Data {
+    Invoke-Ingest
 }
 
 function Invoke-IngestCurrent {
     Write-Host "Refreshing current season only..."
     python -m endzone.ingest.load_raw_nflverse --current-season --dataset all
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    Update-Stamp data
 }
 
 function Invoke-DbtBuildDatabricks {
@@ -194,6 +230,12 @@ function Invoke-DbtBuildDatabricks {
     finally {
         Pop-Location
     }
+    Update-Stamp marts
+}
+
+function Invoke-Marts {
+    if (-not (Test-Path (Join-Path .stamp "data"))) { Invoke-Data }
+    Invoke-DbtBuildDatabricks
 }
 
 # Main execution
@@ -209,8 +251,10 @@ switch ($Target.ToLower()) {
     "dbt-compile" { Invoke-DbtCompile }
     "dbt-run" { Invoke-DbtRun }
     "dbt-test" { Invoke-DbtTest }
+    "data" { Invoke-Data }
     "ingest" { Invoke-Ingest }
     "ingest-current" { Invoke-IngestCurrent }
+    "marts" { Invoke-Marts }
     "dbt-build-databricks" { Invoke-DbtBuildDatabricks }
     "train" { Invoke-Train }
     "train-sweep" { Invoke-TrainSweep }

@@ -1,5 +1,6 @@
 #!/usr/bin/env pwsh
-# Run training sweep: 5+ model configs for MLflow comparison
+# Single-split sweep: five holdout configs for MLflow. Not the reference CV.
+# The reference comparison is dev.ps1 verify-reference and dev.ps1 train-cv.
 
 Write-Host "Running training sweep (5 configs)..."
 Write-Host ""

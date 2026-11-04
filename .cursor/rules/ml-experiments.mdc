@@ -15,7 +15,7 @@ alwaysApply: false
 
 ## Status
 
-Phase 0 and Phase 1 are done. Phase 2 is in progress. Phases 3 and 4 are planned and not started. Do not invent their scope. H4 is rejected. H5 is rejected, with a positive signal. The 0.003 threshold is not changed after the result. H5b is the same `h5_qb` features on the fixed starter. Its warehouse score is pending. The reference stays logistic `h2_full`.
+Phase 0 and Phase 1 are done. Phase 2 decisions through H5b are recorded. Phases 3 and 4 are planned and not started. Do not invent their scope. H4 is rejected. H5 is rejected, with a positive signal. H5b is rejected. The 0.003 threshold is not changed after either result. The reference stays logistic `h2_full`.
 
 | Step | State | Reference |
 | --- | --- | --- |
@@ -27,7 +27,7 @@ Phase 0 and Phase 1 are done. Phase 2 is in progress. Phases 3 and 4 are planned
 | Ridge, fold-tuned L2 | did not help | plain logistic `h2_full` stays the reference |
 | H4 clean EPA | rejected | logistic `h2_full` |
 | H5 starting QB | rejected, positive signal | logistic `h2_full` |
-| H5b starter coverage | defined, result pending | logistic `h2_full` |
+| H5b starter coverage | rejected | logistic `h2_full` |
 
 H3, CV 2016-2023, n=2191: logistic `h2_full` 0.6377. `h3_split` 0.6393 (difference +0.0016, interval -0.0009 to 0.0039). `h3_replace` 0.6395 (difference +0.0018, interval -0.0008 to 0.0043).
 
@@ -35,7 +35,7 @@ Ridge, same window: `logistic_l2` on `h2_full` is 0.6386 (difference +0.0009, in
 
 H4, same window, n=2191: logistic `h2_full` 0.6377. `h4_clean` 0.6398 (difference +0.0021, interval -0.0012 to 0.0053). `h4_clean_sr` 0.6379 (difference +0.0002, interval -0.0036 to 0.0039). Removing `no_play`, kneels, spikes, and garbage time adds no signal. Averaging over many plays already absorbs that noise. A first local run before the dbt rebuild printed the same log loss 0.6509 for both clean sets because the clean columns were absent. That number is not the comparison.
 
-H5, same window, n=2191: logistic `h2_full` 0.6377. `h5_qb` 0.6355 (difference -0.0022, interval -0.0042 to -0.0003, AUC 0.6869). Rejected. The rule needs a gain of at least 0.003. The interval excludes zero, so the sign is a positive signal. The threshold is not changed after the result. QB-change subset, 383 out-of-fold games: difference -0.0026, interval -0.0075 to 0.0023. Depth-chart starter sides 10,249. Previous-passer fallback sides 4,399. Games flagged as a QB change: 972. H5b is the same `h5_qb` features after the starter join is fixed.
+H5, same window, n=2191: logistic `h2_full` 0.6377. `h5_qb` 0.6355 (difference -0.0022, interval -0.0042 to -0.0003, AUC 0.6869). Rejected. The rule needs a gain of at least 0.003. The interval excludes zero, so the sign is a positive signal. The threshold is not changed after the result. QB-change subset, 383 out-of-fold games: difference -0.0026, interval -0.0075 to 0.0023. Depth-chart starter sides 10,249. Previous-passer fallback sides 4,399. Games flagged as a QB change: 972. H5b is the same `h5_qb` features after the starter join is fixed. H5b, same window: `h5_qb` 0.6356 (difference -0.0021, interval -0.0039 to -0.0002). Rejected. Short of -0.003. The threshold is not moved.
 
 EPA filter (`docs/experiments/reports/epa_filter_check.md`): `play = 1` rows are pass 528,368 (53.6%), run 388,724 (39.5%), and no_play 68,233 (6.9%). No special-teams play types. Only 36 kneels and 70 spikes have `play = 1`. The contamination is the `no_play` (penalty) rows, not special teams. That finding drives H4.
 
@@ -52,7 +52,7 @@ The canonical module is `python -m endzone.modeling.train`. `python -m endzone.t
 - Ridge: `python -m endzone.train.train --cv --phase 2 --hypothesis ridge --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_ridge`. Scores logistic `h2_full` and `logistic_l2` on `h2_full`, `h3_split`, and `h3_replace` against logistic `h2_full`. `logistic_l2` chooses C inside each training fold. The scored season is not used to pick C. Local report `reports/phase2_ridge/`. Tag `hypothesis=ridge-reference`.
 - H4: `python -m endzone.train.train --cv --phase 2 --hypothesis h4 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h4`. Scores logistic `h2_full`, `h4_clean`, and `h4_clean_sr` against logistic `h2_full`, plus the home prior, Elo, and the market. Shrinkage, blend, and the garbage-time cutoffs are fixed. Local report `reports/phase2_h4/`. Tag `hypothesis=h4-clean-epa`. Experiment `nfl_pregame/phase2_h4`. Rebuild the Databricks marts first. Do not re-ingest. See `docs/experiments/phase2_h4_clean_epa.md`.
 - H5: `python -m endzone.train.train --cv --phase 2 --hypothesis h5 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h5`. Scores logistic `h2_full` and `h5_qb` against logistic `h2_full`, plus the home prior, Elo, and the market. QB shrinkage (100 prior dropbacks) and replacement EPA per dropback (0) are fixed. The QB-change subset is descriptive and is not an acceptance decision. Local report `reports/phase2_h5/`. Tag `hypothesis=h5-starting-qb`. Experiment `nfl_pregame/phase2_h5`. See `docs/experiments/phase2_h5_starting_qb.md`. The frozen snapshot is the original run. After the H5b depth-chart reload, this command reads the fixed starter too.
-- H5b: `make train-cv` (Windows: `.\scripts\dev.ps1 train-cv`). Same `h5_qb` features, same shrinkage, fixed starter only. Scores against logistic `h2_full`. Local report `reports/phase2_h5b/`. Tag `hypothesis=h5b-starter-coverage`. Experiment `nfl_pregame/phase2_h5b`. Reload every depth-chart season, then rebuild the marts, then train. A 2025-only load is not enough. The warehouse score is pending. See `docs/experiments/phase2_h5b_starter_coverage.md`.
+- H5b: `make train-cv` (Windows: `.\scripts\dev.ps1 train-cv`). Same `h5_qb` features, same shrinkage, fixed starter only. Scores against logistic `h2_full`. Local report `reports/phase2_h5b/`. Tag `hypothesis=h5b-starter-coverage`. Experiment `nfl_pregame/phase2_h5b`. Rejected: `h5_qb` 0.6356, difference -0.0021, interval -0.0039 to -0.0002, short of -0.003. The threshold is not moved. See `docs/experiments/phase2_h5b_starter_coverage.md`.
 - EPA filter: `make check-epa-filter` (Windows: `.\scripts\dev.ps1 check-epa-filter`). Writes `reports/epa_filter_check.md`. It does not change dbt models.
 
 ## Snapshots

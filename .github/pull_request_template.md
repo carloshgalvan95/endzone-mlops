@@ -1,3 +1,18 @@
+## Definition of done
+
+Gates: `docs/definition_of_done.md`. Modules group one responsibility. Size is a smell to review, not a gate.
+
+- [ ] ruff check and ruff format --check
+- [ ] `make lint-structure` (or `.\scripts\dev.ps1 lint-structure`)
+- [ ] `vulture endzone scripts --min-confidence 80`
+- [ ] `pytest tests/ -v`
+- [ ] Analysis coverage at 100% when `endzone/analysis` changes
+- [ ] Golden test (`tests/test_golden_cv.py`) still matches `tests/golden/cv_report.json`
+- [ ] `make dbt-compile`
+- [ ] Conventional Commits, Carlos as author and committer, no Co-authored-by
+- [ ] No secrets, hosts, HTTP paths, `.env`, or data files
+- [ ] `make verify-reference` is for a warehouse machine, not CI
+
 ## Summary
 
 Briefly describe the change and the problem it solves.

@@ -1,5 +1,6 @@
 #!/bin/bash
-# Run training sweep: 5+ model configs for MLflow comparison
+# Single-split sweep: five holdout configs for MLflow. Not the reference CV.
+# The reference comparison is `make verify-reference` and `make train-cv`.
 
 set -e
 

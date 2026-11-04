@@ -1,6 +1,6 @@
 # Phase 2 H5b: starter coverage
 
-Method note. The warehouse score is pending. Do not copy a log loss into this file until `reports/phase2_h5b/comparison.md` exists from a local run.
+Method note. H5b is rejected. The result section records the warehouse comparison. There is no frozen `comparison.md` in `docs/experiments/reports/` for this run.
 
 `make train-cv` (Windows: `.\scripts\dev.ps1 train-cv`) is:
 
@@ -134,4 +134,9 @@ if ($LASTEXITCODE -eq 0) { .\scripts\dev.ps1 train-cv }
 
 ## Result
 
-Pending. This environment did not score H5b against the warehouse. The acceptance rule is not changed in advance of that run.
+Rolling-origin CV, seasons 2016-2023, reference logistic `h2_full` 0.6377 (n=2191 in `docs/experiments/reference_metrics.json`). `h5_qb` log loss is 0.6356. The difference is -0.0021, interval -0.0039 to -0.0002. Rejected. The rule needs `log_loss_diff` <= -0.003 and an interval entirely below 0. The interval is below 0, so the sign is a positive signal, and -0.0021 is short of -0.003. The threshold is not moved after this result. The reference stays logistic `h2_full`.
+
+| feature_set | log_loss | log_loss_diff | ci_low | ci_high | decision |
+| --- | --- | --- | --- | --- | --- |
+| h2_full | 0.6377 | 0.0000 | 0.0000 | 0.0000 | reference |
+| h5_qb | 0.6356 | -0.0021 | -0.0039 | -0.0002 | rejected |
