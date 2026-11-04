@@ -1,7 +1,7 @@
 """Weekly prediction documents: slate selection, team marks, and JSON files.
 
 The page reads ``site/data``. Real score output stays untracked. A shipped
-sample is labeled ``sample: true``.
+sample is labeled ``sample: true`` and has no season or week.
 """
 
 from __future__ import annotations
@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import math
 import re
+from collections.abc import Callable
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
@@ -32,6 +33,7 @@ NFLVERSE_TEAMS_URL: str = (
 )
 EASTERN: ZoneInfo = ZoneInfo("America/New_York")
 HEX_COLOR: re.Pattern[str] = re.compile(r"^#[0-9A-Fa-f]{6}$")
+_WEEK_FILE: re.Pattern[str] = re.compile(r"^(?P<season>\d+)-w(?P<week>\d+)\.json$")
 PREDICTION_GAME_FIELDS: tuple[str, ...] = (
     "game_id",
     "kickoff",
@@ -295,12 +297,37 @@ def validate_prediction_document(document: dict[str, Any]) -> None:
             raise ValueError(f"diff for {game['game_id']} is {game['diff']}, expected {expected}.")
 
 
+def weeks_present(output_dir: Path, season: int) -> list[int]:
+    """Return sorted weeks that already have a non-example file for ``season``."""
+    predictions: Path = Path(output_dir) / "predictions"
+    if not predictions.is_dir():
+        return []
+    weeks: list[int] = []
+    for path in sorted(predictions.glob(f"{int(season)}-w*.json")):
+        match: re.Match[str] | None = _WEEK_FILE.match(path.name)
+        if match is None or int(match.group("season")) != int(season):
+            continue
+        try:
+            payload: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("Skipping unreadable prediction file %s: %s", path.name, exc)
+            continue
+        if payload.get("sample") is True:
+            continue
+        weeks.append(int(match.group("week")))
+    return sorted(set(weeks))
+
+
 def write_prediction_bundle(
     document: dict[str, Any],
     teams: dict[str, Any],
     output_dir: Path,
 ) -> dict[str, str]:
     """Write the week file, ``latest.json``, and ``teams.json``.
+
+    ``weeks_available`` lists every non-example week file for this season
+    already in ``output_dir``, including the file just written. Sibling week
+    files get the same list so the page selector stays complete.
 
     Returns:
         Paths for ``week``, ``latest``, and ``teams``.
@@ -309,12 +336,21 @@ def write_prediction_bundle(
     root: Path = Path(output_dir)
     predictions: Path = root / "predictions"
     predictions.mkdir(parents=True, exist_ok=True)
-    week_path: Path = predictions / f"{document['season']}-w{document['week']}.json"
+    season: int = int(document["season"])
+    week: int = int(document["week"])
+    week_path: Path = predictions / f"{season}-w{week}.json"
     latest_path: Path = root / "latest.json"
     teams_path: Path = root / "teams.json"
+    week_path.write_text(_dumps(document), encoding="utf-8")
+    weeks: list[int] = weeks_present(root, season)
+    document["weeks_available"] = weeks
     payload: str = _dumps(document)
     week_path.write_text(payload, encoding="utf-8")
     latest_path.write_text(payload, encoding="utf-8")
+    for path in sorted(predictions.glob(f"{season}-w*.json")):
+        if path == week_path:
+            continue
+        _record_weeks_available(path, weeks)
     teams_path.write_text(_dumps(teams), encoding="utf-8")
     logger.info("Wrote %s and %s", week_path, latest_path)
     return {
@@ -322,6 +358,102 @@ def write_prediction_bundle(
         "latest": str(latest_path),
         "teams": str(teams_path),
     }
+
+
+def _record_weeks_available(path: Path, weeks: list[int]) -> None:
+    """Set ``weeks_available`` on one week file. Example files are left alone."""
+    try:
+        document: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("Could not update weeks on %s: %s", path.name, exc)
+        return
+    if document.get("sample") is True or document.get("weeks_available") == weeks:
+        return
+    document["weeks_available"] = list(weeks)
+    path.write_text(_dumps(document), encoding="utf-8")
+
+
+def restore_published_predictions(
+    output_dir: Path,
+    base_url: str,
+    fetch_text: Callable[[str], str] | None = None,
+) -> dict[str, int]:
+    """Copy non-example week files from a published site into ``output_dir``.
+
+    An example ``latest.json``, a blank URL, or a failed read copies nothing.
+    One missing week file does not drop the weeks that did download.
+
+    Returns:
+        Dict with ``copied``, the number of week files written.
+    """
+    root_url: str = base_url.strip().rstrip("/")
+    if root_url == "":
+        return {"copied": 0}
+    fetcher: Callable[[str], str] = fetch_text or _fetch_published_text
+    try:
+        latest_payload: dict[str, Any] = json.loads(fetcher(f"{root_url}/data/latest.json"))
+    except (OSError, ValueError, json.JSONDecodeError, requests.RequestException) as exc:
+        logger.warning("Could not read published latest.json: %s", exc)
+        return {"copied": 0}
+    if not isinstance(latest_payload, dict) or latest_payload.get("sample") is True:
+        logger.info("Published latest.json is an example slate. No week files were copied.")
+        return {"copied": 0}
+    season: object = latest_payload.get("season")
+    if isinstance(season, bool) or not isinstance(season, int):
+        return {"copied": 0}
+    weeks: list[int] = _published_weeks(latest_payload)
+    predictions: Path = Path(output_dir) / "predictions"
+    predictions.mkdir(parents=True, exist_ok=True)
+    copied: int = 0
+    for week in weeks:
+        url: str = f"{root_url}/data/predictions/{season}-w{week}.json"
+        try:
+            payload: dict[str, Any] = json.loads(fetcher(url))
+        except (OSError, ValueError, json.JSONDecodeError, requests.RequestException) as exc:
+            logger.warning("Skipping published week %s: %s", week, exc)
+            continue
+        if not _published_week_document(payload, season, week):
+            continue
+        destination: Path = predictions / f"{season}-w{week}.json"
+        try:
+            destination.write_text(_dumps(payload), encoding="utf-8")
+        except (OSError, TypeError, ValueError) as exc:
+            logger.warning("Skipping published week %s: %s", week, exc)
+            continue
+        copied += 1
+    logger.info("Copied %s published week file(s) into %s", copied, predictions)
+    return {"copied": copied}
+
+
+def _published_weeks(latest_payload: dict[str, Any]) -> list[int]:
+    """Week numbers listed on a published latest document, plus its own week."""
+    raw_weeks: object = latest_payload.get("weeks_available")
+    values: list[object] = list(raw_weeks) if isinstance(raw_weeks, list) else []
+    if not values:
+        values = [latest_payload.get("week")]
+    elif latest_payload.get("week") not in values:
+        values.append(latest_payload.get("week"))
+    weeks: list[int] = []
+    for value in values:
+        if isinstance(value, bool) or not isinstance(value, int):
+            continue
+        weeks.append(value)
+    return sorted(set(weeks))
+
+
+def _published_week_document(payload: object, season: int, week: int) -> bool:
+    """True when a downloaded file is a real week for this season."""
+    if not isinstance(payload, dict) or payload.get("sample") is True:
+        return False
+    return payload.get("season") == season and payload.get("week") == week
+
+
+def _fetch_published_text(url: str) -> str:
+    """GET one published JSON file. A non-200 response raises ``ValueError``."""
+    response = requests.get(url, timeout=30)
+    if response.status_code != 200:
+        raise ValueError(f"Published predictions returned HTTP {response.status_code}.")
+    return response.text
 
 
 def _dumps(payload: dict[str, Any]) -> str:

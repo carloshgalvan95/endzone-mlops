@@ -151,7 +151,7 @@ endzone-mlops demonstrates a modern lakehouse architecture for NFL analytics, co
 
 #### 6. GitHub Actions (`github/workflows/ci.yml`)
 
-**Triggers**: Push, pull request. `pages.yml` deploys `site/` to GitHub Pages on push to `main`. That job has no Databricks secrets. It publishes the files in `site/`, including the labeled example slate.
+**Triggers**: Push, pull request. `pages.yml` deploys `site/` to GitHub Pages on push to `main`, on a manual dispatch, and on Tuesdays at 12:00 UTC. That job refreshes the current season, builds the Databricks marts, scores the next unplayed week, and uploads the generated JSON from the runner. See ADR-006.
 
 **Steps**:
 1. Checkout code

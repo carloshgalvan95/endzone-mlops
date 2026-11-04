@@ -855,7 +855,7 @@ Once spike is PASS:
 2. Run `dbt run` to materialize staging models
 3. Create marts models (Day 7)
 4. Implement `train.py` with MLflow (Day 7)
-5. `make score` writes one unplayed week. See ADR-006. A weekly job is Sprint 3.
+5. `make score` writes one unplayed week. See ADR-006. `.github/workflows/pages.yml` does that on push to `main`, on Tuesdays at 12:00 UTC, and on manual dispatch, then deploys the runner's `site/data`. The JSON is not committed.
 
 ---
 

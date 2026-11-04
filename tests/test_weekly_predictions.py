@@ -10,14 +10,23 @@ from typing import Any
 import pandas as pd
 import pytest
 
-from endzone.features.pregame import build_pregame_features
-from endzone.modeling.score import WeeklyScoreSettings, build_parser, score_upcoming_week
+from endzone.features.pregame import build_pregame_features, no_vig_home_probability
+from endzone.modeling.score import (
+    LOCAL_MODEL_VERSION,
+    WeeklyScoreSettings,
+    _market_by_game,
+    _register_weekly_model,
+    build_parser,
+    score_upcoming_week,
+)
 from endzone.modeling.weekly import (
     PREDICTION_GAME_FIELDS,
     build_prediction_document,
     load_team_catalog,
     parse_optional_int,
+    restore_published_predictions,
     select_slate,
+    slate_for_features,
     team_catalog_document,
     validate_prediction_document,
     write_prediction_bundle,
@@ -346,6 +355,8 @@ def test_parse_optional_int_and_parser() -> None:
     args = build_parser().parse_args(["--season", "2026", "--week", "auto"])
     assert parse_optional_int(args.season) == 2026
     assert parse_optional_int(args.week) is None
+    restore_args = build_parser().parse_args(["--restore-published", "https://example.test"])
+    assert restore_args.restore_published == "https://example.test"
 
 
 def test_score_week_registers_model_and_writes_json(tmp_path: Path) -> None:
@@ -394,13 +405,205 @@ def test_score_week_registers_model_and_writes_json(tmp_path: Path) -> None:
 
 
 def test_shipped_sample_is_labeled_example() -> None:
-    """The page sample is example data, not a model fit."""
+    """The page sample is an example slate, not a season and week."""
     sample_path = Path("site/data/sample.json")
     document = json.loads(sample_path.read_text(encoding="utf-8"))
     assert document["sample"] is True
     assert document["is_example"] is True
+    assert document["season"] is None
+    assert document["week"] is None
+    assert document["weeks_available"] == []
+    assert document["label"].startswith("Example slate")
     validate_prediction_document(document)
+    for game in document["games"]:
+        assert "2026" not in str(game["game_id"])
+        assert "W09" not in str(game["game_id"])
+    page = Path("site/index.html").read_text(encoding="utf-8")
+    assert "Week 9" not in page
+    assert ">2026<" not in page
+    script = Path("site/assets/app.js").read_text(encoding="utf-8")
+    assert 'loadJson("data/latest.json")' in script
+    assert 'loadJson("data/sample.json")' in script
     teams = json.loads(Path("site/data/teams.json").read_text(encoding="utf-8"))
     assert teams["source"] == "nflverse teams_colors_logos"
     assert teams["teams"]["KC"]["logo"].startswith("https://")
     assert not teams["teams"]["KC"]["logo"].endswith(".svg")
+
+
+def _upcoming_row(game_id: str, home_line: object, away_line: object) -> dict[str, object]:
+    """One unplayed slate row with the columns the feature builder requires."""
+    return {
+        "game_id": game_id,
+        "season": 2026,
+        "week": 9,
+        "gameday": "2026-11-08",
+        "gametime": "13:00",
+        "home_team": "BAL",
+        "away_team": "JAX",
+        "home_team_franchise": "BAL",
+        "away_team_franchise": "JAX",
+        "home_rest": 7,
+        "away_rest": 7,
+        "home_moneyline": home_line,
+        "away_moneyline": away_line,
+    }
+
+
+def test_missing_moneyline_does_not_blank_a_priced_game() -> None:
+    """A null or NaN line on one game leaves the priced game's market probability."""
+    expected: float = no_vig_home_probability(390, -520)
+    nullable = pd.DataFrame(
+        [_upcoming_row("priced", 390, -520), _upcoming_row("open", pd.NA, pd.NA)]
+    )
+    nullable["home_moneyline"] = pd.Series([390, pd.NA], dtype="Int64")
+    nullable["away_moneyline"] = pd.Series([-520, pd.NA], dtype="Int64")
+    nullable_market = _market_by_game(slate_for_features(nullable))
+    assert nullable_market["priced"] == pytest.approx(expected)
+    assert nullable_market["open"] is None
+
+    as_float = pd.DataFrame(
+        [
+            _upcoming_row("priced", 390.0, -520.0),
+            _upcoming_row("open", float("nan"), float("nan")),
+        ]
+    )
+    float_market = _market_by_game(slate_for_features(as_float))
+    assert float_market["priced"] == pytest.approx(expected)
+    assert float_market["open"] is None
+
+
+def test_write_bundle_keeps_weeks_already_on_disk(tmp_path: Path) -> None:
+    """A new week lists every non-example file already in the predictions directory."""
+    predictions = tmp_path / "predictions"
+    predictions.mkdir()
+    previous = {
+        "sample": False,
+        "season": 2026,
+        "week": 8,
+        "weeks_available": [8],
+        "games": [],
+    }
+    example = {"sample": True, "season": 2026, "week": 7, "weeks_available": [7]}
+    (predictions / "2026-w8.json").write_text(json.dumps(previous), encoding="utf-8")
+    (predictions / "2026-w7.json").write_text(json.dumps(example), encoding="utf-8")
+    games = pd.DataFrame(
+        [
+            {
+                "game_id": "G1",
+                "gameday": "2026-11-08",
+                "gametime": "13:00",
+                "home_team": "BUF",
+                "away_team": "MIA",
+            }
+        ]
+    )
+    document = build_prediction_document(
+        season=2026,
+        week=9,
+        games=games,
+        model_probabilities=pd.Series({"G1": 0.5}),
+        market_probabilities={"G1": 0.4},
+        model_name="endzone-winprob",
+        model_version="1",
+        feature_set="h2_full",
+        generated_at="2026-11-04T12:00:00Z",
+    )
+    paths = write_prediction_bundle(document, team_catalog_document(_catalog()), tmp_path)
+    latest = json.loads(Path(paths["latest"]).read_text(encoding="utf-8"))
+    kept = json.loads((predictions / "2026-w8.json").read_text(encoding="utf-8"))
+    untouched = json.loads((predictions / "2026-w7.json").read_text(encoding="utf-8"))
+    assert latest["weeks_available"] == [8, 9]
+    assert document["weeks_available"] == [8, 9]
+    assert kept["weeks_available"] == [8, 9]
+    assert untouched["sample"] is True
+    assert untouched["weeks_available"] == [7]
+
+
+def test_restore_skips_an_example_and_copies_real_weeks(tmp_path: Path) -> None:
+    """The live example slate is not copied. Real week files are."""
+    example = {"sample": True, "season": 2026, "week": 9, "weeks_available": [9]}
+    skipped = restore_published_predictions(
+        tmp_path / "example",
+        "https://example.test/",
+        fetch_text=lambda _url: json.dumps(example),
+    )
+    assert skipped["copied"] == 0
+    assert not (tmp_path / "example" / "predictions").exists()
+
+    real_week = {"sample": False, "season": 2026, "week": 8, "games": []}
+    latest = {"sample": False, "season": 2026, "week": 9, "weeks_available": [8, 9]}
+    pages = {
+        "https://example.test/data/latest.json": json.dumps(latest),
+        "https://example.test/data/predictions/2026-w8.json": json.dumps(real_week),
+    }
+
+    def fetch_text(url: str) -> str:
+        if url not in pages:
+            raise ValueError(f"HTTP 404 for {url}")
+        return pages[url]
+
+    copied = restore_published_predictions(tmp_path / "real", "https://example.test", fetch_text)
+    assert copied["copied"] == 1
+    stored = json.loads(
+        (tmp_path / "real" / "predictions" / "2026-w8.json").read_text(encoding="utf-8")
+    )
+    assert stored["week"] == 8
+    assert not (tmp_path / "real" / "predictions" / "2026-w9.json").exists()
+
+    def fail(_url: str) -> str:
+        raise ValueError("HTTP 404")
+
+    failed = restore_published_predictions(tmp_path / "down", "https://example.test", fail)
+    assert failed["copied"] == 0
+
+
+def test_local_registry_failure_still_writes_the_week(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A sqlite registry that cannot register still publishes the week JSON."""
+    import mlflow
+
+    def refuse_registry(*_args: object, **_kwargs: object) -> object:
+        raise mlflow.MlflowException("registry unsupported")
+
+    monkeypatch.setattr(
+        "endzone.modeling.score.log_registered_sklearn_model",
+        refuse_registry,
+    )
+    games, team_games, upcoming = _completed_and_slate()
+    tracking_uri = "sqlite:///" + (tmp_path / "mlflow.db").as_posix()
+    settings = WeeklyScoreSettings(
+        output_dir=tmp_path / "out",
+        tracking_uri=tracking_uri,
+        logistic_max_iter=200,
+        generated_at=_FIXED_CLOCK,
+    )
+    try:
+        result = score_upcoming_week(games, team_games, upcoming, _catalog(), settings)
+    finally:
+        _reset_mlflow_tracking()
+    assert result["model_version"] == LOCAL_MODEL_VERSION
+    assert result["document"]["games"][0]["model_version"] == LOCAL_MODEL_VERSION
+    _reset_mlflow_tracking()
+
+
+def test_databricks_registry_failure_is_raised(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A Databricks tracking URI still fails when registration fails."""
+    import mlflow
+
+    def refuse_registry(*_args: object, **_kwargs: object) -> object:
+        raise mlflow.MlflowException("registry unsupported")
+
+    monkeypatch.setattr(
+        "endzone.modeling.score.log_registered_sklearn_model",
+        refuse_registry,
+    )
+    with pytest.raises(mlflow.MlflowException):
+        _register_weekly_model(
+            object(),
+            signature=None,
+            input_example=pd.DataFrame(),
+            model_name="endzone-winprob",
+            tracking_uri="databricks",
+        )

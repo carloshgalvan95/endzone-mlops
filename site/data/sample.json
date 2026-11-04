@@ -1,10 +1,10 @@
 {
   "sample": true,
   "is_example": true,
-  "label": "Example data for the layout. These are not real predictions.",
-  "season": 2026,
-  "week": 9,
-  "weeks_available": [9],
+  "label": "Example slate. These are not real predictions.",
+  "season": null,
+  "week": null,
+  "weeks_available": [],
   "generated_at": "2026-11-04T00:00:00Z",
   "model_name": "endzone-winprob",
   "model_version": "example",
@@ -12,7 +12,7 @@
   "threshold_pp": 5,
   "games": [
     {
-      "game_id": "EXAMPLE-2026-W09-01",
+      "game_id": "EXAMPLE-01",
       "kickoff": "2026-11-05T19:15:00-06:00",
       "home": "PIT",
       "away": "CLE",
@@ -23,7 +23,7 @@
       "generated_at": "2026-11-04T00:00:00Z"
     },
     {
-      "game_id": "EXAMPLE-2026-W09-02",
+      "game_id": "EXAMPLE-02",
       "kickoff": "2026-11-08T12:00:00-06:00",
       "home": "BUF",
       "away": "MIA",
@@ -34,7 +34,7 @@
       "generated_at": "2026-11-04T00:00:00Z"
     },
     {
-      "game_id": "EXAMPLE-2026-W09-03",
+      "game_id": "EXAMPLE-03",
       "kickoff": "2026-11-08T12:00:00-06:00",
       "home": "DET",
       "away": "GB",
@@ -45,7 +45,7 @@
       "generated_at": "2026-11-04T00:00:00Z"
     },
     {
-      "game_id": "EXAMPLE-2026-W09-04",
+      "game_id": "EXAMPLE-04",
       "kickoff": "2026-11-08T15:05:00-06:00",
       "home": "LAR",
       "away": "SEA",
@@ -56,7 +56,7 @@
       "generated_at": "2026-11-04T00:00:00Z"
     },
     {
-      "game_id": "EXAMPLE-2026-W09-05",
+      "game_id": "EXAMPLE-05",
       "kickoff": "2026-11-08T15:25:00-06:00",
       "home": "KC",
       "away": "DEN",
@@ -67,7 +67,7 @@
       "generated_at": "2026-11-04T00:00:00Z"
     },
     {
-      "game_id": "EXAMPLE-2026-W09-06",
+      "game_id": "EXAMPLE-06",
       "kickoff": "2026-11-08T19:20:00-06:00",
       "home": "PHI",
       "away": "DAL",
@@ -78,7 +78,7 @@
       "generated_at": "2026-11-04T00:00:00Z"
     },
     {
-      "game_id": "EXAMPLE-2026-W09-07",
+      "game_id": "EXAMPLE-07",
       "kickoff": "2026-11-09T19:15:00-06:00",
       "home": "NYJ",
       "away": "NE",

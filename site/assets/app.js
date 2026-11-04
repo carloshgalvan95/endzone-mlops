@@ -190,24 +190,64 @@
     });
   }
 
-  function show(data) {
-    state.data = data;
-    state.threshold = data.threshold_pp || 5;
-    document.getElementById("season").textContent = data.season;
-    document.getElementById("week-title").textContent = data.week;
+  function isExample(data) {
+    return data.sample === true || data.is_example === true;
+  }
+  function listedWeeks(data) {
+    var weeks = (data.weeks_available || []).filter(function (week) {
+      return week != null && String(week) !== "";
+    });
+    if (!weeks.length && data.week != null) weeks = [data.week];
+    return weeks;
+  }
+  function fillWeekSelect(data) {
     var weekSelect = document.getElementById("week-select");
+    if (isExample(data)) {
+      weekSelect.textContent = "";
+      var exampleOption = el("option", null, "Example slate");
+      exampleOption.value = "example";
+      exampleOption.selected = true;
+      weekSelect.appendChild(exampleOption);
+      return;
+    }
+    var weeks = listedWeeks(data).map(String);
+    var existing = Array.prototype.map.call(weekSelect.options, function (option) {
+      return option.value;
+    });
+    var keepExisting = existing.length > weeks.length && existing.indexOf("example") === -1;
+    if (keepExisting) {
+      Array.prototype.forEach.call(weekSelect.options, function (option) {
+        option.selected = option.value === String(data.week);
+      });
+      return;
+    }
     weekSelect.textContent = "";
-    (data.weeks_available || [data.week]).forEach(function (week) {
+    weeks.forEach(function (week) {
       var option = el("option", null, "Week " + week);
-      option.value = String(week);
+      option.value = week;
       if (Number(week) === Number(data.week)) option.selected = true;
       weekSelect.appendChild(option);
     });
+  }
+  function show(data) {
+    state.data = data;
+    state.threshold = data.threshold_pp || 5;
+    var example = isExample(data);
+    var kicker = document.getElementById("season-kicker");
+    var title = document.getElementById("week-title");
+    if (example) {
+      kicker.textContent = "Example slate";
+      title.textContent = "example";
+    } else {
+      kicker.textContent = "Season " + data.season;
+      title.textContent = "week " + data.week;
+    }
+    fillWeekSelect(data);
     var threshold = document.getElementById("thr-select");
     threshold.value = String(state.threshold);
     var flag = document.getElementById("example-flag");
-    if (data.sample === true || data.is_example === true) {
-      flag.textContent = data.label || "Example data for the layout. These are not real predictions.";
+    if (example) {
+      flag.textContent = data.label || "Example slate. These are not real predictions.";
       flag.hidden = false;
     } else {
       flag.textContent = "";
@@ -228,7 +268,7 @@
     if (state.data) render();
   });
   document.getElementById("week-select").addEventListener("change", function (event) {
-    if (!state.data) return;
+    if (!state.data || isExample(state.data)) return;
     var week = event.target.value;
     if (Number(week) === Number(state.data.week)) return;
     var url = "data/predictions/" + state.data.season + "-w" + week + ".json";

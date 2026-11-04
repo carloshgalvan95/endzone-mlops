@@ -64,6 +64,12 @@ models:
       
       - name: total_line
         description: "Closing over/under total"
+
+      - name: home_moneyline
+        description: "Closing American moneyline for the home team from nflverse games. Null when the line is not posted, including some unplayed games."
+
+      - name: away_moneyline
+        description: "Closing American moneyline for the away team from nflverse games. Null when the line is not posted, including some unplayed games."
       
       - name: gameday
         description: "Date of game"

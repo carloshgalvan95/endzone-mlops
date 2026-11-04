@@ -1895,8 +1895,9 @@ def market_home_probabilities(games: pd.DataFrame) -> dict[str, Any]:
     """No-vig home probabilities from closing moneylines, when the columns exist.
 
     A frame without ``home_moneyline`` and ``away_moneyline`` is skipped.
-    Rows with a null or invalid price are left as NaN and counted as missing.
-    This does not read another game. The closing line is a column on the row.
+    Rows with a null, NaN, or invalid price are left as NaN and counted as
+    missing. A missing price does not blank another row. This does not read
+    another game. The closing line is a column on the row.
 
     Args:
         games: Game table. Moneyline columns are optional.

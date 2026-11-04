@@ -330,6 +330,12 @@ models:
       
       - name: total_line
         description: "Closing over/under total"
+
+      - name: home_moneyline
+        description: "Closing American moneyline for the home team. Null when nflverse has not posted a line. A null line stays null and does not drop the game."
+
+      - name: away_moneyline
+        description: "Closing American moneyline for the away team. Null when nflverse has not posted a line. A null line stays null and does not drop the game."
       
       - name: roof
         description: "Stadium roof type"

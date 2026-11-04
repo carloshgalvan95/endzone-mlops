@@ -101,7 +101,7 @@ mlflow run . -e verify_reference --env-manager local
 
 `make score` fits logistic `h2_full` on every completed game, registers `endzone-winprob` in MLflow, and writes the next unplayed week to `site/data/predictions/<season>-w<week>.json` and `site/data/latest.json`. `make score SEASON=2026 WEEK=9` scores that week. Windows: set `SEASON` and `WEEK`, then `.\scripts\dev.ps1 score`. The same command is `mlflow run . -e score --env-manager local`.
 
-The page is `site/index.html`. It is an open experiment. Rolling-origin log loss is 0.6377 for the model and 0.6120 for the market. The market wins. This is not betting advice. Generated prediction JSON stays out of git. `site/data/sample.json` is an example slate, labeled as such. Team logos are loaded from nflverse URLs in `site/data/teams.json`. See [ADR-006](docs/adr/ADR-006-weekly-predictions.md).
+The page is `site/index.html`. It is an open experiment. Rolling-origin log loss is 0.6377 for the model and 0.6120 for the market. The market wins. This is not betting advice. The page loads `site/data/latest.json`. `site/data/sample.json` is an example slate with no season or week. It is shown only when `latest.json` is missing, and the EXAMPLE label stays visible. Generated prediction JSON stays out of git. GitHub Actions writes it in the runner: on push to `main`, on Tuesdays at 12:00 UTC, and on manual dispatch. That job refreshes the current season, builds the Databricks marts, scores the next unplayed week, and deploys `site/`. Team logos are loaded from nflverse URLs in `site/data/teams.json`. See [ADR-006](docs/adr/ADR-006-weekly-predictions.md).
 
 Needs the warehouse marts, including `fct_upcoming_games`, and the same `.env` as training.
 
