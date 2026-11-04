@@ -9,7 +9,7 @@ Training, metrics, MLflow, and the hypothesis list lived in one module. Each new
 
 ## Decision
 
-Training lives in `endzone/modeling/`. Each module has one job: the CLI (`train.py`), the single split (`holdout.py`), the comparison (`pipeline.py`), rolling-origin folds (`cv.py`), estimator factories (`models.py`), the YAML registry (`hypotheses.py`), metrics and the acceptance rule (`evaluation.py`), MLflow (`tracking.py`), the markdown report (`report.py`), one scored row (`scoring.py`), mart loads (`dataset.py`), and the reference check (`reference.py`).
+Training lives in `endzone/modeling/`. Each module has one job: the CLI (`train.py`), the single split (`holdout.py`), the comparison (`pipeline.py`), rolling-origin folds (`cv.py`), estimator factories (`models.py`), the YAML registry (`hypotheses.py`), metrics and the acceptance rule (`evaluation.py`), MLflow (`tracking.py`), the markdown report (`report.py`), one scored CV row (`scoring.py`), the weekly document (`weekly.py`), the score command (`score.py`), mart loads (`dataset.py`), and the reference check (`reference.py`).
 
 `configs/experiments/*.yaml` is the hypothesis registry. Adding a hypothesis is a new file.
 

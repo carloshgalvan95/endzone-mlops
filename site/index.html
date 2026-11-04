@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>endzone-mlops · Weekly NFL predictions</title>
+<meta name="description" content="Open experiment: a model's home win probability against the market. Not betting picks.">
+<meta name="theme-color" content="#1B1F23">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Jost:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/tokens.css">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header">
+  <div class="wrap header-inner">
+    <a class="brand" href="./" aria-label="endzone-mlops, home"><img src="assets/logo-horizontal-dark.svg" alt="endzone-mlops" width="168" height="40"></a>
+    <nav class="nav" aria-label="Primary">
+      <a href="#predictions" aria-current="page">Predictions</a>
+      <a href="#method">Method</a>
+      <a href="#record">Record</a>
+      <a href="https://github.com/carloshgalvan95/endzone-mlops" rel="noopener">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main" class="wrap">
+  <section class="banner" role="note" aria-label="Notice">
+    <span class="banner-tag">Notice</span>
+    <p>Open experiment. Model log loss <strong class="num">0.6377</strong> vs market <strong class="num">0.6120</strong> (the market wins). Not betting picks.</p>
+  </section>
+
+  <section class="hero" id="predictions">
+    <div>
+      <p class="kicker">Season <span id="season">2026</span> · Weekly predictions</p>
+      <h1>Model vs market, <span class="accent">week <span id="week-title">9</span></span></h1>
+      <p class="lede">Home win probability from our model, compared with the market's implied probability. Games are highlighted when they differ by at least <span id="thr-text">5</span> pp.</p>
+    </div>
+    <div class="controls">
+      <label class="field"><span>Week</span>
+        <select id="week-select" aria-label="Choose week"></select>
+      </label>
+      <label class="field"><span>Threshold</span>
+        <select id="thr-select" aria-label="Disagreement threshold in percentage points">
+          <option value="3">3 pp</option><option value="5" selected>5 pp</option><option value="8">8 pp</option><option value="10">10 pp</option>
+        </select>
+      </label>
+    </div>
+  </section>
+
+  <div id="example-flag" class="example-flag" hidden></div>
+
+  <div class="legend" aria-hidden="true">
+    <span title="Home team's win probability"><i class="sw sw-model"></i>Model (home %)</span>
+    <span><i class="sw sw-market"></i>Market</span>
+    <span><i class="sw sw-dis"></i>Disagreement</span>
+  </div>
+
+  <div class="table-card">
+    <table class="games" aria-describedby="example-flag">
+      <caption class="sr-only">Home win probabilities, model versus market</caption>
+      <thead><tr>
+        <th scope="col">Game</th><th scope="col">Kickoff</th>
+        <th scope="col" class="r" title="Home team's win probability">Model</th><th scope="col" class="r">Market</th>
+        <th scope="col" class="bar-col">Model vs market</th><th scope="col" class="r">Diff.</th>
+      </tr></thead>
+      <tbody id="games-body"></tbody>
+    </table>
+    <ul id="games-cards" class="cards"></ul>
+  </div>
+  <p class="note">Kickoff times are America/Mexico_City. Probabilities are for the home team. Difference = model minus market, in percentage points (pp).</p>
+
+  <section class="section" id="method">
+    <h2>Estimated score <span class="soon">Sprint 2</span></h2>
+    <div class="placeholder">
+      <p class="muted">Each game will show an estimated score. For example:</p>
+      <p class="score-sample num">PIT <b>21</b> <span class="sep">·</span> <b>12</b> CLE <span class="ex">EXAMPLE</span></p>
+    </div>
+  </section>
+
+  <section class="section" id="record">
+    <h2>Record <span class="soon">Sprint 3</span></h2>
+    <div class="placeholder grid3">
+      <div class="stat"><span class="stat-k">Model log loss</span><span class="stat-v num">0.6377</span></div>
+      <div class="stat"><span class="stat-k">Market log loss</span><span class="stat-v num">0.6120</span></div>
+      <div class="stat"><span class="stat-k">Weekly record</span><span class="stat-v muted">Pending</span></div>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap footer-inner">
+    <img src="assets/mark-dark.svg" alt="" width="40" height="30">
+    <p>endzone-mlops is an open MLOps experiment. This is not betting advice. Team names and logos are trademarks of their respective owners, loaded from nflverse. This site is not affiliated with the NFL.</p>
+    <a href="https://github.com/carloshgalvan95/endzone-mlops" rel="noopener">Code on GitHub</a>
+  </div>
+</footer>
+<script src="assets/app.js" defer></script>
+</body>
+</html>

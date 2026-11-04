@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import mlflow
 import mlflow.sklearn
@@ -95,6 +95,56 @@ def log_sklearn_model(model: object) -> dict[str, list[str]]:
         skops_trusted_types=trusted["trusted_types"],
     )
     return trusted
+
+
+class RegisteredModelLog(NamedTuple):
+    """A logged sklearn model and the registry version created for it."""
+
+    trusted_types: list[str]
+    model_version: str
+    model_uri: str
+    run_id: str
+
+
+def log_registered_sklearn_model(
+    model: object,
+    *,
+    signature: Any,
+    input_example: pd.DataFrame,
+    registered_model_name: str,
+) -> RegisteredModelLog:
+    """Log a sklearn model with a signature and register that version.
+
+    The artifact name stays ``model``. Registration uses the active tracking
+    store. A missing registry version raises ``RuntimeError``.
+
+    Args:
+        model: Fitted estimator.
+        signature: MLflow model signature for the feature columns.
+        input_example: One or more rows of those columns.
+        registered_model_name: Registry name, such as ``endzone-winprob``.
+
+    Returns:
+        Trusted skops types, the registry version, the model URI, and the run id.
+    """
+    trusted: dict[str, list[str]] = resolve_skops_trusted_types(model)
+    info = mlflow.sklearn.log_model(
+        model,
+        name="model",
+        signature=signature,
+        input_example=input_example,
+        registered_model_name=registered_model_name,
+        skops_trusted_types=trusted["trusted_types"],
+    )
+    version: object = info.registered_model_version
+    if version is None or str(version) == "":
+        raise RuntimeError(f"MLflow logged the model but did not register {registered_model_name}.")
+    return RegisteredModelLog(
+        trusted_types=list(trusted["trusted_types"]),
+        model_version=str(version),
+        model_uri=str(info.model_uri),
+        run_id=str(info.run_id),
+    )
 
 
 def activate_tracking_experiment(experiment_name: str, tracking_uri: str) -> None:

@@ -855,7 +855,7 @@ Once spike is PASS:
 2. Run `dbt run` to materialize staging models
 3. Create marts models (Day 7)
 4. Implement `train.py` with MLflow (Day 7)
-5. Implement `score.py` batch scoring (Day 14)
+5. `make score` writes one unplayed week. See ADR-006. A weekly job is Sprint 3.
 
 ---
 

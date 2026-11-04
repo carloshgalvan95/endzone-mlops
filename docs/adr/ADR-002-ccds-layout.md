@@ -31,7 +31,7 @@ Training and audit commands keep their current output paths: `reports/phase0`, `
 
 Import-linter contracts match the packages as they are today:
 
-1. Layers, higher to lower: `endzone.analysis`, then `endzone.train`, then siblings `endzone.modeling.train` and `endzone.ingest`, then siblings `endzone.modeling.pipeline` and `endzone.modeling.holdout`, then `endzone.modeling.scoring`, then siblings `endzone.modeling.cv`, `endzone.modeling.tracking`, and `endzone.modeling.report`, then siblings `endzone.modeling.evaluation`, `endzone.modeling.reference`, `endzone.modeling.models`, `endzone.modeling.hypotheses`, and `endzone.modeling.dataset`, then siblings `endzone.features` and `endzone.data`, then `endzone.utils`. Siblings do not import each other. A lower layer does not import a higher layer.
+1. Layers, higher to lower: `endzone.analysis`, then `endzone.train`, then siblings `endzone.modeling.train`, `endzone.modeling.score`, and `endzone.ingest`, then siblings `endzone.modeling.pipeline` and `endzone.modeling.holdout`, then siblings `endzone.modeling.scoring` and `endzone.modeling.weekly`, then siblings `endzone.modeling.cv`, `endzone.modeling.tracking`, and `endzone.modeling.report`, then siblings `endzone.modeling.evaluation`, `endzone.modeling.reference`, `endzone.modeling.models`, `endzone.modeling.hypotheses`, and `endzone.modeling.dataset`, then siblings `endzone.features` and `endzone.data`, then `endzone.utils`. Siblings do not import each other. A lower layer does not import a higher layer.
 2. `endzone.features` does not import `endzone.train` or `endzone.modeling`.
 3. `endzone.features` does not import `mlflow`.
 4. `endzone.ingest` does not import `endzone.train` or `endzone.modeling`.

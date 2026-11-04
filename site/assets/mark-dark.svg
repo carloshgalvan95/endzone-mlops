@@ -1,0 +1,16 @@
+<svg role="img" aria-label="endzone-mlops mark" xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080">
+<g transform="translate(140.000,201.538) scale(0.615385)">
+<g transform="scale(62.5)">
+<polygon points="0.000,8.000 20.800,8.000 20.800,1.500 0.000,1.500" fill="#D04A63"/>
+<path d="M 5.900 14.000 L 9.000 14.000 L 13.950 9.050" fill="none" stroke="#1B1F23" stroke-width="2.0" stroke-linejoin="round"/>
+<polygon points="16.707,6.293 15.647,10.747 12.253,7.353" fill="#1B1F23" stroke="#1B1F23" stroke-width="0.9" stroke-linejoin="miter"/>
+<path d="M 5.900 14.000 L 9.000 14.000 L 13.950 9.050" fill="none" stroke="#F4EEDF" stroke-width="1.1" stroke-linejoin="miter" stroke-linecap="butt"/>
+<polygon points="16.707,6.293 15.647,10.747 12.253,7.353" fill="#EDB01A"/>
+<circle cx="5.900" cy="14.000" r="1.175" fill="#F4EEDF"/>
+<circle cx="9.000" cy="14.000" r="1.175" fill="#F4EEDF"/>
+<circle cx="11.192" cy="11.808" r="1.175" fill="#F4EEDF"/>
+<circle cx="2.1" cy="14.0" r="1.425" fill="none" stroke="#5A86D6" stroke-width="1.35"/>
+<path d="M 12.3 12.9 L 14.5 15.1 M 14.5 12.9 L 12.3 15.1" stroke="#8C877D" stroke-width="0.9" fill="none"/>
+</g>
+</g>
+</svg>

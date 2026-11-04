@@ -1,1 +1,1 @@
-"""Pregame model training: cross-validation, evaluation, tracking, and reports."""
+"""Pregame model training, weekly scoring, evaluation, tracking, and reports."""

@@ -11,7 +11,7 @@ This is a learning project with production-shaped patterns, not production softw
 
 ## Problem
 
-Predict the home-team win before kickoff. The question is whether a leakage-free pregame feature set beats a fixed reference on rolling-origin log loss. Margin and total are not modeled. There is no betting product and no scoring job yet. `score.py` is not in the repo.
+Predict the home-team win before kickoff. The question is whether a leakage-free pregame feature set beats a fixed reference on rolling-origin log loss. Margin and total are not modeled. Weekly home-win probabilities are a batch page, not a betting product. See [ADR-006](docs/adr/ADR-006-weekly-predictions.md).
 
 ## Data
 
@@ -33,6 +33,7 @@ endzone-mlops/
   endzone/                 Python package
   models/                  gitignored serialized artifacts
   notebooks/               exploration only
+  site/                    weekly predictions page
   references/  reports/figures/  scripts/  tests/
 ```
 
@@ -96,6 +97,14 @@ mlflow run . -e verify_reference --env-manager local
 
 `mlflow run . -e train_cv --env-manager local` is the H5b CV. Parameters: `hypothesis`, `reference_model`, `reference_feature_set`, `output_dir`.
 
+## Weekly predictions
+
+`make score` fits logistic `h2_full` on every completed game, registers `endzone-winprob` in MLflow, and writes the next unplayed week to `site/data/predictions/<season>-w<week>.json` and `site/data/latest.json`. `make score SEASON=2026 WEEK=9` scores that week. Windows: set `SEASON` and `WEEK`, then `.\scripts\dev.ps1 score`. The same command is `mlflow run . -e score --env-manager local`.
+
+The page is `site/index.html`. It is an open experiment. Rolling-origin log loss is 0.6377 for the model and 0.6120 for the market. The market wins. This is not betting advice. Generated prediction JSON stays out of git. `site/data/sample.json` is an example slate, labeled as such. Team logos are loaded from nflverse URLs in `site/data/teams.json`. See [ADR-006](docs/adr/ADR-006-weekly-predictions.md).
+
+Needs the warehouse marts, including `fct_upcoming_games`, and the same `.env` as training.
+
 Windows (PowerShell). `.\scripts\dev.ps1` matches the Make targets and also has `format`:
 
 ```powershell
@@ -116,9 +125,10 @@ Listed in [docs/definition_of_done.md](docs/definition_of_done.md): ruff, `make 
 ## Docs
 
 - [Architecture](docs/architecture.md)
-- [ADR-001 Databricks](docs/adr/ADR-001-databricks.md), [ADR-002 CCDS](docs/adr/ADR-002-ccds-layout.md), [ADR-003 config and warehouse](docs/adr/ADR-003-config-and-warehouse.md), [ADR-004 modeling](docs/adr/ADR-004-modeling-and-hypotheses.md), [ADR-005 acceptance rule](docs/adr/ADR-005-acceptance-rule.md)
+- [ADR-001 Databricks](docs/adr/ADR-001-databricks.md), [ADR-002 CCDS](docs/adr/ADR-002-ccds-layout.md), [ADR-003 config and warehouse](docs/adr/ADR-003-config-and-warehouse.md), [ADR-004 modeling](docs/adr/ADR-004-modeling-and-hypotheses.md), [ADR-005 acceptance rule](docs/adr/ADR-005-acceptance-rule.md), [ADR-006 weekly predictions](docs/adr/ADR-006-weekly-predictions.md)
 - [Experiments](docs/experiments/reports/README.md)
 - [Runbook](docs/runbook.md)
+- [Site identity](docs/design/site_identity.md)
 - [Attribution](docs/ATTRIBUTION.md)
 
 ## License

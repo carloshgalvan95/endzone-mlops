@@ -69,6 +69,10 @@ data/external/*
 !.cursor/environment.json
 !tests/golden/*.json
 !docs/experiments/reference_metrics.json
+# Example slate and public team logo URLs. Real weekly JSON stays ignored.
+# See ADR-006.
+!site/data/sample.json
+!site/data/teams.json
 
 # Serialized local models. There is no endzone/models package.
 models/*
