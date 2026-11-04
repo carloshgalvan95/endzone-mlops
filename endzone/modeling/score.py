@@ -32,6 +32,7 @@ from endzone.modeling.tracking import (
     activate_tracking_experiment,
     get_git_sha,
     log_registered_sklearn_model,
+    log_sklearn_model,
 )
 from endzone.modeling.weekly import (
     DEFAULT_OUTPUT_DIR,
@@ -42,6 +43,7 @@ from endzone.modeling.weekly import (
     completed_games,
     load_team_catalog,
     parse_optional_int,
+    restore_published_predictions,
     select_slate,
     slate_for_features,
     team_catalog_document,
@@ -50,6 +52,9 @@ from endzone.modeling.weekly import (
 from endzone.utils.logging import setup_logger
 
 logger = setup_logger(__name__)
+
+# A local sqlite store that cannot register still publishes the week file.
+LOCAL_MODEL_VERSION: str = "local"
 
 
 class WeeklyScoreSettings(NamedTuple):
@@ -132,11 +137,12 @@ def score_upcoming_week(
         mlflow.set_tag("git_commit", get_git_sha())
         mlflow.set_tag("feature_set", WEEKLY_FEATURE_SET)
         mlflow.set_tag("stage", "weekly")
-        logged: RegisteredModelLog = log_registered_sklearn_model(
+        logged: RegisteredModelLog = _register_weekly_model(
             pipeline,
             signature=signature,
             input_example=example,
-            registered_model_name=settings.model_name,
+            model_name=settings.model_name,
+            tracking_uri=tracking_uri,
         )
     document: dict[str, Any] = build_prediction_document(
         season=chosen["season"],
@@ -190,19 +196,95 @@ def _score_frame(
 
 
 def _market_by_game(slate: pd.DataFrame) -> dict[str, float | None]:
-    """No-vig home probability for each slate game, or None when the line is absent."""
+    """No-vig home probability for each slate game, or None when the line is absent.
+
+    A null or non-finite price on one game stays null. It does not blank a
+    sibling game that has both moneylines.
+    """
     market: dict[str, Any] = market_home_probabilities(slate)
+    logger.info(
+        "Market lines on the slate: status=%s scored=%s missing=%s",
+        market["status"],
+        market["n_scored"],
+        market["n_missing_lines"],
+    )
     probabilities: pd.Series | None = market["probabilities"]
     mapped: dict[str, float | None] = {}
     game_ids: list[str] = [str(game_id) for game_id in slate["game_id"].tolist()]
     if probabilities is None:
         return {game_id: None for game_id in game_ids}
+    # Position order matches game_id order. The series index is not the id.
     for game_id, value in zip(game_ids, probabilities.tolist(), strict=True):
-        if value is None or (isinstance(value, float) and math.isnan(value)):
-            mapped[game_id] = None
-        else:
-            mapped[game_id] = float(value)
+        mapped[game_id] = _finite_probability(value)
     return mapped
+
+
+def _finite_probability(value: object) -> float | None:
+    """Return a finite probability. Missing and non-finite cells are None."""
+    if isinstance(value, list | tuple | dict):
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        return None
+    try:
+        number: float = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    return number
+
+
+def _local_registry(tracking_uri: str) -> bool:
+    """True for a sqlite or file store. A Databricks URI still has to register."""
+    text: str = tracking_uri.strip()
+    return text.startswith("sqlite:") or text.startswith("file:")
+
+
+def _register_weekly_model(
+    pipeline: Pipeline,
+    *,
+    signature: Any,
+    input_example: pd.DataFrame,
+    model_name: str,
+    tracking_uri: str,
+) -> RegisteredModelLog:
+    """Register the fitted pipeline. A local registry failure still returns a version.
+
+    Databricks tracking re-raises. A sqlite or file store that cannot register
+    logs the artifact when it can and uses ``LOCAL_MODEL_VERSION`` so the
+    week file is still written.
+    """
+    try:
+        return log_registered_sklearn_model(
+            pipeline,
+            signature=signature,
+            input_example=input_example,
+            registered_model_name=model_name,
+        )
+    except (RuntimeError, mlflow.MlflowException) as exc:
+        if not _local_registry(tracking_uri):
+            raise
+        logger.warning(
+            "Local MLflow did not register %s (%s). The week file uses version %s.",
+            model_name,
+            exc,
+            LOCAL_MODEL_VERSION,
+        )
+        try:
+            log_sklearn_model(pipeline)
+        except mlflow.MlflowException as log_exc:
+            logger.warning("Local MLflow did not store the model artifact: %s", log_exc)
+        active = mlflow.active_run()
+        run_id: str = "" if active is None else str(active.info.run_id)
+        return RegisteredModelLog(
+            trusted_types=[],
+            model_version=LOCAL_MODEL_VERSION,
+            model_uri="",
+            run_id=run_id,
+        )
 
 
 def _generated_at(clock: datetime | None) -> str:
@@ -282,12 +364,23 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="MLflow tracking URI. The default is the configured sqlite or Databricks URI.",
     )
+    parser.add_argument(
+        "--restore-published",
+        type=str,
+        default=None,
+        help=(
+            "Base URL of the live site. Copy non-example week files into the output "
+            "directory before scoring. A failed copy does not stop the score."
+        ),
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> dict[str, Any]:
     """Score one week and return the written document summary."""
     args: argparse.Namespace = build_parser().parse_args(argv)
+    if args.restore_published:
+        restore_published_predictions(Path(args.output_dir), args.restore_published)
     fixture_path: str | None = args.fixture_path if args.fixture_path else None
     games, team_games = load_data(fixture_path)
     upcoming: pd.DataFrame = load_upcoming_games(fixture_path)

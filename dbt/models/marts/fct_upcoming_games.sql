@@ -80,6 +80,8 @@ select
     g.gametime,
     g.spread_line,
     g.total_line,
+    -- Null moneylines stay null. A missing line is not zero, which would be
+    -- an invalid American price and would blank market_home_wp.
     g.away_moneyline,
     g.home_moneyline,
     g.location,

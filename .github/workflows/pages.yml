@@ -4,6 +4,20 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      season:
+        description: Season to score. Leave empty for the next unplayed week.
+        required: false
+        default: ""
+        type: string
+      week:
+        description: Week to score. Leave empty for the next unplayed week.
+        required: false
+        default: ""
+        type: string
+  schedule:
+    # Tuesday 12:00 UTC, after the Monday night game.
+    - cron: "0 12 * * 2"
 
 permissions:
   contents: read
@@ -20,9 +34,69 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_HTTP_PATH: ${{ secrets.DATABRICKS_HTTP_PATH }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+      MLFLOW_TRACKING_URI: sqlite:///mlflow.db
+      MSYS_NO_PATHCONV: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Install uv and Python 3.12
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install the locked environment
+        run: uv sync --frozen
+
+      - name: Configure the dbt profile
+        working-directory: dbt
+        run: cp profiles.yml.example profiles.yml
+
+      - name: Refresh the current season
+        run: uv run python -m endzone.ingest.load_raw_nflverse --current-season --dataset all
+
+      - name: Build Databricks marts
+        working-directory: dbt
+        run: uv run dbt deps --profiles-dir . && uv run dbt build --profiles-dir . --target databricks
+
+      - name: Score the next unplayed week
+        env:
+          SCORE_SEASON: ${{ github.event.inputs.season || '' }}
+          SCORE_WEEK: ${{ github.event.inputs.week || '' }}
+        run: |
+          repo_name="${GITHUB_REPOSITORY#*/}"
+          pages_base="https://${GITHUB_REPOSITORY_OWNER}.github.io/${repo_name}"
+          args=(--restore-published "${pages_base}")
+          if [ -n "${SCORE_SEASON}" ]; then
+            args+=(--season "${SCORE_SEASON}")
+          fi
+          if [ -n "${SCORE_WEEK}" ]; then
+            args+=(--week "${SCORE_WEEK}")
+          fi
+          uv run python -m endzone.modeling.score "${args[@]}"
+
+      - name: Check the generated week is not the example slate
+        run: |
+          uv run python - << 'PY'
+          import json
+          from pathlib import Path
+
+          latest = json.loads(Path("site/data/latest.json").read_text(encoding="utf-8"))
+          if latest.get("sample") is True:
+              raise SystemExit("latest.json is the example slate.")
+          games = latest.get("games") or []
+          if len(games) == 0:
+              raise SystemExit("latest.json has no games.")
+          print(
+              f"Publishing season {latest.get('season')} week {latest.get('week')} "
+              f"({len(games)} games)."
+          )
+          PY
 
       - name: Upload site
         uses: actions/upload-pages-artifact@v3
