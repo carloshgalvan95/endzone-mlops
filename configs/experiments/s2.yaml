@@ -13,7 +13,7 @@ season_count: 8
 elo_points_per_spread: 25
 interval_coverage: 0.8
 winprob_log_loss_benchmark: 0.638
-market_margin_multiplier: -1
+market_margin_multiplier: 1
 experiment_name: nfl_pregame/sprint2_score
 phase_tag: sprint2
 hypothesis_tag: s2-margin-total
