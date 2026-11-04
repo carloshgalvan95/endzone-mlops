@@ -359,7 +359,7 @@ def _finite_targets(frame: pd.DataFrame) -> pd.DataFrame:
 def _design(frame: pd.DataFrame, columns: tuple[str, ...]) -> pd.DataFrame:
     """Feature matrix plus the identifier columns the ridge pipeline drops."""
     design: pd.DataFrame = frame.loc[:, [*_ID_COLUMNS, *columns]].copy()
-    design.loc[:, list(columns)] = design.loc[:, list(columns)].astype(float)
+    design[list(columns)] = design[list(columns)].astype(float)
     return design
 
 
