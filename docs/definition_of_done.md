@@ -20,4 +20,4 @@ Windows runs the same gates through `.\scripts\dev.ps1` (`lint`, `lint-structure
 
 ## What done is not
 
-`make reproduce` installs the lock, builds Databricks marts, and runs `verify-reference`. It does not download nflverse and it does not register a model. `score.py` is still not in the repo.
+`make reproduce` installs the lock, builds Databricks marts, and runs `verify-reference`. It does not download nflverse and it does not register a model. `make score` fits logistic `h2_full` on completed games, registers `endzone-winprob`, and writes `site/data`. That JSON is not committed. See ADR-006.

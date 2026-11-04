@@ -134,7 +134,7 @@ If PR Guard fails, fix the reported issues and push again.
 
 ### 4.3 Design (Wilson 9/10)
 
-- Entrypoint real: `endzone/modeling/train.py`. `python -m endzone.train.train` es el comando compatible. `score.py` está planificado y no está en el repo. Config inyectada.
+- Entrypoint real: `endzone/modeling/train.py`. `python -m endzone.train.train` es el comando compatible. El score semanal es `python -m endzone.modeling.score`. Config inyectada.
 - Nombres descriptivos; retornos dict/namedtuple
 - Cada módulo agrupa una responsabilidad. El tamaño es un smell para revisar, no un gate. No hay chequeo de líneas en CI.
 - Sin except desnudo; sin estado global mutable
@@ -183,11 +183,11 @@ Una historia/PR está Done solo si cumple todos los puntos aplicables:
 - [x] dbt: staging + >=2 marts + schema tests + >=1 test de negocio
 - [x] Python: features + `endzone/modeling/train.py` (argparse, >=3 HP, seed) + MLflow (>=5 runs, params/metrics/artifact/model). `python -m endzone.train.train` sigue funcionando.
 - [x] CI: pytest + dbt compile (DuckDB). dbt build sigue en el target Databricks, no en CI.
-- [x] Docs: C4 L1 + secuencia en `docs/architecture.md` (score.py sigue como paso futuro)
+- [x] Docs: C4 L1 + secuencia en `docs/architecture.md`
 - [x] `make reproduce` instala el lock, construye marts en Databricks y reajusta la referencia (`verify-reference`). No descarga nflverse y no registra un modelo. Badge CI sí está.
 
 ### DoD Día 14 - Production-shaped + demo
-- [ ] score.py batch -> tabla de predicciones
+- [x] `python -m endzone.modeling.score` escribe el JSON de una semana en `site/data` (ADR-006). No hay tabla de predicciones en el warehouse.
 - [ ] Observability lite: logging + 1 señal drift/calidad
 - [ ] Job Databricks o GHA schedule
 - [ ] README + capturas + Loom 3-5 min

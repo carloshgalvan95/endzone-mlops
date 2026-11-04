@@ -115,7 +115,7 @@ endzone-mlops demonstrates a modern lakehouse architecture for NFL analytics, co
 - Feature engineering (rolling stats, team form, rest days)
 - Model training (`python -m endzone.modeling.train`, argparse + seed + hyperparameters; `python -m endzone.train.train` is the same command)
 - Experiment tracking (MLflow: params, metrics, artifacts, models)
-- Batch scoring (`score.py` reads features, writes predictions)
+- Batch scoring (`python -m endzone.modeling.score` fits logistic `h2_full`, registers it, and writes one week of JSON)
 - Evaluation (metrics: log loss, Brier score, calibration)
 
 **v0.1 Scope**: Pregame win probability model (logistic regression baseline).
@@ -151,7 +151,7 @@ endzone-mlops demonstrates a modern lakehouse architecture for NFL analytics, co
 
 #### 6. GitHub Actions (`github/workflows/ci.yml`)
 
-**Triggers**: Push, pull request
+**Triggers**: Push, pull request. `pages.yml` deploys `site/` to GitHub Pages on push to `main`. That job has no Databricks secrets. It publishes the files in `site/`, including the labeled example slate.
 
 **Steps**:
 1. Checkout code
@@ -184,7 +184,7 @@ sequenceDiagram
     participant Train as train.py
     participant MLflow as MLflow
     participant Score as score.py
-    participant Pred as Predictions Table
+    participant Pred as site/data JSON
 
     NFL->>Ingest: Download Parquet files
     Ingest->>Bronze: Write raw data (hash + timestamp)
@@ -194,9 +194,9 @@ sequenceDiagram
     Train->>MLflow: Log params, metrics, model
     MLflow-->>Train: Return run_id
     Train->>Train: Save model to registry
-    Gold->>Score: Read feature tables
-    Score->>MLflow: Load model by run_id
-    Score->>Pred: Write predictions (batch)
+    Gold->>Score: Read completed games and the upcoming slate
+    Score->>MLflow: Log logistic h2_full with a signature and register it
+    Score->>Pred: Write one week of home win probabilities
 ```
 
 ## Component Design Patterns
@@ -306,7 +306,7 @@ endzone/
 **Requirement**: No real-time inference in v0.1.
 
 **Implementation**:
-- `score.py` is planned and is not in the repo
+- `python -m endzone.modeling.score` writes one week of JSON under `site/data`
 - Live feed code is not in the repo
 - "Eventual live" documented as roadmap
 
