@@ -4,6 +4,8 @@ The page in `site/` is English. Two strings differ from the Spanish draft below.
 
 The model always picks one team. Home wins when `model_home_wp` is at least 0.5. Otherwise the away team wins. The box uses `--pick-win` and `--pick-win-label` (kit yellow, `#EDB01A`), fill `--pick-win-fill`, stroke `--pick-stroke` (1.5 px), radius `--pick-radius`, and padding `--pick-pad` (4 px), so the 3 px team-color border sits inside the outline. On a disagreement row the box keeps the dark fill and a 2 px halo in that same fill. The disagreement badge stays in the Diff. column. The light theme sets the outline and the WINS label to `--black` on a cream fill. The Model legend and column tooltip say the percentage is the home team's win probability.
 
+The estimated score sits under that box. Away points, then home points, rounded to integers for display. When ADR-007 has not passed, the line is the hidden-reason sentence and the Model accuracy block shows MAE as n/a. When it has passed, the block shows margin and total MAE against the baseline and the market. The copy stays an open experiment, not betting picks. The WINS box does not change.
+
 The rest of this note is the design specification, copied as delivered.
 
 ---
@@ -49,7 +51,7 @@ Escala 4/8: 4, 8, 12, 16, 24, 32, 48, 64, 96 px (`--space-1` a `--space-9`). Rad
 - **Logos de equipo**: disco neutro crema (`--logo-disc-size` 36 px) con borde sutil, para que logos oscuros se vean sobre #1B1F23. `<img>` desde nflverse (`team_logo_espn` o `team_logo_wikipedia`) se carga en runtime; si falla o falta, queda la abreviatura en mono dentro del disco.
 - **Colores de equipo**: solo como acento fino, `--team-accent` (de `team_color`) en un borde izquierdo de 3 px por equipo, puesto con `style` en línea y validado como hex. `--team-accent-2` (de `team_color2`) reservado para un segmento pequeño. Nunca como fondo ni color de texto. La semántica modelo/mercado/discrepancia es siempre de nuestra paleta.
 - **Footer**: marca sola, aviso legal (no es asesoría de apuestas, logos pertenecen a sus dueños), enlace a GitHub.
-- **Sprint 2, marcador estimado**: placeholder con borde punteado, ejemplo "PIT 21 · 12 CLE" marcado EJEMPLO. En la tabla irá como línea bajo el partido.
+- **Sprint 2, marcador estimado**: línea bajo el partido. Si el modelo no pasa ADR-007, el texto dice que el estimado está oculto. El bloque Model accuracy muestra el MAE de margen y de total contra el baseline y contra el mercado.
 - **Sprint 3, historial**: placeholder con 3 métricas (log loss modelo, log loss mercado, aciertos por semana).
 - **Datos de ejemplo**: si `data.json` trae `is_example: true`, se muestra la etiqueta EJEMPLO sobre la tabla.
 

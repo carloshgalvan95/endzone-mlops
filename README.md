@@ -11,7 +11,7 @@ This is a learning project with production-shaped patterns, not production softw
 
 ## Problem
 
-Predict the home-team win before kickoff. The question is whether a leakage-free pregame feature set beats a fixed reference on rolling-origin log loss. Margin and total are not modeled. Weekly home-win probabilities are a batch page, not a betting product. See [ADR-006](docs/adr/ADR-006-weekly-predictions.md).
+Predict the home-team win before kickoff, and estimate the score from a separate margin and a separate total. The win-probability question is whether a leakage-free pregame feature set beats a fixed reference on rolling-origin log loss. The score question is fixed in [ADR-007](docs/adr/ADR-007-score-regression.md). Weekly predictions are a batch page, not a betting product. See [ADR-006](docs/adr/ADR-006-weekly-predictions.md).
 
 ## Data
 
@@ -41,7 +41,7 @@ Flow: nflverse -> bronze (`endzone/ingest`) -> dbt staging -> dbt marts -> `endz
 
 `endzone/config.py` reads `.env`. `endzone/data/warehouse.py` is the SQL and Volume client. Hypothesis files are `configs/experiments/*.yaml`. The canonical command is `python -m endzone.modeling.train`. `python -m endzone.train.train` is the same flags.
 
-MLflow experiments: `nfl_pregame` (single split), `nfl_pregame/phase1_baselines`, and `nfl_pregame/phase2_h1` through `phase2_h5b` and `phase2_ridge`. A CV run logs one parent and one nested child per model. Child tag `decision` is `accepted`, `rejected`, `reference`, `baseline`, or `inconclusive`.
+MLflow experiments: `nfl_pregame` (single split), `nfl_pregame/phase1_baselines`, `nfl_pregame/phase2_h1` through `phase2_h5b` and `phase2_ridge`, and `nfl_pregame/sprint2_score`. A CV run logs one parent and one nested child per model. Child tag `decision` is `accepted`, `rejected`, `reference`, `baseline`, or `inconclusive`.
 
 ## Results
 
@@ -69,6 +69,7 @@ Same window, n=2191, unless the note says otherwise. Detail is in `docs/experime
 | H4 clean EPA | rejected | logistic `h2_full` | `h4_clean` 0.6398 (+0.0021), `h4_clean_sr` 0.6379 (+0.0002) |
 | H5 starting QB | rejected | logistic `h2_full` | `h5_qb` 0.6355, difference -0.0022, interval -0.0042 to -0.0003 |
 | H5b fixed starter | rejected | logistic `h2_full` | `h5_qb` 0.6356, difference -0.0021, interval -0.0039 to -0.0002 |
+| Sprint 2 margin and total | not run on the warehouse in this change | Elo/25 and the league-mean total | Rule locked in ADR-007 before the fit. `make train-s2` writes the CV report. |
 
 H2 is why logistic `h2_full` is the reference. H5 and H5b beat it by less than 0.003. The intervals are entirely below 0, so the sign is a positive signal. The threshold was not moved. Notes: [H5](docs/experiments/phase2_h5_starting_qb.md), [H5b](docs/experiments/phase2_h5b_starter_coverage.md).
 
@@ -77,6 +78,8 @@ H2 is why logistic `h2_full` is the reference. H5 and H5b beat it by less than 0
 On pooled out-of-fold games, accept a feature set only when `log_loss_diff` <= -0.003 and the 95% paired bootstrap interval lies entirely below 0 (1000 resamples, seed 42). Otherwise reject. The rule is [ADR-005](docs/adr/ADR-005-acceptance-rule.md).
 
 Switch the reference to `logistic_l2` on `h2_full` only when that row's `log_loss_diff` is <= 0. The ridge run did not.
+
+Sprint 2 is a different rule, for home margin and total points. Ridge on `h2_full` is accepted only when pooled CV MAE beats its baseline and the 95% paired bootstrap interval of that MAE difference lies entirely below 0, and the model is strictly better in at least 5 of 8 seasons (2016-2023). The margin baseline is the Elo point spread, rating gap including home field divided by 25. The total baseline is the training-fold mean total. Market MAE, RMSE, 80% interval coverage, and implied win log loss versus 0.638 are reported and are not gates. The thresholds are not moved after a result. See [ADR-007](docs/adr/ADR-007-score-regression.md).
 
 ## Reproduce
 
@@ -99,7 +102,9 @@ mlflow run . -e verify_reference --env-manager local
 
 ## Weekly predictions
 
-`make score` fits logistic `h2_full` on every completed game, registers `endzone-winprob` in MLflow, and writes the next unplayed week to `site/data/predictions/<season>-w<week>.json` and `site/data/latest.json`. `make score SEASON=2026 WEEK=9` scores that week. Windows: set `SEASON` and `WEEK`, then `.\scripts\dev.ps1 score`. The same command is `mlflow run . -e score --env-manager local`.
+`make score` fits logistic `h2_full` on every completed game, registers `endzone-winprob` in MLflow, and writes the next unplayed week to `site/data/predictions/<season>-w<week>.json` and `site/data/latest.json`. It also runs the Sprint 2 rule. Home points are `(total + margin) / 2` and away points are `(total - margin) / 2`, rounded on the page only. If either target fails, both point fields are null and the page says the estimate is hidden because it did not pass its pre-registered test. `endzone-margin` and `endzone-total` are registered only when that target passes. `make score SEASON=2026 WEEK=9` scores that week. Windows: set `SEASON` and `WEEK`, then `.\scripts\dev.ps1 score`. The same command is `mlflow run . -e score --env-manager local`.
+
+`make train-s2` (Windows: `.\scripts\dev.ps1 train-s2`) writes `reports/sprint2/cv_report.json`. That directory is local scratch. Copy the JSON to `docs/experiments/reports/sprint2_cv_report.json` only after the warehouse run, and do not hand-edit the numbers. `mlflow run . -e score_cv --env-manager local` is the same comparison.
 
 The page is `site/index.html`. It is an open experiment. Rolling-origin log loss is 0.6377 for the model and 0.6120 for the market. The market wins. This is not betting advice. The page loads `site/data/latest.json`. `site/data/sample.json` is an example slate with no season or week. It is shown only when `latest.json` is missing, and the EXAMPLE label stays visible. Generated prediction JSON stays out of git. GitHub Actions writes it in the runner: on push to `main`, on Tuesdays at 12:00 UTC, and on manual dispatch. That job refreshes the current season, builds the Databricks marts, scores the next unplayed week, and deploys `site/`. Team logos are loaded from nflverse URLs in `site/data/teams.json`. See [ADR-006](docs/adr/ADR-006-weekly-predictions.md).
 
@@ -125,7 +130,7 @@ Listed in [docs/definition_of_done.md](docs/definition_of_done.md): ruff, `make 
 ## Docs
 
 - [Architecture](docs/architecture.md)
-- [ADR-001 Databricks](docs/adr/ADR-001-databricks.md), [ADR-002 CCDS](docs/adr/ADR-002-ccds-layout.md), [ADR-003 config and warehouse](docs/adr/ADR-003-config-and-warehouse.md), [ADR-004 modeling](docs/adr/ADR-004-modeling-and-hypotheses.md), [ADR-005 acceptance rule](docs/adr/ADR-005-acceptance-rule.md), [ADR-006 weekly predictions](docs/adr/ADR-006-weekly-predictions.md)
+- [ADR-001 Databricks](docs/adr/ADR-001-databricks.md), [ADR-002 CCDS](docs/adr/ADR-002-ccds-layout.md), [ADR-003 config and warehouse](docs/adr/ADR-003-config-and-warehouse.md), [ADR-004 modeling](docs/adr/ADR-004-modeling-and-hypotheses.md), [ADR-005 acceptance rule](docs/adr/ADR-005-acceptance-rule.md), [ADR-006 weekly predictions](docs/adr/ADR-006-weekly-predictions.md), [ADR-007 margin and total](docs/adr/ADR-007-score-regression.md)
 - [Experiments](docs/experiments/reports/README.md)
 - [Runbook](docs/runbook.md)
 - [Site identity](docs/design/site_identity.md)

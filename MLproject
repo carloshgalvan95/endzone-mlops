@@ -21,3 +21,8 @@ entry_points:
       week: {type: string, default: auto}
       output_dir: {type: string, default: site/data}
     command: "python -m endzone.modeling.score --season {season} --week {week} --output-dir {output_dir}"
+
+  score_cv:
+    parameters:
+      output_dir: {type: string, default: reports/sprint2}
+    command: "python -m endzone.modeling.points --output-dir {output_dir}"

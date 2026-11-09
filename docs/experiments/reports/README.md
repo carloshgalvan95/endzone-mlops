@@ -17,3 +17,5 @@
 | [epa_filter_check.md](epa_filter_check.md) | [phase0_input_audit.md](../phase0_input_audit.md) | `play = 1` play types, plus kneel and spike counts |
 
 The copies are verbatim local reports. A Databricks hostname, if one were present, is stripped before commit. These files do not contain one.
+
+Sprint 2 writes `reports/sprint2/cv_report.json` (`make train-s2`). Copy that JSON here as `sprint2_cv_report.json` only after the warehouse run, and do not hand-edit the numbers. ADR-007. The file is not in this folder until that run exists.

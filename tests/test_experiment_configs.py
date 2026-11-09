@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pytest
+import yaml
 
 from endzone.modeling.hypotheses import (
     ExperimentSpec,
@@ -14,12 +15,18 @@ from endzone.modeling.hypotheses import (
 from endzone.modeling.train import build_parser
 
 
-def _yaml_paths() -> list[Path]:
-    """Every experiment file. A new hypothesis is one more file."""
-    return sorted(experiments_directory().glob("*.yaml"))
+def _classification_paths() -> list[Path]:
+    """Win-probability experiment files. The score file is a separate task."""
+    paths: list[Path] = []
+    for path in sorted(experiments_directory().glob("*.yaml")):
+        payload: object = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if isinstance(payload, dict) and payload.get("task") == "score":
+            continue
+        paths.append(path)
+    return paths
 
 
-@pytest.mark.parametrize("path", _yaml_paths(), ids=lambda path: path.stem)
+@pytest.mark.parametrize("path", _classification_paths(), ids=lambda path: path.stem)
 def test_experiment_file_matches_the_catalog(path: Path) -> None:
     """The file id, aliases, model rows, and tracking fields round-trip."""
     spec: ExperimentSpec = load_catalog().by_id(path.stem)

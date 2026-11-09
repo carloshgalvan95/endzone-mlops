@@ -32,6 +32,7 @@ function Show-Help {
     Write-Host "  check-epa-filter    - Count play types in the EPA filter, plus kneel and spike rows"
     Write-Host "  verify-reference    - Refit logistic h2_full and fail if it drifts from the reference file"
     Write-Host "  score               - Fit logistic h2_full, register it, and score one unplayed week"
+    Write-Host "  train-s2            - Sprint 2 margin and total CV. Registers a target only if it passes"
     Write-Host "  clean               - Remove build artifacts"
     Write-Host "  reproduce           - install, Databricks dbt build, verify-reference"
     Write-Host ""
@@ -193,6 +194,12 @@ function Invoke-VerifyReference {
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
+function Invoke-TrainS2 {
+    Write-Host "Cross-validating ridge margin and total (ADR-007)..."
+    python -m endzone.modeling.points
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
 function Invoke-Score {
     Write-Host "Scoring one unplayed week with logistic h2_full..."
     $scoreArgs = @("-m", "endzone.modeling.score")
@@ -273,6 +280,7 @@ switch ($Target.ToLower()) {
     "audit-features" { Invoke-AuditFeatures }
     "check-epa-filter" { Invoke-CheckEpaFilter }
     "verify-reference" { Invoke-VerifyReference }
+    "train-s2" { Invoke-TrainS2 }
     "score" { Invoke-Score }
     "clean" { Invoke-Clean }
     "reproduce" { Invoke-Reproduce }
