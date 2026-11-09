@@ -1,16 +1,18 @@
-"""Alert when the published model is clearly behind the no-vig market.
+"""Alert when the published model is worse than its validated baseline.
 
 The metric is rolling log loss on the same decided games the track record
 uses. It runs after Results writes ``track_record.json``. A trip opens or
 updates one GitHub issue. It does not change a week file, and a failure
 here must not fail the publish.
 
-Defaults: last 64 decided games, at least 48 of them, and a gap of 0.02
-(model log loss minus market log loss). The reference table's gap is about
-0.0257, so a published window that looks like that table trips once the
-sample is large enough. Override with the CLI flags or
+The gap is model log loss minus market log loss. The reference file supplies
+the validated gap (logistic ``h2_full`` minus the no-vig market). The alert
+trips when the window gap is at least that reference gap plus a margin.
+Defaults: last 64 decided games, at least 48 of them, and a margin of 0.02.
+A window that matches the reference table stays quiet. Trailing the market
+by the reference gap is the known state. Override with the CLI flags or
 ``ENDZONE_ALERT_WINDOW_GAMES``, ``ENDZONE_ALERT_MIN_GAMES``, and
-``ENDZONE_ALERT_LOG_LOSS_GAP``.
+``ENDZONE_ALERT_GAP_MARGIN``.
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
+from endzone.modeling.reference import reference_market_gap
 from endzone.site.archive import ArchiveError, open_archive_readonly
 from endzone.site.track_record import (
     TrackRecordError,
@@ -37,14 +40,16 @@ logger = setup_logger(__name__)
 
 DEFAULT_WINDOW_GAMES: int = 64
 DEFAULT_MIN_GAMES: int = 48
-DEFAULT_LOG_LOSS_GAP: float = 0.02
+DEFAULT_GAP_MARGIN: float = 0.02
 ALERT_LABEL: str = "model-behind-market"
 ALERT_LABEL_COLOR: str = "b60205"
-ALERT_LABEL_DESCRIPTION: str = "Published track record log loss is behind the no-vig market."
-ALERT_TITLE: str = "Published model log loss is behind the no-vig market"
+ALERT_LABEL_DESCRIPTION: str = (
+    "Published log loss gap exceeds the reference CV gap plus the margin."
+)
+ALERT_TITLE: str = "Published model is worse than its validated baseline"
 _ENV_WINDOW: str = "ENDZONE_ALERT_WINDOW_GAMES"
 _ENV_MIN: str = "ENDZONE_ALERT_MIN_GAMES"
-_ENV_GAP: str = "ENDZONE_ALERT_LOG_LOSS_GAP"
+_ENV_MARGIN: str = "ENDZONE_ALERT_GAP_MARGIN"
 _API_ROOT: str = "https://api.github.com"
 _API_VERSION: str = "2022-11-28"
 
@@ -58,19 +63,23 @@ def evaluate_market_gap(
     *,
     window_games: int = DEFAULT_WINDOW_GAMES,
     min_games: int = DEFAULT_MIN_GAMES,
-    gap_threshold: float = DEFAULT_LOG_LOSS_GAP,
+    gap_margin: float = DEFAULT_GAP_MARGIN,
+    reference_gap: float | None = None,
 ) -> dict[str, Any]:
     """Compare model and market log loss on the most recent decided games.
 
     ``games`` is oldest first. Rows that are not a 0/1 label with two
     probabilities in ``[0, 1]`` are dropped before the window is cut.
-    The alert trips when the window has at least ``min_games`` rows and
-    model log loss minus market log loss is greater than or equal to
-    ``gap_threshold``. A model that is closer than the market does not trip.
+    ``reference_gap`` defaults to logistic ``h2_full`` minus the market in
+    the locked reference file. The alert trips when the window has at least
+    ``min_games`` rows and model log loss minus market log loss is greater
+    than or equal to ``reference_gap + gap_margin``. A window that matches
+    the reference gap stays quiet.
 
     Returns:
         Dict with ``tripped``, ``reason``, ``n_games``, both log losses,
-        ``gap``, the three settings, and the last season and week.
+        ``gap``, ``reference_gap``, ``gap_margin``, ``gap_threshold``,
+        and the last season and week.
 
     Raises:
         ValueError: A setting is out of range, or ``min_games`` exceeds
@@ -82,8 +91,12 @@ def evaluate_market_gap(
         raise ValueError("min_games must be >= 1.")
     if min_games > window_games:
         raise ValueError("min_games cannot exceed window_games.")
-    if gap_threshold < 0 or gap_threshold != gap_threshold:
-        raise ValueError("gap_threshold must be a finite number >= 0.")
+    if gap_margin < 0 or gap_margin != gap_margin:
+        raise ValueError("gap_margin must be a finite number >= 0.")
+    locked_gap: float = reference_market_gap() if reference_gap is None else float(reference_gap)
+    if locked_gap != locked_gap:
+        raise ValueError("reference_gap must be finite.")
+    gap_threshold: float = locked_gap + float(gap_margin)
     kept: list[dict[str, Any]] = []
     for game in games:
         usable: dict[str, Any] | None = _usable_row(game)
@@ -104,7 +117,9 @@ def evaluate_market_gap(
         "gap": None,
         "window_games": int(window_games),
         "min_games": int(min_games),
-        "gap_threshold": float(gap_threshold),
+        "reference_gap": locked_gap,
+        "gap_margin": float(gap_margin),
+        "gap_threshold": gap_threshold,
         "last_season": last_season,
         "last_week": last_week,
     }
@@ -137,7 +152,8 @@ def alert_issue_body(decision: Mapping[str, Any]) -> str:
     market_loss: float = float(decision["market_log_loss"])
     gap: float = float(decision["gap"])
     lines: list[str] = [
-        "The published track record has the model behind the no-vig market on log loss.",
+        "The published model is worse than its validated baseline.",
+        "The gap is model log loss minus no-vig market log loss.",
         "",
         f"Window: last {int(decision['n_games'])} decided games "
         f"(cap {int(decision['window_games'])}).",
@@ -145,13 +161,15 @@ def alert_issue_body(decision: Mapping[str, Any]) -> str:
         f"Model log loss: {model_loss:.6f}.",
         f"Market log loss: {market_loss:.6f}.",
         f"Gap (model minus market): {gap:.6f}.",
-        f"Threshold: {float(decision['gap_threshold']):.6f}.",
+        f"Reference CV gap: {float(decision['reference_gap']):.6f}.",
+        f"Margin: {float(decision['gap_margin']):.6f}.",
+        f"Bar (reference gap plus margin): {float(decision['gap_threshold']):.6f}.",
         f"Last game in the window: season {decision['last_season']} week {decision['last_week']}.",
         "",
-        "Lower log loss is closer to the results. This gap is not a betting signal.",
-        "The reference table is model 0.6377 and market 0.6120, a gap of about 0.0257.",
-        "A published window that looks like that table trips this alert once the sample "
-        "is large enough.",
+        "Lower log loss is closer to the results.",
+        "A window that matches the reference table stays quiet.",
+        "Trailing the market by the reference gap is the known state.",
+        "This issue is not a betting signal.",
         "",
         "Close this issue after reading it. The next Results run updates this same issue "
         "when the window still trips. It does not open a second one.",
@@ -306,7 +324,7 @@ class GithubIssueClient:
 def build_parser() -> argparse.ArgumentParser:
     """Build the alert parser. Defaults match the documented thresholds."""
     parser = argparse.ArgumentParser(
-        description="Open one issue when published log loss is behind the market."
+        description="Open one issue when published log loss exceeds the reference gap plus a margin."
     )
     parser.add_argument("--repo", type=str, default=None)
     parser.add_argument("--site-data", type=str, default=None)
@@ -321,7 +339,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--window-games", type=int, default=None)
     parser.add_argument("--min-games", type=int, default=None)
-    parser.add_argument("--gap", type=float, default=None)
+    parser.add_argument(
+        "--margin",
+        type=float,
+        default=None,
+        help="Extra log loss above the reference CV gap. The default is 0.02.",
+    )
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -348,20 +371,22 @@ def _run(args: argparse.Namespace) -> None:
     """Load games, evaluate, and sync. Raises on a bad archive or a bad API call."""
     window_games: int = _setting_int(args.window_games, _ENV_WINDOW, DEFAULT_WINDOW_GAMES)
     min_games: int = _setting_int(args.min_games, _ENV_MIN, DEFAULT_MIN_GAMES)
-    gap_threshold: float = _setting_float(args.gap, _ENV_GAP, DEFAULT_LOG_LOSS_GAP)
+    gap_margin: float = _setting_float(args.margin, _ENV_MARGIN, DEFAULT_GAP_MARGIN)
     games: list[Mapping[str, Any]] = _load_games(args)
     decision: dict[str, Any] = evaluate_market_gap(
         games,
         window_games=window_games,
         min_games=min_games,
-        gap_threshold=gap_threshold,
+        gap_margin=gap_margin,
     )
     logger.info(
-        "Model alert %s (n=%s, gap=%s, threshold=%s).",
+        "Model alert %s (n=%s, gap=%s, reference_gap=%s, margin=%s, bar=%s).",
         decision["reason"],
         decision["n_games"],
         _format_optional(decision["gap"]),
-        f"{gap_threshold:.6f}",
+        f"{float(decision['reference_gap']):.6f}",
+        f"{float(decision['gap_margin']):.6f}",
+        f"{float(decision['gap_threshold']):.6f}",
     )
     if not decision["tripped"] or args.dry_run:
         return

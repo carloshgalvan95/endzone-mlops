@@ -5,7 +5,7 @@
 
 ## Context
 
-Tuesday scoring fits logistic `h2_full` on games before the week and registers `endzone-winprob` in a sqlite file on the runner. That version is thrown away with the runner. The page has no durable model to load, and nothing says when the published record is clearly behind the market.
+Tuesday scoring fits logistic `h2_full` on games before the week and registers `endzone-winprob` in a sqlite file on the runner. That version is thrown away with the runner. The page has no durable model to load, and nothing says when the published record is clearly worse than the validated baseline. Trailing the market by the reference gap is already the known state.
 
 The reference table is still model log loss 0.6377 against market 0.6120. The market is closer. This ADR does not change that, and it does not move the 0.003 rule.
 
@@ -53,13 +53,13 @@ Old week files omit `model_alias`. A present value is text or null. The results 
 
 ### Alert
 
-After Results writes the track record, `python -m endzone.site.model_alert` compares the model and the no-vig market on the same clipped binary log loss as ADR-008. Ties and missing prices are out. The window is the last 64 decided games that have both prices. It does not trip unless at least 48 of those games are in the window. It trips when model log loss minus market log loss is greater than or equal to 0.02.
+After Results writes the track record, `python -m endzone.site.model_alert` compares the model and the no-vig market on the same clipped binary log loss as ADR-008. Ties and missing prices are out. The window is the last 64 decided games that have both prices. It does not trip unless at least 48 of those games are in the window.
 
-The reference gap is about 0.0257. A published window that looks like that table trips once the sample reaches 48 games. That is the point of the default. It is a description of the published record, not a betting signal.
+The gap on that window is model log loss minus market log loss. The reference gap is the same difference on the locked CV table, read from `docs/experiments/reference_metrics.json` (logistic `h2_full` minus the market row). Today that is 0.6377 minus 0.6120. The alert trips when the window gap is greater than or equal to the reference gap plus a margin. The default margin is 0.02, so the bar is about 0.046. A window that looks like the reference table stays quiet. Trailing the market by the reference gap is the known, honest state. The alert means the published model is doing clearly worse than its own validated baseline.
 
-Overrides: `ENDZONE_ALERT_WINDOW_GAMES`, `ENDZONE_ALERT_MIN_GAMES`, `ENDZONE_ALERT_LOG_LOSS_GAP`, or the CLI flags `--window-games`, `--min-games`, and `--gap`.
+Overrides: `ENDZONE_ALERT_WINDOW_GAMES`, `ENDZONE_ALERT_MIN_GAMES`, and `ENDZONE_ALERT_GAP_MARGIN`, or the CLI flags `--window-games`, `--min-games`, and `--margin`.
 
-A trip opens or updates one GitHub issue, title "Published model log loss is behind the no-vig market", label `model-behind-market`. The workflow uses `GITHUB_TOKEN`. An existing open issue with that label is updated. A pull request is ignored. The body has no timestamp, so an hourly run that sees the same window does not edit the issue again. A missing token, an HTTP error, or a short sample is logged. The step returns 0, and the workflow step is `continue-on-error`. The publish does not fail because of the alert. The alert does not edit a week file or the track record.
+A trip opens or updates one GitHub issue, title "Published model is worse than its validated baseline", label `model-behind-market`. The issue is not a betting signal. The workflow uses `GITHUB_TOKEN`. An existing open issue with that label is updated. A pull request is ignored. The body has no timestamp, so an hourly run that sees the same window does not edit the issue again. A missing token, an HTTP error, or a short sample is logged. The step returns 0, and the workflow step is `continue-on-error`. The publish does not fail because of the alert. The alert does not edit a week file or the track record.
 
 ## Consequences
 

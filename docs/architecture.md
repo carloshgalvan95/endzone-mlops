@@ -341,7 +341,7 @@ A daily refresh, a feature-distribution drift monitor, and a live feed are not p
 
 **Day 14 Scope**:
 - Logging: Python `logging` module with timestamps
-- One quality signal: published log loss versus the no-vig market, one GitHub issue (ADR-009)
+- One quality signal: published log loss gap above the reference CV gap plus a margin, one GitHub issue (ADR-009)
 
 **Future**:
 - Feature-distribution drift (PSI, KS test)

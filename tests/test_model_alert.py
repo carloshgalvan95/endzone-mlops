@@ -4,16 +4,18 @@ from __future__ import annotations
 
 import io
 import json
+import math
 import urllib.error
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from endzone.modeling.reference import reference_market_gap
 from endzone.site.model_alert import (
     ALERT_LABEL,
     ALERT_TITLE,
-    DEFAULT_LOG_LOSS_GAP,
+    DEFAULT_GAP_MARGIN,
     DEFAULT_MIN_GAMES,
     DEFAULT_WINDOW_GAMES,
     GithubIssueClient,
@@ -90,7 +92,13 @@ def _tripped() -> dict[str, Any]:
         _row(1, 0.2, 0.9, game_id="a"),
         _row(0, 0.8, 0.1, game_id="b", week=10),
     ]
-    decision = evaluate_market_gap(games, window_games=4, min_games=2, gap_threshold=0.02)
+    decision = evaluate_market_gap(
+        games,
+        window_games=4,
+        min_games=2,
+        gap_margin=0.02,
+        reference_gap=0.0,
+    )
     assert decision["tripped"] is True
     return decision
 
@@ -105,7 +113,8 @@ def test_gap_trips_only_on_the_last_window_and_only_above_the_sample() -> None:
         [_row(1, 0.7, 0.7), _row(0, 0.3, 0.3, week=10)],
         window_games=4,
         min_games=2,
-        gap_threshold=0.02,
+        gap_margin=0.02,
+        reference_gap=0.0,
     )
     assert quiet["tripped"] is False
     assert quiet["reason"] == "within_gap"
@@ -113,7 +122,8 @@ def test_gap_trips_only_on_the_last_window_and_only_above_the_sample() -> None:
         [_row(1, 0.2, 0.9)],
         window_games=4,
         min_games=2,
-        gap_threshold=0.02,
+        gap_margin=0.02,
+        reference_gap=0.0,
     )
     assert short["tripped"] is False
     assert short["reason"] == "below_minimum_sample"
@@ -123,18 +133,23 @@ def test_gap_trips_only_on_the_last_window_and_only_above_the_sample() -> None:
         _row(1, 0.7, 0.7, week=2, game_id="new-a"),
         _row(0, 0.3, 0.3, week=2, game_id="new-b"),
     ]
-    recent = evaluate_market_gap(early_bad, window_games=2, min_games=2, gap_threshold=0.02)
+    recent = evaluate_market_gap(
+        early_bad, window_games=2, min_games=2, gap_margin=0.02, reference_gap=0.0
+    )
     assert recent["tripped"] is False
     assert recent["last_week"] == 2
     late_bad = early_bad[2:] + early_bad[:2]
-    recent_bad = evaluate_market_gap(late_bad, window_games=2, min_games=2, gap_threshold=0.02)
+    recent_bad = evaluate_market_gap(
+        late_bad, window_games=2, min_games=2, gap_margin=0.02, reference_gap=0.0
+    )
     assert recent_bad["tripped"] is True
     assert recent_bad["last_week"] == 1
     ahead = evaluate_market_gap(
         [_row(1, 0.9, 0.2), _row(0, 0.1, 0.8, week=10)],
         window_games=4,
         min_games=2,
-        gap_threshold=0.02,
+        gap_margin=0.02,
+        reference_gap=0.0,
     )
     assert ahead["gap"] < 0
     assert ahead["tripped"] is False
@@ -143,21 +158,63 @@ def test_gap_trips_only_on_the_last_window_and_only_above_the_sample() -> None:
     assert defaults["reason"] == "below_minimum_sample"
     assert defaults["window_games"] == DEFAULT_WINDOW_GAMES
     assert defaults["min_games"] == DEFAULT_MIN_GAMES
-    assert defaults["gap_threshold"] == DEFAULT_LOG_LOSS_GAP
+    assert defaults["gap_margin"] == DEFAULT_GAP_MARGIN
+    assert defaults["reference_gap"] == pytest.approx(reference_market_gap())
+    assert defaults["gap_threshold"] == pytest.approx(
+        defaults["reference_gap"] + DEFAULT_GAP_MARGIN
+    )
 
 
 def test_an_equal_gap_trips_and_a_slightly_smaller_gap_does_not() -> None:
-    """The comparison is greater than or equal to the threshold."""
+    """The comparison is greater than or equal to reference gap plus margin."""
     games = [_row(1, 0.6, 0.8)]
-    measured = evaluate_market_gap(games, window_games=1, min_games=1, gap_threshold=0.0)
+    measured = evaluate_market_gap(
+        games, window_games=1, min_games=1, gap_margin=0.0, reference_gap=0.0
+    )
     gap = float(measured["gap"])
     assert gap > 0
-    at_threshold = evaluate_market_gap(games, window_games=1, min_games=1, gap_threshold=gap)
+    at_threshold = evaluate_market_gap(
+        games, window_games=1, min_games=1, gap_margin=0.0, reference_gap=gap
+    )
     assert at_threshold["tripped"] is True
-    under = evaluate_market_gap(games, window_games=1, min_games=1, gap_threshold=gap + 1e-9)
+    under = evaluate_market_gap(
+        games, window_games=1, min_games=1, gap_margin=0.0, reference_gap=gap + 1e-9
+    )
     assert under["tripped"] is False
     with pytest.raises(ValueError, match="min_games"):
-        evaluate_market_gap(games, window_games=2, min_games=4, gap_threshold=0.02)
+        evaluate_market_gap(games, window_games=2, min_games=4, gap_margin=0.02, reference_gap=0.0)
+
+
+def _games_at_gap(gap: float) -> list[dict[str, Any]]:
+    """Two home wins whose model-minus-market log loss equals ``gap``."""
+    market: float = 0.7
+    model: float = market * math.exp(-gap)
+    return [
+        _row(1, model, market, game_id="a"),
+        _row(1, model, market, game_id="b", week=10),
+    ]
+
+
+def test_reference_table_stays_quiet_and_the_margin_trips() -> None:
+    """The known CV gap is quiet. Reference gap plus the margin trips."""
+    reference_gap: float = reference_market_gap()
+    assert reference_gap == pytest.approx(0.6377 - 0.6120)
+    quiet = evaluate_market_gap(_games_at_gap(reference_gap), window_games=4, min_games=2)
+    assert quiet["tripped"] is False
+    assert quiet["reason"] == "within_gap"
+    assert quiet["gap"] == pytest.approx(reference_gap, abs=1e-9)
+    assert quiet["reference_gap"] == pytest.approx(reference_gap)
+    assert quiet["gap_margin"] == DEFAULT_GAP_MARGIN
+    bar: float = reference_gap + DEFAULT_GAP_MARGIN
+    at_bar = evaluate_market_gap(_games_at_gap(bar), window_games=4, min_games=2)
+    assert at_bar["gap"] == pytest.approx(bar, abs=1e-9)
+    assert at_bar["tripped"] is True
+    assert at_bar["reason"] == "log_loss_gap"
+    worse = evaluate_market_gap(_games_at_gap(bar + 0.01), window_games=4, min_games=2)
+    assert worse["tripped"] is True
+    body = alert_issue_body(at_bar)
+    assert "This issue is not a betting signal." in body
+    assert "stays quiet" in body
 
 
 def test_issue_sync_creates_once_and_skips_an_unchanged_body() -> None:
@@ -305,7 +362,7 @@ def test_cli_does_not_fail_when_the_window_is_short_or_github_is_unconfigured(
                 "1",
                 "--min-games",
                 "1",
-                "--gap",
+                "--margin",
                 "0.01",
                 "--dry-run",
             ]
@@ -323,7 +380,7 @@ def test_cli_does_not_fail_when_the_window_is_short_or_github_is_unconfigured(
                 "1",
                 "--min-games",
                 "1",
-                "--gap",
+                "--margin",
                 "0.01",
             ]
         )
