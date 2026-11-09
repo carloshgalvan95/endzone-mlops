@@ -54,9 +54,17 @@
   --pick-win: var(--yellow);
   --pick-win-label: var(--yellow);
   --pick-win-fill: var(--dark-bg);
+  --pick-tie: var(--dark-x-gray);
+  --pick-tie-label: var(--dark-muted);
   --pick-stroke: 1.5px;
   --pick-radius: var(--radius-md);
   --pick-pad: 4px;
+
+  /* Final score stack. Winner cream, loser muted. No second box. */
+  --score: #F4EEDF;
+  --score-muted: #A9A396;
+  --final-label: #A9A396;
+  --market-caption: #A9A396;
 
   /* Positive / negative (kit only: blue up, crimson down; crimson text large only) */
   --color-positive: var(--dark-blue);
@@ -155,6 +163,12 @@
     --pick-win: var(--black);
     --pick-win-label: var(--black);
     --pick-win-fill: var(--cream);
+    --pick-tie: var(--x-gray);
+    --pick-tie-label: var(--muted);
+    --score: #151515;
+    --score-muted: #5E5950;
+    --final-label: #5E5950;
+    --market-caption: #5E5950;
     --color-negative: var(--crimson);
     --color-banner-bg: var(--grid);
     --color-banner-border: var(--crimson);

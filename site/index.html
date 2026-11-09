@@ -37,7 +37,7 @@
     <div>
       <p class="kicker" id="season-kicker">Weekly predictions</p>
       <h1>Model vs market, <span class="accent" id="week-title">this week</span></h1>
-      <p class="lede">Home win probability from our model, compared with the market's implied probability. Games are highlighted when they differ by at least <span id="thr-text">5</span> pp.</p>
+      <p class="lede">Home win probability from our model, compared with the market. When a game is final, the Kickoff cell shows the score. Predictions stay frozen. Games are highlighted when they differ by at least <span id="thr-text">5</span> pp.</p>
     </div>
     <div class="controls">
       <label class="field"><span>Week</span>
@@ -61,7 +61,7 @@
 
   <div class="table-card">
     <table class="games" aria-describedby="example-flag">
-      <caption class="sr-only">Home win probabilities, model versus market</caption>
+      <caption class="sr-only">Home win probabilities, model versus market, with final scores when the game is final</caption>
       <thead><tr>
         <th scope="col">Game</th><th scope="col">Kickoff</th>
         <th scope="col" class="r" title="Home team's win probability">Model</th><th scope="col" class="r">Market</th>
@@ -71,7 +71,7 @@
     </table>
     <ul id="games-cards" class="cards"></ul>
   </div>
-  <p class="note">Kickoff times are America/Mexico_City. Probabilities are for the home team. Difference = model minus market, in percentage points (pp).</p>
+  <p class="note">Kickoff times are America/Mexico_City. Probabilities are for the home team. Difference = model minus market, in percentage points (pp). WINS is the frozen model pick. Scores show the actual result when final.</p>
 
   <section class="section" id="accuracy">
     <h2>Model accuracy</h2>

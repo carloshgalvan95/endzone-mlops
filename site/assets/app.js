@@ -1,3 +1,63 @@
+var EndzoneView = (function () {
+  "use strict";
+
+  function pickSide(modelHomeWp) {
+    if (modelHomeWp == null || Number.isNaN(Number(modelHomeWp))) return null;
+    var pick = Math.round(Number(modelHomeWp) * 100);
+    if (pick === 50) return "tie";
+    return pick > 50 ? "home" : "away";
+  }
+
+  // Winner only when status is exactly final. Scores without that status stay scheduled.
+  function resultSide(game) {
+    if (!game || game.status !== "final") return null;
+    if (game.home_score == null || game.away_score == null) return null;
+    var home = Number(game.home_score);
+    var away = Number(game.away_score);
+    if (Number.isNaN(home) || Number.isNaN(away)) return null;
+    if (home === away) return "tie";
+    return home > away ? "home" : "away";
+  }
+
+  function marketCaption(marketHomeWp, side, homeAbbr, awayAbbr) {
+    if (side == null) return "";
+    if (marketHomeWp == null || Number.isNaN(Number(marketHomeWp))) return "";
+    var pick = Math.round(Number(marketHomeWp) * 100);
+    if (pick === 50) return "market even";
+    var favored = pick > 50 ? "home" : "away";
+    var abbr = favored === "home" ? homeAbbr : awayAbbr;
+    var matched = side === favored;
+    return "favored " + abbr + " \u00b7 " + (matched ? "matched" : "did not match");
+  }
+
+  // True when the frozen pick and the final scoreline are the same side, including tie/tie.
+  function pickMatched(pick, result) {
+    if (pick == null || result == null) return null;
+    return pick === result;
+  }
+
+  function estimateLabel(awayPoints, homePoints) {
+    if (awayPoints == null || homePoints == null) return "";
+    var away = Number(awayPoints);
+    var home = Number(homePoints);
+    if (Number.isNaN(away) || Number.isNaN(home)) return "";
+    return "est. " + Math.round(away) + "-" + Math.round(home);
+  }
+
+  return {
+    pickSide: pickSide,
+    resultSide: resultSide,
+    marketCaption: marketCaption,
+    pickMatched: pickMatched,
+    estimateLabel: estimateLabel
+  };
+})();
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = EndzoneView;
+}
+
+if (typeof document !== "undefined") {
 (function () {
   "use strict";
   var state = { data: null, teams: { teams: {} }, threshold: 5 };
@@ -35,12 +95,17 @@
     };
   }
   function viewGame(game) {
+    var modelHome = game.model_home_wp != null ? game.model_home_wp : game.model_home;
+    var marketHome = game.market_home_wp != null ? game.market_home_wp : game.market_home;
     return {
       kickoff: game.kickoff,
+      status: game.status === "final" ? "final" : "scheduled",
+      home_score: game.home_score,
+      away_score: game.away_score,
       home: teamRecord(game.home),
       away: teamRecord(game.away),
-      model_home: game.model_home_wp,
-      market_home: game.market_home_wp,
+      model_home: modelHome,
+      market_home: marketHome,
       estimated_home_points: game.estimated_home_points,
       estimated_away_points: game.estimated_away_points
     };
@@ -49,8 +114,8 @@
     if (missing(game.model_home) || missing(game.market_home)) return null;
     return Math.round((Number(game.model_home) - Number(game.market_home)) * 100);
   }
-  function homeWins(modelHome) {
-    return Number(modelHome) >= 0.5;
+  function isFinal(game) {
+    return game.status === "final" && EndzoneView.resultSide(game) !== null;
   }
 
   function disc(team) {
@@ -81,7 +146,8 @@
     row.appendChild(name);
     return row;
   }
-  function pickBox(team, role, isWin) {
+  function pickBox(team, role, side, pick) {
+    var isWin = pick === side;
     var box = el("div", "pick-box" + (isWin ? " win" : ""));
     box.appendChild(teamRow(team, role));
     if (isWin) box.appendChild(el("span", "pick-label", "WINS"));
@@ -103,13 +169,24 @@
     return block;
   }
   function matchup(game) {
-    var homePick = homeWins(game.model_home);
-    var block = el("div", "matchup");
-    var winner = homePick ? game.home.name : game.away.name;
-    block.appendChild(pickBox(game.away, "away", !homePick));
-    block.appendChild(pickBox(game.home, "home", homePick));
-    block.appendChild(scoreLine(game));
-    block.setAttribute("aria-label", "Model pick: " + winner + " wins");
+    var pick = EndzoneView.pickSide(game.model_home);
+    var result = EndzoneView.resultSide(game);
+    var block = el("div", "matchup" + (pick === "tie" ? " tie" : ""));
+    block.appendChild(pickBox(game.away, "away", "away", pick));
+    block.appendChild(pickBox(game.home, "home", "home", pick));
+    if (pick === "tie") block.appendChild(el("span", "pick-label", "TIE"));
+    if (!isFinal(game)) block.appendChild(scoreLine(game));
+    var bits = [];
+    if (pick === "tie") bits.push("Model pick: tie");
+    else if (pick === "home" || pick === "away") {
+      bits.push("Model pick: " + (pick === "home" ? game.home.name : game.away.name));
+    }
+    if (result === "tie") bits.push("Final: tie");
+    else if (result) bits.push("Final: " + (result === "home" ? game.home.name : game.away.name));
+    var matched = EndzoneView.pickMatched(pick, result);
+    if (matched === true) bits.push("Model pick matched the result");
+    else if (matched === false) bits.push("Model pick did not match the result");
+    if (bits.length) block.setAttribute("aria-label", bits.join(". "));
     return block;
   }
   function metricText(value) {
@@ -185,6 +262,104 @@
     block.appendChild(document.createTextNode(hasTime ? fmtTime.format(parsed) + " CDMX" : "Time TBD"));
     return block;
   }
+  function finalDate(kickoff) {
+    var parsed = new Date(kickoff);
+    if (Number.isNaN(parsed.getTime())) return "";
+    var parts = new Intl.DateTimeFormat("en-GB", {
+      weekday: "short", day: "numeric", month: "short", timeZone: "America/Mexico_City"
+    }).formatToParts(parsed);
+    var weekday = "";
+    var day = "";
+    var month = "";
+    parts.forEach(function (part) {
+      if (part.type === "weekday") weekday = part.value;
+      if (part.type === "day") day = part.value;
+      if (part.type === "month") month = part.value;
+    });
+    return weekday + " " + day + " " + month;
+  }
+  function scoreClass(side, result) {
+    if (result === "tie") return "tie";
+    return result === side ? "win" : "lose";
+  }
+  function svgNode(name) {
+    return document.createElementNS("http://www.w3.org/2000/svg", name);
+  }
+  function resultMark(matched) {
+    var mark = el("span", "result-mark");
+    mark.setAttribute("role", "img");
+    mark.setAttribute(
+      "aria-label",
+      matched ? "Model pick matched the result" : "Model pick did not match the result"
+    );
+    var svg = svgNode("svg");
+    svg.setAttribute("viewBox", "0 0 22 22");
+    svg.setAttribute("width", "22");
+    svg.setAttribute("height", "22");
+    svg.setAttribute("aria-hidden", "true");
+    var circle = svgNode("circle");
+    circle.setAttribute("cx", "11");
+    circle.setAttribute("cy", "11");
+    circle.setAttribute("r", "9.25");
+    circle.setAttribute("fill", "none");
+    circle.setAttribute("stroke", "currentColor");
+    circle.setAttribute("stroke-width", "1.5");
+    svg.appendChild(circle);
+    var path = svgNode("path");
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", "currentColor");
+    path.setAttribute("stroke-width", "1.5");
+    path.setAttribute("stroke-linecap", "round");
+    path.setAttribute("stroke-linejoin", "round");
+    path.setAttribute(
+      "d",
+      matched ? "M6.4 11.2 L9.5 14.2 L15.7 7.7" : "M7.2 7.2 L14.8 14.8 M14.8 7.2 L7.2 14.8"
+    );
+    svg.appendChild(path);
+    mark.appendChild(svg);
+    return mark;
+  }
+  function resultWell(game) {
+    var result = EndzoneView.resultSide(game);
+    var well = el("div", "result-well");
+    var line = el("div", "score-line");
+    var stack = el("div", "score-stack");
+    stack.appendChild(el("span", scoreClass("away", result), String(game.away_score)));
+    stack.appendChild(el("span", scoreClass("home", result), String(game.home_score)));
+    line.appendChild(stack);
+    var matched = EndzoneView.pickMatched(EndzoneView.pickSide(game.model_home), result);
+    if (matched !== null) line.appendChild(resultMark(matched));
+    well.appendChild(line);
+    var date = finalDate(game.kickoff);
+    var meta = result === "tie" ? "Final \u00b7 Tie" : "Final";
+    if (date) meta += " \u00b7 " + date;
+    var metaBlock = el("div", "result-meta");
+    metaBlock.appendChild(el("span", "kick-date final-tag", meta));
+    var estimateText = EndzoneView.estimateLabel(game.estimated_away_points, game.estimated_home_points);
+    var estimate = el("span", estimateText ? "est-line" : "est-line is-placeholder", estimateText);
+    if (!estimateText) estimate.setAttribute("aria-hidden", "true");
+    metaBlock.appendChild(estimate);
+    well.appendChild(metaBlock);
+    return well;
+  }
+  function kickOrResult(game) {
+    return isFinal(game) ? resultWell(game) : kick(game);
+  }
+  function marketCell(game) {
+    var cell = el("div", "market-cell");
+    cell.appendChild(el("span", "num", pct(game.market_home)));
+    var caption = EndzoneView.marketCaption(
+      game.market_home,
+      EndzoneView.resultSide(game),
+      game.home.abbr,
+      game.away.abbr
+    );
+    if (caption) {
+      cell.title = caption;
+      cell.appendChild(el("span", "market-caption", caption));
+    }
+    return cell;
+  }
 
   function render() {
     var data = state.data;
@@ -197,15 +372,18 @@
       var game = viewGame(raw);
       var pp = diffPp(game);
       var disagrees = pp != null && Math.abs(pp) >= state.threshold;
+      var finalGame = isFinal(game);
       var row = el("tr", disagrees ? "dis" : "");
-      var cell = el("td");
+      var cell = el("td", "game-cell");
       cell.appendChild(matchup(game));
       row.appendChild(cell);
-      cell = el("td");
-      cell.appendChild(kick(game));
+      cell = el("td", "kick-cell");
+      cell.appendChild(kickOrResult(game));
       row.appendChild(cell);
       row.appendChild(el("td", "r p-model", pct(game.model_home)));
-      row.appendChild(el("td", "r", pct(game.market_home)));
+      cell = el("td", "r");
+      cell.appendChild(marketCell(game));
+      row.appendChild(cell);
       cell = el("td");
       cell.appendChild(bar(game));
       row.appendChild(cell);
@@ -216,23 +394,48 @@
 
       var card = el("li", "card" + (disagrees ? " dis" : ""));
       var top = el("div", "card-top");
-      top.appendChild(kick(game));
+      if (finalGame) {
+        var result = EndzoneView.resultSide(game);
+        top.appendChild(el("span", "final-tag", result === "tie" ? "Final \u00b7 Tie" : "Final"));
+      } else {
+        top.appendChild(kick(game));
+      }
       if (disagrees) top.appendChild(el("span", "badge", "DISAGREES"));
       card.appendChild(top);
-      card.appendChild(matchup(game));
+      if (finalGame) {
+        var rail = el("div", "score-rail");
+        rail.appendChild(matchup(game));
+        rail.appendChild(resultWell(game));
+        card.appendChild(rail);
+      } else {
+        card.appendChild(matchup(game));
+      }
       card.appendChild(bar(game));
       var nums = el("div", "card-nums");
       [
         ["Model", pct(game.model_home), "p-model"],
         ["Market", pct(game.market_home), ""],
         ["Diff.", null, ""]
-      ].forEach(function (item) {
+      ].forEach(function (item, index) {
         var column = el("div");
         var label = el("span", null, item[0]);
         if (item[0] === "Model") label.title = "Home team's win probability";
         column.appendChild(label);
-        if (item[1]) column.appendChild(el("b", item[2], item[1]));
-        else {
+        if (item[1]) {
+          column.appendChild(el("b", item[2], item[1]));
+          if (index === 1) {
+            var caption = EndzoneView.marketCaption(
+              game.market_home,
+              EndzoneView.resultSide(game),
+              game.home.abbr,
+              game.away.abbr
+            );
+            if (caption) {
+              column.title = caption;
+              column.appendChild(el("span", "market-caption", caption));
+            }
+          }
+        } else {
           var value = el("b");
           value.appendChild(diffNode(pp, false));
           column.appendChild(value);
@@ -358,3 +561,4 @@
     body.appendChild(row);
   });
 })();
+}

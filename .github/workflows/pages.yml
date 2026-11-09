@@ -98,6 +98,9 @@ jobs:
           )
           PY
 
+      - name: Overlay final scores on published weeks
+        run: uv run python -m endzone.site.results --output-dir site/data
+
       - name: Upload site
         uses: actions/upload-pages-artifact@v3
         with:

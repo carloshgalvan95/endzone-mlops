@@ -1,7 +1,9 @@
 """Weekly prediction documents: slate selection, team marks, and JSON files.
 
 The page reads ``site/data``. Real score output stays untracked. A shipped
-sample is labeled ``sample: true`` and has no season or week.
+sample is labeled ``sample: true`` and has no season or week. Each game
+has ``status`` ``scheduled`` or ``final``. Scores are attached after publish
+and only when the game is final. They are not part of the fit.
 """
 
 from __future__ import annotations
@@ -45,6 +47,7 @@ PREDICTION_GAME_FIELDS: tuple[str, ...] = (
     "diff",
     "model_version",
     "generated_at",
+    "status",
     "estimated_margin",
     "estimated_total",
     "estimated_home_points",
@@ -57,6 +60,9 @@ SCORE_MODEL_TARGET_FIELDS: tuple[str, ...] = (
     "baseline_mae",
     "market_mae",
 )
+SCHEDULED_GAME_STATUS: str = "scheduled"
+FINAL_GAME_STATUS: str = "final"
+_RESULTS_UPDATED_AT: re.Pattern[str] = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 _SLATE_COLUMNS: tuple[str, ...] = (
     "game_id",
     "season",
@@ -300,6 +306,7 @@ def build_prediction_document(
                 "diff": difference,
                 "model_version": model_version,
                 "generated_at": generated_at,
+                "status": SCHEDULED_GAME_STATUS,
                 "estimated_margin": _round_points(estimate.get("estimated_margin")),
                 "estimated_total": _round_points(estimate.get("estimated_total")),
                 "estimated_home_points": _round_points(estimate.get("estimated_home_points")),
@@ -322,7 +329,14 @@ def build_prediction_document(
 
 
 def validate_prediction_document(document: dict[str, Any]) -> None:
-    """Raise ``ValueError`` when a weekly document breaks the public schema."""
+    """Raise ``ValueError`` when a weekly document breaks the public schema.
+
+    Prediction fields stay required. Every game has ``status`` of
+    ``scheduled`` or ``final``. Scores are integers and are present only
+    when ``status`` is ``final``. A final score of 0-0 is allowed. The
+    winner is the higher score. Equal scores are a tie. ``result`` is
+    optional and must match that scoreline when it is set.
+    """
     required: tuple[str, ...] = (
         "sample",
         "season",
@@ -337,12 +351,14 @@ def validate_prediction_document(document: dict[str, Any]) -> None:
     missing: list[str] = [key for key in required if key not in document]
     if missing:
         raise ValueError(f"Prediction document missing keys: {', '.join(missing)}.")
+    _validate_results_updated_at(document.get("results_updated_at"))
     if not isinstance(document["games"], list) or len(document["games"]) == 0:
         raise ValueError("Prediction document needs at least one game.")
     for game in document["games"]:
         absent: list[str] = [key for key in PREDICTION_GAME_FIELDS if key not in game]
         if absent:
             raise ValueError(f"Game {game.get('game_id')!r} missing keys: {', '.join(absent)}.")
+        _validate_optional_result(game)
         model_probability: float = float(game["model_home_wp"])
         if not 0.0 <= model_probability <= 1.0:
             raise ValueError(f"model_home_wp for {game['game_id']} is outside [0, 1].")
@@ -397,6 +413,67 @@ def _validate_score_model(score_model: object, games: list[dict[str, Any]]) -> N
             continue
         if any(point is not None for point in points):
             raise ValueError(f"Hidden score model must leave points null for {game['game_id']}.")
+
+
+def _validate_results_updated_at(value: object) -> None:
+    """Allow a missing stamp. A present stamp is ISO UTC with a Z suffix."""
+    if value is None:
+        return
+    if isinstance(value, str) and _RESULTS_UPDATED_AT.match(value):
+        return
+    raise ValueError("results_updated_at must be an ISO UTC timestamp ending in Z.")
+
+
+def _optional_score(game: dict[str, Any], key: str) -> int | None:
+    """Return one score, or None when that cell is absent.
+
+    Raises:
+        ValueError: The cell is present and is not a non-negative integer.
+    """
+    if key not in game or game[key] is None:
+        return None
+    value: object = game[key]
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{key} for {game.get('game_id')} must be an integer.")
+    if value < 0:
+        raise ValueError(f"{key} for {game.get('game_id')} must be zero or greater.")
+    return value
+
+
+def scoreline_result(home_score: int, away_score: int) -> str:
+    """Return ``home``, ``away``, or ``tie`` from a final scoreline.
+
+    Equal scores are a tie. Otherwise the higher score wins. This does not
+    look at ``status``. Callers decide whether the game is final.
+    """
+    if home_score == away_score:
+        return "tie"
+    if home_score > away_score:
+        return "home"
+    return "away"
+
+
+def _validate_optional_result(game: dict[str, Any]) -> None:
+    """Require scheduled or final, and scores only on a final game."""
+    status: object = game.get("status")
+    if status not in (SCHEDULED_GAME_STATUS, FINAL_GAME_STATUS):
+        raise ValueError(f"status for {game.get('game_id')} must be scheduled or final.")
+    home_score: int | None = _optional_score(game, "home_score")
+    away_score: int | None = _optional_score(game, "away_score")
+    if status == SCHEDULED_GAME_STATUS:
+        if home_score is not None or away_score is not None:
+            raise ValueError(f"scheduled game {game.get('game_id')} must not include scores.")
+        if game.get("result") is not None:
+            raise ValueError(f"scheduled game {game.get('game_id')} must not include result.")
+        return
+    if home_score is None or away_score is None:
+        raise ValueError(
+            f"final game {game.get('game_id')} needs integer home_score and away_score."
+        )
+    expected: str = scoreline_result(home_score, away_score)
+    result: object = game.get("result")
+    if result is not None and result != expected:
+        raise ValueError(f"result for {game.get('game_id')} does not match the scores.")
 
 
 def weeks_present(output_dir: Path, season: int) -> list[int]:

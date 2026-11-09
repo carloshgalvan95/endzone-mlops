@@ -309,6 +309,7 @@ endzone/
 **Implementation**:
 - `python -m endzone.modeling.score` writes one week of JSON under `site/data`
 - Margin and total points are null until both targets pass ADR-007
+- `python -m endzone.site.results` overlays final nflverse scores on those files. It does not refit the model.
 - Live feed code is not in the repo
 - "Eventual live" documented as roadmap
 

@@ -88,6 +88,7 @@ type = "layers"
 layers = [
     "endzone.analysis",
     "endzone.train",
+    "endzone.site",
     "endzone.modeling.train | endzone.modeling.score | endzone.ingest",
     "endzone.modeling.pipeline | endzone.modeling.holdout | endzone.modeling.points",
     "endzone.modeling.scoring | endzone.modeling.weekly",
@@ -133,6 +134,7 @@ source_modules = ["endzone.config"]
 forbidden_modules = [
     "endzone.analysis",
     "endzone.train",
+    "endzone.site",
     "endzone.ingest",
     "endzone.features",
     "endzone.data",
