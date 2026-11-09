@@ -34,9 +34,10 @@ This is Carlos Galvan's public MLOps portfolio demonstrating Databricks + dbt + 
 
 ### Published week
 - A published weekly slate is frozen.
-- A mid-week deploy restores published files and overlays finals. It must not rescore or drop game_ids.
+- A mid-week deploy restores `published-slates` first and overlays finals. It must not rescore or drop game_ids.
 - Losing or silently replacing a published slate is a production failure.
 - An intentional rebuild is `--replace-published` or the Pages `replace_published` dispatch input. It predicts every scheduled game that week and trains only on completed games before that week.
+- The durable copy is the orphan branch `published-slates`. A deploy restores that branch first, then archives the files it is about to publish. It does not deploy if that write fails. `history/` keeps the earlier file. Adding games is allowed. Dropping a `game_id` already archived fails.
 
 ### Domain
 - NFL data from nflverse (CC BY 4.0)
