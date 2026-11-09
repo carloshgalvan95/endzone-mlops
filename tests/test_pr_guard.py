@@ -364,6 +364,24 @@ class TestPRGuard:
         assert len(mock_pr_guard.errors) == 1
         assert "behind base branch" in mock_pr_guard.errors[0].message.lower()
 
+    def test_pull_request_opener_passes(self, mock_pr_guard: PRGuard) -> None:
+        """The repository account may open the pull request."""
+        mock_pr_guard.check_pull_request_opener({"user": {"login": "carloshgalvan95"}})
+        assert mock_pr_guard.errors == []
+
+    def test_pull_request_opener_must_be_the_account(self, mock_pr_guard: PRGuard) -> None:
+        """Another account opening the pull request fails the check."""
+        mock_pr_guard.check_pull_request_opener({"user": {"login": "someone-else"}})
+        assert len(mock_pr_guard.errors) == 1
+        assert mock_pr_guard.errors[0].check == "pr-opener"
+        assert "carloshgalvan95" in mock_pr_guard.errors[0].message
+
+    def test_missing_pull_request_opener_fails(self, mock_pr_guard: PRGuard) -> None:
+        """A pull request with no opener login fails the check."""
+        mock_pr_guard.check_pull_request_opener({})
+        assert len(mock_pr_guard.errors) == 1
+        assert mock_pr_guard.errors[0].check == "pr-opener"
+
     def test_conventional_branch_prefix_passes(self, mock_pr_guard: PRGuard) -> None:
         """A feat/ or fix/ head branch is accepted."""
         mock_pr_guard.check_head_branch({"head": {"ref": "feat/protect-published-weeks"}})

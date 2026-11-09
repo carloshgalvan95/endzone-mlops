@@ -12,6 +12,7 @@ Catches common issues:
 - Data/secret files in changes
 - Missing PR template sections or unchecked verification
 - Head branch names that are not a conventional prefix, including tool prefixes
+- Pull request opened by an account other than carloshgalvan95
 """
 
 import argparse
@@ -170,6 +171,25 @@ class PRGuard:
                 "branch-name",
                 f"Branch '{ref}' must start with a conventional prefix ({allowed}). "
                 "Do not use a tool-generated prefix.",
+            )
+
+    def check_pull_request_opener(self, pr: dict[str, Any]) -> None:
+        """Require the pull request to be opened by the repository account.
+
+        The branch is pushed first. The pull request is opened from the
+        carloshgalvan95 account.
+        """
+        user: object = pr.get("user")
+        login: str = ""
+        if isinstance(user, dict):
+            raw_login: object = user.get("login")
+            if isinstance(raw_login, str):
+                login = raw_login
+        if login != self.EXPECTED_AUTHOR_LOGIN:
+            self._add_error(
+                "pr-opener",
+                f"Pull request opened by '{login}'. "
+                f"Open it from the {self.EXPECTED_AUTHOR_LOGIN} account.",
             )
 
     def check_base_branch_freshness(self, pr: dict[str, Any]) -> None:
@@ -460,6 +480,7 @@ class PRGuard:
 
             self.check_base_branch_freshness(pr)
             self.check_head_branch(pr)
+            self.check_pull_request_opener(pr)
             self.check_commit_authorship(commits)
             self.check_commit_messages(commits)
             self.check_pr_title(pr)
@@ -483,7 +504,10 @@ class PRGuard:
         for i, error in enumerate(self.errors, 1):
             print(f"{i}. [{error.check}] {error.message}\n")
 
-        print("\nFix these issues and push again.")
+        print(
+            "\nClose the pull request, fix these issues, push the branch, "
+            "and open a new pull request."
+        )
 
 
 def main() -> int:
