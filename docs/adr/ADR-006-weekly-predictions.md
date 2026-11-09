@@ -52,7 +52,7 @@ The one-time seed is a Pages `workflow_dispatch` with `backfill_archive` set. It
 
 Sprint 2 is ADR-007. The acceptance rule was fixed before the fit. Home points are `(total + margin) / 2` and away points are `(total - margin) / 2`, rounded on the page only. Until both targets pass, the page leaves the estimate null and says it did not pass its pre-registered test. The warehouse run passed both, so the page shows the estimates. The win-probability box is unchanged.
 
-The weekly Pages job is the publish step. `published-slates` is the durable copy of past weeks. A track-record view on the page is still later work. The 0.003 rule is not moved because a page exists.
+The weekly Pages job is the publish step. `published-slates` is the durable copy of past weeks. The track record on the page is ADR-008. It is computed from those archived files and does not rescore a week. The 0.003 rule is not moved because a page exists.
 
 ## Consequences
 

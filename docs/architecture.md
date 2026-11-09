@@ -152,7 +152,7 @@ endzone-mlops demonstrates a modern lakehouse architecture for NFL analytics, co
 
 #### 6. GitHub Actions (`github/workflows/ci.yml`)
 
-**Triggers**: Push, pull request. `pages.yml` deploys `site/` to GitHub Pages on push to `main`, on a manual dispatch, and on Tuesdays at 12:00 UTC. A push restores `published-slates` first, overlays finals, archives the files it will deploy, and does not fit a model. A failed archive does not deploy. Tuesday, and a dispatch without `replace_published`, score the next unpublished week after that restore. `replace_published` rebuilds every scheduled game for the given season and week, training only on games before that week, then the same overlay runs. `backfill_archive` seeds the branch from the live site and does not score or deploy. See ADR-006.
+**Triggers**: Push, pull request. `pages.yml` deploys `site/` to GitHub Pages on push to `main`, on a manual dispatch, and on Tuesdays at 12:00 UTC. A push restores `published-slates` first, overlays finals, writes the derived track record, archives the week files it will deploy, and does not fit a model. A failed archive does not deploy. A corrupt archived week fails the track record step and does not deploy. An unreachable archive deploys with an explicit unavailable record and no invented rates. Tuesday, and a dispatch without `replace_published`, score the next unpublished week after that restore. `replace_published` rebuilds every scheduled game for the given season and week, training only on games before that week, then the same overlay runs. `backfill_archive` seeds the branch from the live site and does not score or deploy. See ADR-006 and ADR-008.
 
 **Steps**:
 1. Checkout code
@@ -199,6 +199,8 @@ sequenceDiagram
     Score->>MLflow: Log logistic h2_full with a signature and register it
     Score->>Pred: Write one week of home win probabilities
 ```
+
+After that write, Pages and Results overlay finals and write `site/data/track_record.json` from the archived slates. That file is derived. The build does not edit the week files to produce it. See ADR-008.
 
 ## Component Design Patterns
 
@@ -310,6 +312,7 @@ endzone/
 - `python -m endzone.modeling.score` writes one unpublished week of JSON under `site/data`. It refuses to drop a published `game_id`. `--replace-published` rebuilds the full scheduled week.
 - Margin and total points stay null unless both targets pass ADR-007. Both passed, so the page shows them.
 - `python -m endzone.site.results` overlays final nflverse scores on those files. It does not refit the model.
+- `python -m endzone.site.track_record` writes the weekly record from the archived slates. It does not refit the model and it does not edit a week file.
 - Live feed code is not in the repo
 - "Eventual live" documented as roadmap
 

@@ -51,6 +51,8 @@ Anything else is rejected. A missing interval, or fewer than 8 scored seasons, i
 
 `python -m endzone.modeling.points` runs the comparison and writes `reports/sprint2/cv_report.json`. That directory is local scratch. Copy the JSON into `docs/experiments/reports/` only after the warehouse run, and do not hand-edit the numbers. `make score` uses the same rule. Until both targets pass, the page hides the estimate and says it did not pass its pre-registered test.
 
+Both targets passed on the warehouse run, so the page shows the estimates. ADR-008 scores those published estimates on finished games. It does not refit the ridge models.
+
 The win-probability golden file is unchanged. This run does not promote a new win-probability reference.
 
 

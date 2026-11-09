@@ -6,6 +6,8 @@ The model always picks one team. Home wins when `model_home_wp` is at least 0.5.
 
 The estimated score sits under that box. Away points, then home points, rounded to integers for display. When ADR-007 has not passed, the line is the hidden-reason sentence and the Model accuracy block shows MAE as n/a. When it has passed, the block shows margin and total MAE against the baseline and the market. The copy stays an open experiment, not betting picks. The WINS box does not change.
 
+The track record sits under Model accuracy. It is a table on wide screens and a stack of cards at 760 px and below. Each archived week shows finished games, pick hits, final ties, model and market log loss, and margin and total error. A season to date row follows the weeks. One finished week is labeled a small sample. A week with no finals, a week still in progress, and a build that could not read the archive each have their own empty or partial copy. The method link goes to ADR-008. The numbers are not a betting record.
+
 The rest of this note is the design specification, copied as delivered.
 
 ---
@@ -52,7 +54,7 @@ Escala 4/8: 4, 8, 12, 16, 24, 32, 48, 64, 96 px (`--space-1` a `--space-9`). Rad
 - **Colores de equipo**: solo como acento fino, `--team-accent` (de `team_color`) en un borde izquierdo de 3 px por equipo, puesto con `style` en línea y validado como hex. `--team-accent-2` (de `team_color2`) reservado para un segmento pequeño. Nunca como fondo ni color de texto. La semántica modelo/mercado/discrepancia es siempre de nuestra paleta.
 - **Footer**: marca sola, aviso legal (no es asesoría de apuestas, logos pertenecen a sus dueños), enlace a GitHub.
 - **Sprint 2, marcador estimado**: línea bajo el partido. Si el modelo no pasa ADR-007, el texto dice que el estimado está oculto. El bloque Model accuracy muestra el MAE de margen y de total contra el baseline y contra el mercado.
-- **Sprint 3, historial**: placeholder con 3 métricas (log loss modelo, log loss mercado, aciertos por semana).
+- **Historial**: tabla (escritorio) o tarjetas (760 px o menos) con la semana archivada, el total de la temporada, y el enlace a ADR-008. Una sola semana con finales se marca como muestra pequeña. Sin archivo, la sección dice que no hay historial en ese build.
 - **Datos de ejemplo**: si `data.json` trae `is_example: true`, se muestra la etiqueta EJEMPLO sobre la tabla.
 
 ## Responsive
