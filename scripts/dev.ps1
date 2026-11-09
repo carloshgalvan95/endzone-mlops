@@ -35,6 +35,7 @@ function Show-Help {
     Write-Host "  train-s2            - Sprint 2 margin and total CV. Registers a target only if it passes"
     Write-Host "  rebuild-week        - Rebuild one full week (SEASON and WEEK required), then overlay finals"
     Write-Host "  refresh-results     - Overlay final nflverse scores onto published week JSON"
+    Write-Host "  backfill-archive    - Seed published-slates from PAGES_BASE. Does not score"
     Write-Host "  clean               - Remove build artifacts"
     Write-Host "  reproduce           - install, Databricks dbt build, verify-reference"
     Write-Host ""
@@ -234,6 +235,16 @@ function Invoke-RefreshResults {
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
+function Invoke-BackfillArchive {
+    if (-not $env:PAGES_BASE) {
+        Write-Host "backfill-archive needs PAGES_BASE"
+        exit 1
+    }
+    Write-Host "Seeding published-slates from the live site..."
+    python -m endzone.site.archive backfill --pages-base $env:PAGES_BASE --remote origin
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
 function Invoke-Reproduce {
     Invoke-Install
     Invoke-DbtBuildDatabricks
@@ -309,6 +320,7 @@ switch ($Target.ToLower()) {
     "score" { Invoke-Score }
     "rebuild-week" { Invoke-RebuildWeek }
     "refresh-results" { Invoke-RefreshResults }
+    "backfill-archive" { Invoke-BackfillArchive }
     "clean" { Invoke-Clean }
     "reproduce" { Invoke-Reproduce }
     default {

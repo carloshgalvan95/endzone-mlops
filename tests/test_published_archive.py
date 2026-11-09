@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -588,3 +589,55 @@ def test_publish_cli_uses_the_author_env(tmp_path: Path, monkeypatch: pytest.Mon
     )
     assert result["message"] == "chore(data): archive 2026 week 9"
     assert _identity(work) == [_AUTHOR, _EMAIL, _AUTHOR, _EMAIL]
+
+
+def _job(text: str, name: str) -> str:
+    """Return one workflow job, from its key through the next job."""
+    marker: str = f"\n  {name}:"
+    start: int = text.index(marker)
+    rest: str = text[start + 1 :]
+    next_job: re.Match[str] | None = re.search(r"\n  [A-Za-z0-9_-]+:\n", rest)
+    if next_job is None:
+        return text[start:]
+    return text[start : start + 1 + next_job.start()]
+
+
+def test_pages_writes_the_archive_before_deploy() -> None:
+    """contents: write stays on the archive job, and a failed archive does not deploy."""
+    text: str = Path(".github/workflows/pages.yml").read_text(encoding="utf-8")
+    build: str = _job(text, "build")
+    archive: str = _job(text, "archive")
+    deploy: str = _job(text, "deploy")
+    assert "contents: write" in archive
+    assert "contents: write" not in build
+    assert "contents: write" not in deploy
+    assert "pages: write" in deploy
+    assert "id-token: write" in deploy
+    assert "needs: [build, archive]" in deploy
+    head: str = build.split("\n    steps:", 1)[0]
+    assert "DATABRICKS_" not in head
+    assert "DATABRICKS_" not in archive
+    assert "DATABRICKS_" not in deploy
+    for step in build.split("\n      - name:")[1:]:
+        if "DATABRICKS_" in step:
+            assert "github.event_name != 'push'" in step
+    assert "endzone.site.archive publish" in archive
+    assert "endzone.site.archive backfill" in archive
+    assert text.index("endzone.site.archive publish") < text.index("deploy-pages")
+    assert "backfill_archive:" in text
+
+
+def test_results_workflow_archives_without_the_warehouse() -> None:
+    """The results deploy has no warehouse credentials and still archives first."""
+    text: str = Path(".github/workflows/refresh-results.yml").read_text(encoding="utf-8")
+    folded: str = text.lower()
+    assert "databricks" not in folded
+    assert "endzone.modeling.score" not in text
+    assert "endzone.site.archive restore" in text
+    assert "endzone.site.archive publish" in text
+    archive: str = _job(text, "archive")
+    deploy: str = _job(text, "deploy")
+    assert "contents: write" in archive
+    assert "contents: write" not in deploy
+    assert "contents: write" not in _job(text, "build")
+    assert text.index("endzone.site.archive publish") < text.index("deploy-pages")

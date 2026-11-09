@@ -18,10 +18,10 @@ on:
     # Tuesday UTC. This stays ahead of the Tuesday scoring deploy at 12:00 UTC.
     - cron: "30 8 * * 2"
 
+# Jobs narrow this. contents: write is only on the archive job.
+# Warehouse credentials are not used here.
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 # Share the Pages concurrency group so a results deploy waits for an
 # in-flight scoring deploy instead of canceling it.
@@ -30,14 +30,17 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      contents: read
+      actions: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: true
 
       - name: Install uv and Python 3.12
         uses: astral-sh/setup-uv@v5
@@ -48,11 +51,19 @@ jobs:
       - name: Install the locked environment
         run: uv sync --frozen
 
-      - name: Overlay final scores on the published weeks
+      - name: Restore published slates
         run: |
           repo_name="${GITHUB_REPOSITORY#*/}"
           pages_base="https://${GITHUB_REPOSITORY_OWNER}.github.io/${repo_name}"
-          uv run python -m endzone.site.results --restore-published "${pages_base}"
+          uv run python -m endzone.site.archive restore \
+            --output-dir site/data \
+            --pages-base "${pages_base}" \
+            --repo "${GITHUB_WORKSPACE}" \
+            --remote origin \
+            --branch published-slates
+
+      - name: Overlay final scores on the published weeks
+        run: uv run python -m endzone.site.results --output-dir site/data
 
       - name: Check the refreshed site still has a real week
         run: |
@@ -71,6 +82,67 @@ jobs:
               f"({len(games)} games)."
           )
           PY
+
+      - name: Upload the built site
+        uses: actions/upload-artifact@v4
+        with:
+          name: site
+          path: site
+          if-no-files-found: error
+          retention-days: 1
+
+  archive:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Install uv and Python 3.12
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install the locked environment
+        run: uv sync --frozen
+
+      - name: Download the built site
+        uses: actions/download-artifact@v4
+        with:
+          name: site
+          path: site
+
+      - name: Archive published slates
+        run: |
+          uv run python -m endzone.site.archive publish \
+            --repo "${GITHUB_WORKSPACE}" \
+            --site-data site/data \
+            --remote origin \
+            --branch published-slates
+
+  deploy:
+    needs: archive
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+      actions: read
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Download the built site
+        uses: actions/download-artifact@v4
+        with:
+          name: site
+          path: site
 
       - name: Upload site
         uses: actions/upload-pages-artifact@v3
