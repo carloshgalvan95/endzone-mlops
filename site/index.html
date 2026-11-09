@@ -80,12 +80,30 @@
   </section>
 
   <section class="section" id="record">
-    <h2>Record <span class="soon">Sprint 3</span></h2>
-    <div class="placeholder grid3">
-      <div class="stat"><span class="stat-k">Model log loss</span><span class="stat-v num">0.6377</span></div>
-      <div class="stat"><span class="stat-k">Market log loss</span><span class="stat-v num">0.6120</span></div>
-      <div class="stat"><span class="stat-k">Weekly record</span><span class="stat-v muted">Pending</span></div>
+    <h2>Track record <span class="soon" id="record-sample" hidden>Small sample</span></h2>
+    <p class="lede" id="record-lede">Counted from the archived slates that were public before kickoff. A later rescore is not used. Not betting picks.</p>
+    <div id="record-empty" class="placeholder">
+      <p id="record-empty-text">No archived week yet. The record starts once a week is published.</p>
     </div>
+    <div class="record-wrap" id="record-panel" hidden>
+      <table class="record" aria-describedby="record-note">
+        <caption class="sr-only">Weekly track record by season, with a season to date row</caption>
+        <thead><tr>
+          <th scope="col">Week</th>
+          <th scope="col" class="r"><span>Finished</span></th>
+          <th scope="col" class="r"><span>Pick</span><span>hits</span></th>
+          <th scope="col" class="r"><span>Final</span><span>ties</span></th>
+          <th scope="col" class="r" title="Finished games with a winner and a market price"><span>Market</span><span>prices</span></th>
+          <th scope="col" class="r"><span>Model</span><span>log loss</span></th>
+          <th scope="col" class="r"><span>Market</span><span>log loss</span></th>
+          <th scope="col" class="r" title="Mean absolute error of home score minus away score, in points"><span>Margin</span><span>error</span></th>
+          <th scope="col" class="r" title="Mean absolute error of the combined score, in points"><span>Total</span><span>error</span></th>
+        </tr></thead>
+        <tbody id="record-body"></tbody>
+      </table>
+      <div id="record-cards" class="record-cards"></div>
+    </div>
+    <p class="note" id="record-note">Pick hits follow the game card. The home win percent is rounded, 50 is a tie pick, and a final tie is a hit only when the pick is also a tie. Log loss uses finished games that have a winner and a market price. Both probabilities are clipped to 0.000001. Ties and games with no market price are left out of both log losses. Margin error is the mean absolute error of home score minus away score. Total error is the mean absolute error of the combined score. Both use the estimate that was published, on finished games only. Unfinished games stay out of every rate. Lower log loss is closer to the results. <a href="https://github.com/carloshgalvan95/endzone-mlops/blob/main/docs/adr/ADR-008-weekly-track-record.md">How this is counted</a>.</p>
   </section>
 </main>
 

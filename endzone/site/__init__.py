@@ -4,5 +4,6 @@
 files that scoring already published. ``python -m endzone.site.archive``
 restores those files from the ``published-slates`` branch, then from the
 live site, and writes the files a deploy is about to publish back to that
-branch.
+branch. ``python -m endzone.site.track_record`` reads that archive and
+writes ``site/data/track_record.json``. It does not edit a week file.
 """

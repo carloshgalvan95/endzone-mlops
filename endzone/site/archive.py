@@ -277,6 +277,28 @@ def restore_from_repo(
         )
 
 
+@contextmanager
+def open_archive_readonly(
+    repo: Path,
+    *,
+    remote: str = "origin",
+    branch: str = ARCHIVE_BRANCH,
+) -> Iterator[Path]:
+    """Yield a detached checkout of the archive branch.
+
+    The branch is not created when it is missing, and nothing is pushed.
+    Callers read the files and leave them unchanged.
+
+    Raises:
+        ArchiveError: The branch is missing, or git cannot read it.
+    """
+    _refuse_bad_ref(remote, branch)
+    if not _remote_has_branch(Path(repo), remote, branch):
+        raise ArchiveError(f"Archive branch {branch} is not on {remote}.")
+    with _checked_out_archive(Path(repo), remote, branch) as archive_dir:
+        yield archive_dir
+
+
 def publish_archive(
     repo: Path,
     site_data: Path,
