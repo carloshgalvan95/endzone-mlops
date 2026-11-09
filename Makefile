@@ -1,4 +1,4 @@
-.PHONY: help setup install lint lint-structure test vulture dbt-compile dbt-run dbt-test clean reproduce data ingest ingest-current marts dbt-build-databricks train train-sweep train-cv train-s2 mlflow-ui audit-features check-epa-filter verify-reference score rebuild-week refresh-results
+.PHONY: help setup install lint lint-structure test vulture dbt-compile dbt-run dbt-test clean reproduce data ingest ingest-current marts dbt-build-databricks train train-sweep train-cv train-s2 mlflow-ui audit-features check-epa-filter verify-reference score rebuild-week refresh-results backfill-archive
 
 # Finished bronze and mart steps. Gitignored. A second train-cv does not
 # reload bronze when these stamps are current.
@@ -36,6 +36,7 @@ help:
 	@echo "  train-s2            - Sprint 2 margin and total CV. Registers a target only if it passes"
 	@echo "  rebuild-week        - Rebuild one full week (SEASON and WEEK required), then overlay finals"
 	@echo "  refresh-results     - Overlay final nflverse scores onto published week JSON"
+	@echo "  backfill-archive    - Seed published-slates from PAGES_BASE. Does not score"
 	@echo "  reproduce           - install, Databricks dbt build, verify-reference"
 	@echo "  clean               - Remove build artifacts"
 	@echo ""
@@ -162,6 +163,13 @@ train-s2:
 # This does not refit the model, run dbt, or read the warehouse.
 refresh-results:
 	python -m endzone.site.results $(if $(RESTORE_PUBLISHED),--restore-published $(RESTORE_PUBLISHED),)
+
+# One-time seed of the published-slates branch from the live site.
+# Does not score and does not deploy. Example:
+# make backfill-archive PAGES_BASE=https://<owner>.github.io/<repo>
+backfill-archive:
+	@test -n "$(PAGES_BASE)" || (echo "backfill-archive needs PAGES_BASE" >&2; exit 1)
+	python -m endzone.site.archive backfill --pages-base "$(PAGES_BASE)" --remote origin
 
 # Installs the lock, builds Databricks marts from bronze already in the
 # warehouse, and refits the reference. It does not download nflverse and it

@@ -152,7 +152,7 @@ endzone-mlops demonstrates a modern lakehouse architecture for NFL analytics, co
 
 #### 6. GitHub Actions (`github/workflows/ci.yml`)
 
-**Triggers**: Push, pull request. `pages.yml` deploys `site/` to GitHub Pages on push to `main`, on a manual dispatch, and on Tuesdays at 12:00 UTC. A push restores the published week files and overlays finals. It does not fit a model. Tuesday, and a dispatch without `replace_published`, score the next unpublished week after restoring what is already published. `replace_published` rebuilds every scheduled game for the given season and week, training only on games before that week, then the same overlay runs. See ADR-006.
+**Triggers**: Push, pull request. `pages.yml` deploys `site/` to GitHub Pages on push to `main`, on a manual dispatch, and on Tuesdays at 12:00 UTC. A push restores `published-slates` first, overlays finals, archives the files it will deploy, and does not fit a model. A failed archive does not deploy. Tuesday, and a dispatch without `replace_published`, score the next unpublished week after that restore. `replace_published` rebuilds every scheduled game for the given season and week, training only on games before that week, then the same overlay runs. `backfill_archive` seeds the branch from the live site and does not score or deploy. See ADR-006.
 
 **Steps**:
 1. Checkout code
@@ -308,7 +308,7 @@ endzone/
 
 **Implementation**:
 - `python -m endzone.modeling.score` writes one unpublished week of JSON under `site/data`. It refuses to drop a published `game_id`. `--replace-published` rebuilds the full scheduled week.
-- Margin and total points are null until both targets pass ADR-007
+- Margin and total points stay null unless both targets pass ADR-007. Both passed, so the page shows them.
 - `python -m endzone.site.results` overlays final nflverse scores on those files. It does not refit the model.
 - Live feed code is not in the repo
 - "Eventual live" documented as roadmap

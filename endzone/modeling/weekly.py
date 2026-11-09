@@ -884,11 +884,18 @@ def restore_published_predictions(
     output_dir: Path,
     base_url: str,
     fetch_text: Callable[[str], str] | None = None,
+    *,
+    skip_existing: bool = False,
+    write_latest: bool = False,
 ) -> dict[str, int]:
     """Copy non-example week files from a published site into ``output_dir``.
 
     An example ``latest.json``, a blank URL, or a failed read copies nothing.
     One missing week file does not drop the weeks that did download.
+    ``skip_existing`` leaves a week file that is already on disk, so an
+    archive restore can fill only the weeks it does not have. ``write_latest``
+    also writes a real ``latest.json`` unless that file is already present
+    and ``skip_existing`` is set.
 
     Returns:
         Dict with ``copied``, the number of week files written.
@@ -913,6 +920,9 @@ def restore_published_predictions(
     predictions.mkdir(parents=True, exist_ok=True)
     copied: int = 0
     for week in weeks:
+        destination: Path = predictions / f"{season}-w{week}.json"
+        if skip_existing and destination.is_file():
+            continue
         url: str = f"{root_url}/data/predictions/{season}-w{week}.json"
         try:
             payload: dict[str, Any] = json.loads(fetcher(url))
@@ -921,13 +931,19 @@ def restore_published_predictions(
             continue
         if not _published_week_document(payload, season, week):
             continue
-        destination: Path = predictions / f"{season}-w{week}.json"
         try:
             destination.write_text(_dumps(payload), encoding="utf-8")
         except (OSError, TypeError, ValueError) as exc:
             logger.warning("Skipping published week %s: %s", week, exc)
             continue
         copied += 1
+    if write_latest:
+        latest_path: Path = Path(output_dir) / "latest.json"
+        latest_week: object = latest_payload.get("week")
+        if not (skip_existing and latest_path.is_file()) and _published_week_document(
+            latest_payload, season, latest_week
+        ):
+            latest_path.write_text(_dumps(latest_payload), encoding="utf-8")
     logger.info("Copied %s published week file(s) into %s", copied, predictions)
     return {"copied": copied}
 

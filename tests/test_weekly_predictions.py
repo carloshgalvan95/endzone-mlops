@@ -1038,7 +1038,13 @@ def test_pages_push_does_not_invoke_score() -> None:
     result_steps = [step for step in steps if "endzone.site.results" in step]
     assert len(result_steps) == 1
     assert "github.event_name != 'push'" not in result_steps[0]
-    assert 'GITHUB_EVENT_NAME}" = "push"' in result_steps[0]
+    assert "--restore-published" not in result_steps[0]
+    restore_steps = [step for step in steps if "endzone.site.archive restore" in step]
+    assert len(restore_steps) == 1
+    assert "github.event_name != 'push'" not in restore_steps[0]
+    assert "--restore-published" not in score_steps[0]
     assert "replace_published:" in text
+    assert "backfill_archive:" in text
     assert "cron:" in text
+    assert text.index("endzone.site.archive restore") < text.index("endzone.modeling.score")
     assert text.index("endzone.site.results") < text.index("latest.json")

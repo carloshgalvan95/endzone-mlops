@@ -914,13 +914,15 @@ Once spike is PASS:
 
 ## Weekly page
 
-The page is an open experiment. It is not betting picks. Generated week JSON stays out of git. The live site is the copy that matters.
+The page is an open experiment. It is not betting picks. Generated week JSON stays off `main`. The durable copy is the orphan branch `published-slates`. The live site is what readers open. Losing either copy, or deploying a slate that was not archived, is a failure.
 
-**Push to `main`.** `.github/workflows/pages.yml` restores the published week files, overlays nflverse finals, and deploys `site/`. It does not fit a model and it does not rewrite probabilities. Use a push for UI and overlay changes.
+`predictions/<season>-w<week>.json` on that branch is the current file. `history/<season>-w<week>/` keeps every earlier copy, so a later overwrite does not throw the previous file away. Do not merge the branch into `main`, and do not force-push it.
 
-**Tuesday 12:00 UTC.** The same workflow refreshes the current season, builds the Databricks marts, restores published week files, and scores the next unpublished week. If that week file is already present after the restore, it is kept. A score that would drop a `game_id` fails the job, and the previous deployment stays up.
+**Push to `main`.** `.github/workflows/pages.yml` restores `published-slates` first. A week the branch does not have yet is copied from the live site. It then overlays nflverse finals, archives those exact files, and deploys `site/`. It does not fit a model and it does not rewrite probabilities. If the archive push fails, the site is not deployed. Use a push for UI and overlay changes.
 
-**Rebuild one week.** This is the only way to replace probabilities for a week that is already published. It predicts every scheduled game that week, played and unplayed, and trains only on completed games before that week. Same-week finals are not labels and are not features. The results overlay then sets `status` to `final` only when nflverse has both scores. A 0-0 final is a tie. A missing score stays `scheduled`.
+**Tuesday 12:00 UTC.** The same workflow refreshes the current season, builds the Databricks marts, restores the archive first, and scores the next unpublished week. If that week file is already present after the restore, it is kept. A score or an archive write that would drop a `game_id` fails the job, and the previous deployment stays up. Adding games is allowed.
+
+**Rebuild one week.** This is the only way to replace probabilities for a week that is already published. It predicts every scheduled game that week, played and unplayed, and trains only on completed games before that week. Same-week finals are not labels and are not features. The results overlay then sets `status` to `final` only when nflverse has both scores. A 0-0 final is a tie. A missing score stays `scheduled`. The archive is updated before the deploy, and it still refuses a dropped `game_id`.
 
 Local:
 
@@ -936,11 +938,34 @@ $env:WEEK = "9"
 .\scripts\dev.ps1 rebuild-week
 ```
 
-GitHub Actions: run Pages with `workflow_dispatch`, set `replace_published` to true, and set both season and week. Leaving the flag off scores the next unpublished week, or keeps it when the file is already there.
+GitHub Actions: run Pages with `workflow_dispatch`, set `replace_published` to true, and set both season and week. Leaving the flag off scores the next unpublished week, or keeps it when the file is already there. The archive is updated before the deploy.
 
-`make score` is the unpublished-week command. `make refresh-results` overlays finals and does not refit. `.github/workflows/refresh-results.yml` does that on game-day windows without Databricks. Margin and total points stay null until both pass ADR-007.
+**Results.** `make score` is the unpublished-week command. `make refresh-results` overlays finals and does not refit. `.github/workflows/refresh-results.yml` restores the archive first, overlays, archives, and deploys on game-day windows. It has no warehouse credentials. A pass that does not change the JSON does not add a commit. A new `results_updated_at` does.
+
+**Backfill, once.** Run this after the archive change is on `main`, and before the next Tuesday score, so 2026 week 9 is on the branch. That slate has 15 games and was regenerated at 2026-11-09T04:28:37Z. In Actions, open Pages, Run workflow, and set `backfill_archive` to true. Leave season and week empty. It copies the live site onto `published-slates`. It does not score and it does not deploy.
+
+The same command locally, with the public Pages URL and a remote that accepts the push:
+
+```bash
+make backfill-archive PAGES_BASE=https://<owner>.github.io/<repo>
+```
+
+Windows:
+
+```powershell
+$env:PAGES_BASE = "https://<owner>.github.io/<repo>"
+.\scripts\dev.ps1 backfill-archive
+```
+
+Use the dispatch. It commits as `github-actions[bot]`, and only that job has `contents: write`.
+
+Confirm `predictions/2026-w9.json` is on `published-slates` and the file has 15 games. `history/2026-w9/` has that snapshot. If the push returns 403, the repository Actions setting is still read-only for the workflow token. Open Settings, Actions, General, Workflow permissions, and choose Read and write permissions. The other jobs do not request contents write.
+
+Optional: protect `published-slates` against force-push and deletion. Do not set that branch as the Pages source.
+
+Sprint 2 margin and total passed ADR-007, so the page shows those estimates. A target that fails its pre-registered test stays hidden.
 
 ---
 
-**Last updated**: 2026-10-06  
+**Last updated**: 2026-11-09  
 **Status**: Spike COMPLETED (PASS)

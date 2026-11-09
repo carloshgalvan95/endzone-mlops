@@ -20,35 +20,37 @@ on:
         required: false
         default: false
         type: boolean
+      backfill_archive:
+        description: Seed published-slates from the live site. Does not score or deploy.
+        required: false
+        default: false
+        type: boolean
   schedule:
     # Tuesday 12:00 UTC, after the Monday night game.
     # This is the automatic score. A push does not fit a model.
     - cron: "0 12 * * 2"
 
+# Jobs narrow this. contents: write is only on the archive job.
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: pages
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  build:
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.backfill_archive != 'true'
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    env:
-      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
-      DATABRICKS_HTTP_PATH: ${{ secrets.DATABRICKS_HTTP_PATH }}
-      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
-      MLFLOW_TRACKING_URI: sqlite:///mlflow.db
-      MSYS_NO_PATHCONV: "1"
+    permissions:
+      contents: read
+      actions: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: true
 
       - name: Install uv and Python 3.12
         uses: astral-sh/setup-uv@v5
@@ -59,7 +61,7 @@ jobs:
       - name: Install the locked environment
         run: uv sync --frozen
 
-      # A push restores the live week files and overlays finals. It does not
+      # A push restores published files and overlays finals. It does not
       # refresh the warehouse or fit a model.
       - name: Configure the dbt profile
         if: github.event_name != 'push'
@@ -68,23 +70,47 @@ jobs:
 
       - name: Refresh the current season
         if: github.event_name != 'push'
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_HTTP_PATH: ${{ secrets.DATABRICKS_HTTP_PATH }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+          MSYS_NO_PATHCONV: "1"
         run: uv run python -m endzone.ingest.load_raw_nflverse --current-season --dataset all
 
       - name: Build Databricks marts
         if: github.event_name != 'push'
         working-directory: dbt
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_HTTP_PATH: ${{ secrets.DATABRICKS_HTTP_PATH }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+          MSYS_NO_PATHCONV: "1"
         run: uv run dbt deps --profiles-dir . && uv run dbt build --profiles-dir . --target databricks
+
+      - name: Restore published slates
+        run: |
+          repo_name="${GITHUB_REPOSITORY#*/}"
+          pages_base="https://${GITHUB_REPOSITORY_OWNER}.github.io/${repo_name}"
+          uv run python -m endzone.site.archive restore \
+            --output-dir site/data \
+            --pages-base "${pages_base}" \
+            --repo "${GITHUB_WORKSPACE}" \
+            --remote origin \
+            --branch published-slates
 
       - name: Score an unpublished week
         if: github.event_name != 'push'
         env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_HTTP_PATH: ${{ secrets.DATABRICKS_HTTP_PATH }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+          MLFLOW_TRACKING_URI: sqlite:///mlflow.db
+          MSYS_NO_PATHCONV: "1"
           SCORE_SEASON: ${{ github.event.inputs.season || '' }}
           SCORE_WEEK: ${{ github.event.inputs.week || '' }}
           REPLACE_PUBLISHED: ${{ github.event.inputs.replace_published || '' }}
         run: |
-          repo_name="${GITHUB_REPOSITORY#*/}"
-          pages_base="https://${GITHUB_REPOSITORY_OWNER}.github.io/${repo_name}"
-          args=(--restore-published "${pages_base}")
+          args=()
           if [ -n "${SCORE_SEASON}" ]; then
             args+=(--season "${SCORE_SEASON}")
           fi
@@ -101,17 +127,7 @@ jobs:
           uv run python -m endzone.modeling.score "${args[@]}"
 
       - name: Overlay final scores on published weeks
-        run: |
-          repo_name="${GITHUB_REPOSITORY#*/}"
-          pages_base="https://${GITHUB_REPOSITORY_OWNER}.github.io/${repo_name}"
-          args=(--output-dir site/data)
-          # Restore on push only. Tuesday and a rebuild already copied the
-          # live files, then kept or rewrote the week. Restoring again would
-          # copy the previous slate back over that file.
-          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
-            args+=(--restore-published "${pages_base}")
-          fi
-          uv run python -m endzone.site.results "${args[@]}"
+        run: uv run python -m endzone.site.results --output-dir site/data
 
       - name: Check the published week is not the example slate
         run: |
@@ -130,6 +146,86 @@ jobs:
               f"({len(games)} games)."
           )
           PY
+
+      - name: Upload the built site
+        uses: actions/upload-artifact@v4
+        with:
+          name: site
+          path: site
+          if-no-files-found: error
+          retention-days: 1
+
+  archive:
+    needs: build
+    if: >-
+      always() &&
+      (needs.build.result == 'success' ||
+        (github.event_name == 'workflow_dispatch' &&
+          github.event.inputs.backfill_archive == 'true' &&
+          needs.build.result == 'skipped'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Install uv and Python 3.12
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install the locked environment
+        run: uv sync --frozen
+
+      - name: Download the built site
+        if: github.event_name != 'workflow_dispatch' || github.event.inputs.backfill_archive != 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: site
+          path: site
+
+      - name: Archive published slates
+        if: github.event_name != 'workflow_dispatch' || github.event.inputs.backfill_archive != 'true'
+        run: |
+          uv run python -m endzone.site.archive publish \
+            --repo "${GITHUB_WORKSPACE}" \
+            --site-data site/data \
+            --remote origin \
+            --branch published-slates
+
+      - name: Backfill published slates
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.backfill_archive == 'true'
+        run: |
+          repo_name="${GITHUB_REPOSITORY#*/}"
+          pages_base="https://${GITHUB_REPOSITORY_OWNER}.github.io/${repo_name}"
+          uv run python -m endzone.site.archive backfill \
+            --repo "${GITHUB_WORKSPACE}" \
+            --pages-base "${pages_base}" \
+            --remote origin \
+            --branch published-slates
+
+  deploy:
+    needs: [build, archive]
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+      actions: read
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Download the built site
+        uses: actions/download-artifact@v4
+        with:
+          name: site
+          path: site
 
       - name: Upload site
         uses: actions/upload-pages-artifact@v3
