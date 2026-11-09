@@ -1,0 +1,170 @@
+{
+  "feature_set": "h2_full",
+  "accepted": true,
+  "hidden_reason": null,
+  "margin": {
+    "decision": "accepted",
+    "baseline_name": "Elo/25",
+    "mae": 10.155811,
+    "rmse": 13.148404,
+    "baseline_mae": 10.412221,
+    "market_mae": 9.800548,
+    "mae_diff": -0.256409,
+    "mae_diff_ci_low": -0.368272,
+    "mae_diff_ci_high": -0.133364,
+    "coverage_80": 0.812871,
+    "implied_win_log_loss": 0.63746,
+    "winprob_log_loss_benchmark": 0.638,
+    "seasons_improved": 8,
+    "seasons_scored": 8,
+    "n": 2191,
+    "model_version": null,
+    "seasons": [
+      {
+        "season": 2016,
+        "n": 267,
+        "mae": 9.406916,
+        "baseline_mae": 9.486629,
+        "improved": true
+      },
+      {
+        "season": 2017,
+        "n": 267,
+        "mae": 10.524561,
+        "baseline_mae": 10.939074,
+        "improved": true
+      },
+      {
+        "season": 2018,
+        "n": 267,
+        "mae": 9.974622,
+        "baseline_mae": 10.385579,
+        "improved": true
+      },
+      {
+        "season": 2019,
+        "n": 267,
+        "mae": 10.662572,
+        "baseline_mae": 10.872952,
+        "improved": true
+      },
+      {
+        "season": 2020,
+        "n": 269,
+        "mae": 10.127707,
+        "baseline_mae": 10.42642,
+        "improved": true
+      },
+      {
+        "season": 2021,
+        "n": 285,
+        "mae": 11.227,
+        "baseline_mae": 11.371236,
+        "improved": true
+      },
+      {
+        "season": 2022,
+        "n": 284,
+        "mae": 8.927182,
+        "baseline_mae": 9.24619,
+        "improved": true
+      },
+      {
+        "season": 2023,
+        "n": 285,
+        "mae": 10.386594,
+        "baseline_mae": 10.568623,
+        "improved": true
+      }
+    ]
+  },
+  "total": {
+    "decision": "accepted",
+    "baseline_name": "League mean",
+    "mae": 10.925618,
+    "rmse": 13.793828,
+    "baseline_mae": 11.130543,
+    "market_mae": 10.526928,
+    "mae_diff": -0.204925,
+    "mae_diff_ci_low": -0.35807,
+    "mae_diff_ci_high": -0.048012,
+    "coverage_80": 0.811045,
+    "implied_win_log_loss": null,
+    "winprob_log_loss_benchmark": null,
+    "seasons_improved": 5,
+    "seasons_scored": 8,
+    "n": 2191,
+    "model_version": null,
+    "seasons": [
+      {
+        "season": 2016,
+        "n": 267,
+        "mae": 10.247688,
+        "baseline_mae": 10.64174,
+        "improved": true
+      },
+      {
+        "season": 2017,
+        "n": 267,
+        "mae": 11.549389,
+        "baseline_mae": 11.354684,
+        "improved": false
+      },
+      {
+        "season": 2018,
+        "n": 267,
+        "mae": 11.047317,
+        "baseline_mae": 11.493259,
+        "improved": true
+      },
+      {
+        "season": 2019,
+        "n": 267,
+        "mae": 10.943185,
+        "baseline_mae": 11.168026,
+        "improved": true
+      },
+      {
+        "season": 2020,
+        "n": 269,
+        "mae": 10.698725,
+        "baseline_mae": 11.670088,
+        "improved": true
+      },
+      {
+        "season": 2021,
+        "n": 285,
+        "mae": 11.252899,
+        "baseline_mae": 11.110823,
+        "improved": false
+      },
+      {
+        "season": 2022,
+        "n": 284,
+        "mae": 10.998938,
+        "baseline_mae": 10.935933,
+        "improved": false
+      },
+      {
+        "season": 2023,
+        "n": 285,
+        "mae": 10.659696,
+        "baseline_mae": 10.707958,
+        "improved": true
+      }
+    ]
+  },
+  "rule": {
+    "min_seasons_improved": 5,
+    "season_count": 8,
+    "cv_start_season": 2016,
+    "cv_end_season": 2023,
+    "ridge_alpha": 1.0,
+    "n_bootstrap": 1000,
+    "bootstrap_seed": 42,
+    "elo_points_per_spread": 25.0,
+    "market_margin_multiplier": 1.0,
+    "interval_coverage": 0.8,
+    "market_is_a_gate": false
+  }
+}
