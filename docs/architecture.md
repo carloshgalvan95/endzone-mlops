@@ -2,7 +2,7 @@
 
 **Project**: endzone-mlops  
 **Version**: 0.1.0  
-**Last Updated**: 2026-10-06
+**Last Updated**: 2026-11-09
 
 ## Overview
 
@@ -37,7 +37,7 @@ endzone-mlops demonstrates a modern lakehouse architecture for NFL analytics, co
 
 - **nflverse**: Public NFL data (play-by-play, games, players). CC BY 4.0 license. Historical only, not live.
 - **Databricks Free Edition**: Primary lakehouse platform (or Snowflake trial as Plan B). Provides Delta Lake storage, serverless Spark compute, and MLflow tracking.
-- **GitHub Actions**: CI/CD for linting, testing, and dbt compilation. Runs on every push and PR.
+- **GitHub Actions**: CI on push and pull request. Ubuntu runs ruff, the structure check, vulture, pytest, analysis coverage, and the local dbt compile. Windows and macOS run ruff, the structure check, and pytest. `pages.yml` and `refresh-results.yml` deploy the weekly page.
 - **BALLDONTLIE** (future): Live NFL API for v0.2+. Documented but not active in v0.1.
 
 ### Users
@@ -119,9 +119,9 @@ endzone-mlops demonstrates a modern lakehouse architecture for NFL analytics, co
 - Margin and total (`python -m endzone.modeling.points`, ADR-007). Registered only when the pre-registered MAE rule passes
 - Evaluation (metrics: log loss, Brier score, calibration, MAE, RMSE)
 
-**v0.1 Scope**: Pregame win probability model (logistic regression baseline).
+**v0.1 Scope**: Pregame win probability (logistic `h2_full`) plus margin and total. Both score targets passed ADR-007, so weekly scoring writes the estimate.
 
-**Future**: In-game model, ensemble methods, drift monitoring.
+**Future**: In-game model, ensemble methods, drift monitoring. None of those are in the repo.
 
 #### 4. Delta Lake / Storage (Databricks/Snowflake)
 
@@ -141,7 +141,7 @@ endzone-mlops demonstrates a modern lakehouse architecture for NFL analytics, co
 #### 5. MLflow Tracking (Databricks/Local)
 
 **Functionality**:
-- **Experiments**: `nfl_pregame`, `nfl_ingame` (separate)
+- **Experiments**: `nfl_pregame`, `nfl_pregame/phase0_audit`, `nfl_pregame/phase1_baselines`, `nfl_pregame/phase2_h1` through `phase2_h5b` and `phase2_ridge`, `nfl_pregame/sprint2_score`, and `nfl_pregame/weekly`. There is no in-game experiment in the repo.
 - **Runs**: Each training iteration with params, metrics, artifacts
 - **Model Registry**: Versioned models with lineage
 - **Artifacts**: Plots, feature importance, confusion matrices
@@ -150,7 +150,7 @@ endzone-mlops demonstrates a modern lakehouse architecture for NFL analytics, co
 - Databricks: Built-in UI
 - Local: `mlflow ui --backend-store-uri sqlite:///mlflow.db`
 
-#### 6. GitHub Actions (`github/workflows/ci.yml`)
+#### 6. GitHub Actions (`.github/workflows/ci.yml`)
 
 **Triggers**: Push, pull request. `pages.yml` deploys `site/` to GitHub Pages on push to `main`, on a manual dispatch, and on Tuesdays at 12:00 UTC. A push restores `published-slates` first, overlays finals, writes the derived track record, archives the week files it will deploy, and does not fit a model. A failed archive does not deploy. A corrupt archived week fails the track record step and does not deploy. An unreachable archive deploys with an explicit unavailable record and no invented rates. Tuesday, and a dispatch without `replace_published`, score the next unpublished week after that restore. `replace_published` rebuilds every scheduled game for the given season and week, training only on games before that week, then the same overlay runs. `backfill_archive` seeds the branch from the live site and does not score or deploy. See ADR-006 and ADR-008.
 
@@ -225,6 +225,8 @@ endzone/
 │   └── volume.py             # Volume upload and bronze DDL
 ├── features/
 │   └── pregame.py            # Pregame feature engineering
+├── modeling/                 # CV, train, score, margin and total
+├── site/                     # Results overlay, archive, track record
 ├── train/
 │   └── train.py              # Training script (argparse, MLflow)
 ├── analysis/                 # Input audits
@@ -259,12 +261,13 @@ endzone/
 - **CI**: GitHub Actions (free tier)
 - **MLflow**: Databricks managed OR local `sqlite:///mlflow.db`
 
-### Future (v0.2+): Scheduled Batch
+### Weekly batch (live)
 
-- **Orchestration**: Databricks Jobs OR GitHub Actions schedule
-- **Data refresh**: Daily nflverse pull + incremental dbt
-- **Model retrain**: Weekly or on drift signal
-- **Scoring**: Batch pregame predictions before kickoff
+- **Pages** (`.github/workflows/pages.yml`): Tuesday 12:00 UTC scores the next unpublished week, overlays finals, archives `published-slates`, and deploys `site/`. A push to `main` restores that branch and does not fit a model.
+- **Results** (`.github/workflows/refresh-results.yml`): overlays finals on the published slate and deploys, without warehouse credentials. Tuesday 08:30 UTC is the early pass before the scoring deploy.
+- **Archive**: the orphan branch `published-slates`. A published week is not rescored.
+
+A daily refresh, a drift signal, and a live feed are not part of this batch.
 
 ### NOT in Scope (v0.1)
 
@@ -291,18 +294,19 @@ endzone/
 **Requirement**: No logic in notebooks; all testable.
 
 **Implementation**:
-- Wilson patterns (see `QUALITY_GUIDELINES.md`)
+- Wilson patterns (see `.cursor/rules/QUALITY_GUIDELINES.md`)
 - Pytest for pure functions
 - dbt tests for SQL logic
 
 ### Honesty
 
-**Requirement**: No fake production claims.
+**Requirement**: No fake production claims. Not betting advice.
 
 **Implementation**:
-- Honesty banner in README
-- "Learning portfolio" framing
-- ADR documents spike and limitations
+- The README says this is a learning project with production-shaped patterns, batch only
+- It does not name employers or a CV
+- The reference table shows the market log loss is lower
+- ADRs document the spike and the limits
 
 ### Batch-First
 
@@ -313,8 +317,7 @@ endzone/
 - Margin and total points stay null unless both targets pass ADR-007. Both passed, so the page shows them.
 - `python -m endzone.site.results` overlays final nflverse scores on those files. It does not refit the model.
 - `python -m endzone.site.track_record` writes the weekly record from the archived slates. It does not refit the model and it does not edit a week file.
-- Live feed code is not in the repo
-- "Eventual live" documented as roadmap
+- Live feed code is not in the repo. It stays future work in this file.
 
 ## Trade-offs
 
@@ -347,8 +350,15 @@ endzone/
 ## References
 
 - [ADR-001](adr/ADR-001-databricks.md): Stack decision
+- [ADR-002](adr/ADR-002-ccds-layout.md): CCDS layout
+- [ADR-003](adr/ADR-003-config-and-warehouse.md): Config and warehouse
+- [ADR-004](adr/ADR-004-modeling-and-hypotheses.md): Modeling and hypotheses
+- [ADR-005](adr/ADR-005-acceptance-rule.md): Acceptance rule
+- [ADR-006](adr/ADR-006-weekly-predictions.md): Weekly page and `published-slates`
+- [ADR-007](adr/ADR-007-score-regression.md): Margin and total
+- [ADR-008](adr/ADR-008-weekly-track-record.md): Public track record
 - [Runbook](runbook.md): Operational procedures
-- [QUALITY_GUIDELINES.md](../QUALITY_GUIDELINES.md): Engineering standards
+- [QUALITY_GUIDELINES.md](../.cursor/rules/QUALITY_GUIDELINES.md): Engineering standards
 - dbt Best Practices: https://docs.getdbt.com/guides/best-practices
 - MLflow Tracking: https://mlflow.org/docs/latest/tracking.html
 - Databricks Lakehouse: https://databricks.com/product/delta-lake-on-databricks
