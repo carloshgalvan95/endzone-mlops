@@ -9,11 +9,11 @@ This is Carlos Galvan's public MLOps portfolio demonstrating Databricks + dbt + 
 
 ## Non-Negotiable Constraints
 
-### Honesty Banner
-- This is a learning project, NOT production software
-- Never claim fake Databricks/dbt/MLflow experience at PEMEX or Kavak
-- Production analogues for resume: Athena, Glue, Redshift Spectrum, Prefect
-- Honesty banner must remain in README from commit 1
+### Honesty
+- This is a learning project with production-shaped patterns, not production software
+- Batch only. Not betting advice
+- The README does not name employers, a CV, or production analogues
+- Do not claim the model beats the market. On the reference table the market has lower log loss
 
 ### Git Authorship (HARD RULE)
 - **EVERY commit must be authored by Carlos Galvan**
@@ -96,7 +96,7 @@ A PR is Done when:
 - [ ] Refactor PRs pass the golden CV test (`tests/test_golden_cv.py`). Carlos runs `make verify-reference` and it matches `docs/experiments/reference_metrics.json`.
 - [ ] Acceptance criteria have evidence (automated test or manual proof)
 - [ ] Documentation updated (README, ADR, runbook if ASR changed)
-- [ ] Honesty banner intact
+- [ ] README keeps the learning-project framing (batch only, not betting advice) and does not name employers or a CV
 - [ ] No secrets in repository
 - [ ] Commits authored as Carlos (no AI in git metadata)
 
@@ -105,7 +105,7 @@ A PR is Done when:
 1. Notebook-as-product (logic only in notebooks)
 2. Secrets in repository
 3. Two lakes in parallel (Databricks + Snowflake)
-4. Fake production claims (Databricks at PEMEX)
+4. Fake production claims
 5. Scope creep (API, K8s, streaming before batch DoD)
 6. Prototype without refactor (Wilson 9)
 7. Pipeline jungle (no documented data flow)

@@ -30,26 +30,15 @@ Codificar un quality bar accionable, extraído de:
 
 ---
 
-## 2. North star / honesty banner
+## 2. North star / honesty
 
 ### North star
 
-Construir un learning project público con forma de producción (lakehouse Spark/SQL + dbt + experiment tracking + CI), reproducible desde README, batch-first, honesto en CV/LinkedIn.
+Construir un learning project público con forma de producción (lakehouse Spark/SQL + dbt + experiment tracking + CI), reproducible desde README, batch-first.
 
-**Frase análoga obligatoria (README / CV):**
+### Honesty (no negociable)
 
-> Lakehouse Spark/SQL + dbt + experiment tracking (MLflow) + CI; en producción el análogo cercano sería Athena/Redshift Spectrum + Glue + Prefect (o Airflow).
-
-### Honesty banner (no negociable)
-
-Pegar desde commit 1 en README.md (y mantenerlo):
-
-```markdown
-## Honesty
-
-Public learning portfolio. Production analogues for CV/LinkedIn: Athena / Glue / Redshift Spectrum / Prefect (role-dependent).
-Do not invent Databricks, dbt, MLflow, or Snowflake logos on PEMEX or Kavak bullets.
-```
+El README no lleva una sección Honesty, y no nombra empleadores, un CV, ni análogos de producción. El encuadre público es una o dos líneas: learning project with production-shaped patterns, batch only, not betting advice. No afirmar que el modelo le gana al mercado. En la tabla de referencia el mercado tiene menor log loss.
 
 ### Git authorship (hard permanent rule)
 
@@ -166,7 +155,7 @@ Una historia/PR está Done solo si cumple todos los puntos aplicables:
 - [ ] Refactors: el golden CV (`tests/test_golden_cv.py`) pasa, y Carlos corre `make verify-reference`
 
 ### Docs
-- [ ] README/ADR/runbook/architecture al día; honesty intacta
+- [ ] README/ADR/runbook/architecture al día; el encuadre de learning project sigue en el README, sin empleadores ni CV
 
 ### Milestone
 - [ ] Cumplir DoD D1 o D7 o D14 (sección 6)
@@ -176,7 +165,7 @@ Una historia/PR está Done solo si cumple todos los puntos aplicables:
 ## 6. Incremental process (D1 / D7 / D14)
 
 ### DoD Día 1 - Foundations + spike
-- [x] Repo público + README con honesty banner + ADR-001
+- [x] Repo público + README + ADR-001
 - [x] Skeleton + Makefile + CI smoke (lint/pytest)
 - [x] Spike CE documentado en runbook (pass/fail): cluster, dbt, MLflow, GH secrets
 - [x] Si pass: 1 raw + 1 stg_* + 1 test dbt

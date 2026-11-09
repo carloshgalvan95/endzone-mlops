@@ -15,7 +15,8 @@
 | [phase2_h4_comparison.md](phase2_h4_comparison.md) | [phase2_h4_clean_epa.md](../phase2_h4_clean_epa.md) | H4 clean EPA, rejected |
 | [phase2_h5_comparison.md](phase2_h5_comparison.md) | [phase2_h5_starting_qb.md](../phase2_h5_starting_qb.md) | H5 starting QB, rejected, positive signal |
 | [epa_filter_check.md](epa_filter_check.md) | [phase0_input_audit.md](../phase0_input_audit.md) | `play = 1` play types, plus kneel and spike counts |
+| [sprint2_cv_report.json](sprint2_cv_report.json) | [ADR-007](../../adr/ADR-007-score-regression.md) | Margin and total, both accepted |
 
 The copies are verbatim local reports. A Databricks hostname, if one were present, is stripped before commit. These files do not contain one.
 
-Sprint 2 writes `reports/sprint2/cv_report.json` (`make train-s2`). Copy that JSON here as `sprint2_cv_report.json` only after the warehouse run, and do not hand-edit the numbers. ADR-007. The file is not in this folder until that run exists.
+Sprint 2 is frozen in [sprint2_cv_report.json](sprint2_cv_report.json). `make train-s2` still writes a local copy at `reports/sprint2/cv_report.json`. Do not hand-edit the numbers. ADR-007. Both targets accepted, n=2191, seasons 2016-2023. Margin MAE 10.155811 versus Elo/25 10.412221 (8 of 8 seasons). Total MAE 10.925618 versus the league mean 11.130543 (5 of 8 seasons). Market margin MAE is 9.800548 and market total MAE is 10.526928. Both are lower than the model, and neither is a gate.
