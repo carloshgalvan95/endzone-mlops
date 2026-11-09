@@ -108,7 +108,9 @@ mlflow run . -e verify_reference --env-manager local
 
 The page is `site/index.html`. It is an open experiment. Rolling-origin log loss is 0.6377 for the model and 0.6120 for the market. The market wins. This is not betting advice. The page loads `site/data/latest.json`. `site/data/sample.json` is an example slate with no season or week. It is shown only when `latest.json` is missing, and the EXAMPLE label stays visible. Generated prediction JSON stays out of git. GitHub Actions writes it in the runner: on push to `main`, on Tuesdays at 12:00 UTC, and on manual dispatch. That job refreshes the current season, builds the Databricks marts, scores the next unplayed week, and deploys `site/`. Team logos are loaded from nflverse URLs in `site/data/teams.json`. See [ADR-006](docs/adr/ADR-006-weekly-predictions.md).
 
-Needs the warehouse marts, including `fct_upcoming_games`, and the same `.env` as training.
+`make refresh-results` overlays final nflverse scores onto week files already in `site/data`. It does not refit the model, run dbt, or read the warehouse. Predictions stay as published. Each game has `status` `scheduled` or `final`. Scores are integers and appear only when `status` is `final`. A tie is equal scores, including 0-0. `generated_at` stays the prediction time. `results_updated_at` is when the scores were checked. Windows: `.\scripts\dev.ps1 refresh-results`. GitHub Actions runs this on game-day windows and deploys `site/` without Databricks secrets. The Tuesday scoring job overlays scores after it writes the next week, so older week files keep their finals.
+
+Needs the warehouse marts, including `fct_upcoming_games`, and the same `.env` as training. Scoring does. The results refresh does not.
 
 Windows (PowerShell). `.\scripts\dev.ps1` matches the Make targets and also has `format`:
 

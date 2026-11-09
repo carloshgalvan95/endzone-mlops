@@ -31,7 +31,7 @@ Training and audit commands keep their current output paths: `reports/phase0`, `
 
 Import-linter contracts match the packages as they are today:
 
-1. Layers, higher to lower: `endzone.analysis`, then `endzone.train`, then siblings `endzone.modeling.train`, `endzone.modeling.score`, and `endzone.ingest`, then siblings `endzone.modeling.pipeline` and `endzone.modeling.holdout`, then siblings `endzone.modeling.scoring` and `endzone.modeling.weekly`, then siblings `endzone.modeling.cv`, `endzone.modeling.tracking`, and `endzone.modeling.report`, then siblings `endzone.modeling.evaluation`, `endzone.modeling.reference`, `endzone.modeling.models`, `endzone.modeling.hypotheses`, and `endzone.modeling.dataset`, then siblings `endzone.features` and `endzone.data`, then `endzone.utils`. Siblings do not import each other. A lower layer does not import a higher layer.
+1. Layers, higher to lower: `endzone.analysis`, then `endzone.train`, then `endzone.site`, then siblings `endzone.modeling.train`, `endzone.modeling.score`, and `endzone.ingest`, then siblings `endzone.modeling.pipeline` and `endzone.modeling.holdout`, then siblings `endzone.modeling.scoring` and `endzone.modeling.weekly`, then siblings `endzone.modeling.cv`, `endzone.modeling.tracking`, and `endzone.modeling.report`, then siblings `endzone.modeling.evaluation`, `endzone.modeling.reference`, `endzone.modeling.models`, `endzone.modeling.hypotheses`, and `endzone.modeling.dataset`, then siblings `endzone.features` and `endzone.data`, then `endzone.utils`. Siblings do not import each other. A lower layer does not import a higher layer.
 2. `endzone.features` does not import `endzone.train` or `endzone.modeling`.
 3. `endzone.features` does not import `mlflow`.
 4. `endzone.ingest` does not import `endzone.train` or `endzone.modeling`.
@@ -41,7 +41,7 @@ Import-linter contracts match the packages as they are today:
 
 ## Consequences
 
-`endzone/config.py` is the only module that reads `.env`, `DATABRICKS_*`, and `MLFLOW_TRACKING_URI`. `endzone/data/warehouse.py` is the SQL and Volume client. Ingest is split across `cli.py`, `nflverse.py`, `schema.py`, `depth_charts.py`, `snapshots.py`, and `volume.py`. The command stays `python -m endzone.ingest.load_raw_nflverse`. `endzone.config` is outside the import-linter layers because every package may import it, and it does not import analysis, train, ingest, features, data, or modeling.
+`endzone/config.py` is the only module that reads `.env`, `DATABRICKS_*`, and `MLFLOW_TRACKING_URI`. `endzone/data/warehouse.py` is the SQL and Volume client. Ingest is split across `cli.py`, `nflverse.py`, `schema.py`, `depth_charts.py`, `snapshots.py`, and `volume.py`. The command stays `python -m endzone.ingest.load_raw_nflverse`. `endzone.config` is outside the import-linter layers because every package may import it, and it does not import analysis, train, site, ingest, features, data, or modeling.
 
 Training lives in `endzone/modeling/`. The canonical command is `python -m endzone.modeling.train`. `python -m endzone.train.train` is a shim with the same flags, and the Makefile, sweep scripts, and the commands below keep that path. Logger names follow `__name__`, so they are `endzone.*`. MLflow tags (`phase`, `hypothesis`, `git_commit`, `decision`, `feature_set`, `cv_scheme`, `reference_model`, `reference_feature_set`) do not embed the package name. The logged model artifact is still named `model`. The reviewed skops allowlist is still `numpy.dtype` and `sklearn.tree._tree.Tree`.
 

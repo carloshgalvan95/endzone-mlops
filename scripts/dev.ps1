@@ -33,6 +33,7 @@ function Show-Help {
     Write-Host "  verify-reference    - Refit logistic h2_full and fail if it drifts from the reference file"
     Write-Host "  score               - Fit logistic h2_full, register it, and score one unplayed week"
     Write-Host "  train-s2            - Sprint 2 margin and total CV. Registers a target only if it passes"
+    Write-Host "  refresh-results     - Overlay final nflverse scores onto published week JSON"
     Write-Host "  clean               - Remove build artifacts"
     Write-Host "  reproduce           - install, Databricks dbt build, verify-reference"
     Write-Host ""
@@ -209,6 +210,14 @@ function Invoke-Score {
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
+function Invoke-RefreshResults {
+    Write-Host "Overlaying final nflverse scores onto published week JSON..."
+    $refreshArgs = @("-m", "endzone.site.results")
+    if ($env:RESTORE_PUBLISHED) { $refreshArgs += @("--restore-published", $env:RESTORE_PUBLISHED) }
+    python @refreshArgs
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
 function Invoke-Reproduce {
     Invoke-Install
     Invoke-DbtBuildDatabricks
@@ -282,6 +291,7 @@ switch ($Target.ToLower()) {
     "verify-reference" { Invoke-VerifyReference }
     "train-s2" { Invoke-TrainS2 }
     "score" { Invoke-Score }
+    "refresh-results" { Invoke-RefreshResults }
     "clean" { Invoke-Clean }
     "reproduce" { Invoke-Reproduce }
     default {

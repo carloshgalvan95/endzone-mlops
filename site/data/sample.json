@@ -13,6 +13,7 @@
   "games": [
     {
       "game_id": "EXAMPLE-01",
+      "status": "scheduled",
       "kickoff": "2026-11-05T19:15:00-06:00",
       "home": "PIT",
       "away": "CLE",
@@ -28,6 +29,7 @@
     },
     {
       "game_id": "EXAMPLE-02",
+      "status": "scheduled",
       "kickoff": "2026-11-08T12:00:00-06:00",
       "home": "BUF",
       "away": "MIA",
@@ -43,6 +45,7 @@
     },
     {
       "game_id": "EXAMPLE-03",
+      "status": "scheduled",
       "kickoff": "2026-11-08T12:00:00-06:00",
       "home": "DET",
       "away": "GB",
@@ -58,6 +61,7 @@
     },
     {
       "game_id": "EXAMPLE-04",
+      "status": "scheduled",
       "kickoff": "2026-11-08T15:05:00-06:00",
       "home": "LAR",
       "away": "SEA",
@@ -73,6 +77,7 @@
     },
     {
       "game_id": "EXAMPLE-05",
+      "status": "scheduled",
       "kickoff": "2026-11-08T15:25:00-06:00",
       "home": "KC",
       "away": "DEN",
@@ -88,6 +93,7 @@
     },
     {
       "game_id": "EXAMPLE-06",
+      "status": "scheduled",
       "kickoff": "2026-11-08T19:20:00-06:00",
       "home": "PHI",
       "away": "DAL",
@@ -103,6 +109,7 @@
     },
     {
       "game_id": "EXAMPLE-07",
+      "status": "scheduled",
       "kickoff": "2026-11-09T19:15:00-06:00",
       "home": "NYJ",
       "away": "NE",

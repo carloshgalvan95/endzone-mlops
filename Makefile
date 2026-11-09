@@ -1,4 +1,4 @@
-.PHONY: help setup install lint lint-structure test vulture dbt-compile dbt-run dbt-test clean reproduce data ingest ingest-current marts dbt-build-databricks train train-sweep train-cv mlflow-ui audit-features check-epa-filter verify-reference score
+.PHONY: help setup install lint lint-structure test vulture dbt-compile dbt-run dbt-test clean reproduce data ingest ingest-current marts dbt-build-databricks train train-sweep train-cv train-s2 mlflow-ui audit-features check-epa-filter verify-reference score refresh-results
 
 # Finished bronze and mart steps. Gitignored. A second train-cv does not
 # reload bronze when these stamps are current.
@@ -33,6 +33,8 @@ help:
 	@echo "  check-epa-filter    - Count play types in the EPA filter, plus kneel and spike rows"
 	@echo "  verify-reference    - Refit logistic h2_full and fail if it drifts from the reference file"
 	@echo "  score               - Fit logistic h2_full, register it, and score one unplayed week"
+	@echo "  train-s2            - Sprint 2 margin and total CV. Registers a target only if it passes"
+	@echo "  refresh-results     - Overlay final nflverse scores onto published week JSON"
 	@echo "  reproduce           - install, Databricks dbt build, verify-reference"
 	@echo "  clean               - Remove build artifacts"
 	@echo ""
@@ -145,6 +147,11 @@ score:
 # Registers endzone-margin and endzone-total only when each target passes.
 train-s2:
 	python -m endzone.modeling.points
+
+# Overlay final nflverse scores onto week JSON already in site/data.
+# This does not refit the model, run dbt, or read the warehouse.
+refresh-results:
+	python -m endzone.site.results $(if $(RESTORE_PUBLISHED),--restore-published $(RESTORE_PUBLISHED),)
 
 # Installs the lock, builds Databricks marts from bronze already in the
 # warehouse, and refits the reference. It does not download nflverse and it
