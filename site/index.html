@@ -22,6 +22,7 @@
       <a href="#predictions" aria-current="page">Predictions</a>
       <a href="#accuracy">Accuracy</a>
       <a href="#record">Record</a>
+      <a href="#how-to-read">How to read</a>
       <a href="https://github.com/carloshgalvan95/endzone-mlops" rel="noopener">GitHub</a>
     </nav>
   </div>
@@ -37,6 +38,7 @@
     <div>
       <p class="kicker" id="season-kicker">Weekly predictions</p>
       <h1>Model vs market, <span class="accent" id="week-title">this week</span></h1>
+      <p class="read-jump"><a href="#how-to-read">New here? How to read a game</a></p>
       <p class="lede">Home win probability from our model, compared with the market. When a game is final, the Kickoff cell shows the score. Predictions stay frozen. Games are highlighted when they differ by at least <span id="thr-text">5</span> pp.</p>
     </div>
     <div class="controls">
@@ -104,6 +106,180 @@
       <div id="record-cards" class="record-cards"></div>
     </div>
     <p class="note" id="record-note">Pick hits follow the game card. The home win percent is rounded, 50 is a tie pick, and a final tie is a hit only when the pick is also a tie. Log loss uses finished games that have a winner and a market price. Both probabilities are clipped to 0.000001. Ties and games with no market price are left out of both log losses. Margin error is the mean absolute error of home score minus away score. Total error is the mean absolute error of the combined score. Both use the estimate that was published, on finished games only. Unfinished games stay out of every rate. Lower log loss is closer to the results. <a href="https://github.com/carloshgalvan95/endzone-mlops/blob/main/docs/adr/ADR-008-weekly-track-record.md">How this is counted</a>.</p>
+  </section>
+
+  <section class="section" id="how-to-read" aria-labelledby="how-to-read-title">
+    <h2 id="how-to-read-title">How to read <span class="accent">each game</span></h2>
+    <p class="lede">The page compares the model with the market. The two cards are a frozen example from 2026 week 9. They are not the live slate.</p>
+    <p class="read-home">Every percent is for the home team.</p>
+    <div class="read-stage">
+      <figure class="read-example">
+        <figcaption class="read-cap">
+          <span class="read-kicker">Before kickoff</span>
+          <span class="read-when">2026 week 9</span>
+          <span class="read-tag">Example</span>
+          <span class="sr-only">Illustrative card, not a live prediction.</span>
+        </figcaption>
+        <div class="card dis">
+          <div class="card-top">
+            <div class="kick"><b>Mon, Nov 9</b><span>19:15 CDMX</span></div>
+            <span class="badge">DISAGREES</span>
+          </div>
+          <div class="matchup read-slot" aria-label="Model pick: Bills">
+            <span class="read-pin" aria-hidden="true">1</span>
+            <div class="pick-box win">
+              <div class="team" style="--team-accent:#00338D">
+                <span class="disc"><span class="abbr">BUF</span></span>
+                <span class="team-name">Bills<small>away</small></span>
+              </div>
+              <span class="pick-label">WINS</span>
+            </div>
+            <div class="pick-box">
+              <div class="team" style="--team-accent:#4F2683">
+                <span class="disc"><span class="abbr">MIN</span></span>
+                <span class="team-name">Vikings<small>home</small></span>
+              </div>
+            </div>
+            <div class="read-slot read-est">
+              <span class="read-pin" aria-hidden="true">6</span>
+              <p class="est-score num">BUF <b>24</b><span class="sep"> · </span><b>23</b> MIN</p>
+            </div>
+          </div>
+          <div class="read-slot pin-end pin-block">
+            <span class="read-pin" aria-hidden="true">4</span>
+            <div class="pbar" role="img" aria-label="Model 46%, market 40%">
+              <div class="track t1"><div class="fill" style="width:46%"></div></div>
+              <div class="track t2"><div class="fill" style="width:40%"></div></div>
+              <div class="mid"></div>
+            </div>
+          </div>
+          <div class="card-nums">
+            <div>
+              <span title="Home team's win probability">Model<span class="read-pin read-pin-inline" aria-hidden="true">2</span></span>
+              <b class="p-model">46%</b>
+            </div>
+            <div>
+              <span>Market<span class="read-pin read-pin-inline" aria-hidden="true">3</span></span>
+              <b>40%</b>
+            </div>
+            <div>
+              <span>Diff.<span class="read-pin read-pin-inline" aria-hidden="true">5</span></span>
+              <b><span class="diff"><span class="v num pos">+6 pp</span></span></b>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <figure class="read-example">
+        <figcaption class="read-cap">
+          <span class="read-kicker">Finished</span>
+          <span class="read-when">2026 week 9</span>
+          <span class="read-tag">Example</span>
+          <span class="sr-only">Illustrative card, not a live prediction.</span>
+        </figcaption>
+        <div class="card dis">
+          <div class="card-top">
+            <span class="final-tag">Final</span>
+            <span class="badge">DISAGREES</span>
+          </div>
+          <div class="score-rail">
+            <div class="matchup read-slot" aria-label="Model pick: Jaguars. Final: Jaguars. Model pick matched the result">
+              <span class="read-pin" aria-hidden="true">1</span>
+              <div class="pick-box win">
+                <div class="team" style="--team-accent:#006778">
+                  <span class="disc"><span class="abbr">JAX</span></span>
+                  <span class="team-name">Jaguars<small>away</small></span>
+                </div>
+                <span class="pick-label">WINS</span>
+              </div>
+              <div class="pick-box">
+                <div class="team" style="--team-accent:#241773">
+                  <span class="disc"><span class="abbr">BAL</span></span>
+                  <span class="team-name">Ravens<small>home</small></span>
+                </div>
+              </div>
+            </div>
+            <div class="result-well read-slot pin-end">
+              <span class="read-pin" aria-hidden="true">7</span>
+              <div class="score-line">
+                <div class="score-stack">
+                  <span class="win">33</span>
+                  <span class="lose">10</span>
+                </div>
+                <span class="result-mark" role="img" aria-label="Model pick matched the result">
+                  <svg viewBox="0 0 22 22" width="22" height="22" aria-hidden="true">
+                    <circle cx="11" cy="11" r="9.25" fill="none" stroke="currentColor" stroke-width="1.5"></circle>
+                    <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M6.4 11.2 L9.5 14.2 L15.7 7.7"></path>
+                  </svg>
+                </span>
+                <span class="est-line"><span class="est-k">est. </span><span class="est-n">25-22</span></span>
+              </div>
+              <div class="result-meta">
+                <span class="kick-date final-tag">Final · Thu 5 Nov</span>
+              </div>
+            </div>
+          </div>
+          <div class="read-slot pin-end pin-block">
+            <span class="read-pin" aria-hidden="true">4</span>
+            <div class="pbar" role="img" aria-label="Model 38%, market 21%">
+              <div class="track t1"><div class="fill" style="width:38%"></div></div>
+              <div class="track t2"><div class="fill" style="width:21%"></div></div>
+              <div class="mid"></div>
+            </div>
+          </div>
+          <div class="card-nums">
+            <div>
+              <span title="Home team's win probability">Model<span class="read-pin read-pin-inline" aria-hidden="true">2</span></span>
+              <b class="p-model">38%</b>
+            </div>
+            <div title="favored JAX · matched">
+              <span>Market<span class="read-pin read-pin-inline" aria-hidden="true">3</span></span>
+              <b>21%</b>
+              <span class="market-caption">favored JAX · matched</span>
+            </div>
+            <div>
+              <span>Diff.<span class="read-pin read-pin-inline" aria-hidden="true">5</span></span>
+              <b><span class="diff"><span class="v num pos">+17 pp</span></span></b>
+            </div>
+          </div>
+        </div>
+      </figure>
+    </div>
+    <ol class="read-key" aria-label="What each number means">
+      <li>
+        <span class="read-pin">1</span>
+        <p><strong>Teams.</strong> Away on top, home below. <span class="read-term">WINS</span> is the model's pick. The home percent is rounded: above 50 picks the home team, below 50 picks the away team, and 50 shows <span class="read-term">TIE</span>.</p>
+      </li>
+      <li>
+        <span class="read-pin">2</span>
+        <p><strong>Model.</strong> The model's probability that the home team wins.</p>
+      </li>
+      <li>
+        <span class="read-pin">3</span>
+        <p><strong>Market.</strong> The market's no-vig implied probability for the home team. After the game the line reads favored X · matched, favored X · did not match, or market even when that percent rounds to 50.</p>
+      </li>
+      <li>
+        <span class="read-pin">4</span>
+        <p><strong>Bars.</strong> Model on top, market below. The line in the center is 50%.</p>
+      </li>
+      <li>
+        <span class="read-pin">5</span>
+        <p><strong>Diff.</strong> Model minus market, in percentage points. Positive means the model likes the home team more than the market. A gap at least as large as the threshold shows <span class="badge">DISAGREES</span>. The default is 5 pp. The Threshold control changes it. The gap uses the absolute value.</p>
+      </li>
+      <li>
+        <span class="read-pin">6</span>
+        <p><strong>Before the game.</strong> Kickoff is in Mexico City time, labeled CDMX. The estimated score is away, then home, for example BUF 24 · 23 MIN. Points are rounded for display.</p>
+      </li>
+      <li>
+        <span class="read-pin">7</span>
+        <p><strong>Finished.</strong> The real score.
+          <span class="result-mark" role="img" aria-label="Check"><svg viewBox="0 0 22 22" width="22" height="22" aria-hidden="true"><circle cx="11" cy="11" r="9.25" fill="none" stroke="currentColor" stroke-width="1.5"></circle><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M6.4 11.2 L9.5 14.2 L15.7 7.7"></path></svg></span>
+          means the pick matched the result, including a tie pick on a tie.
+          <span class="result-mark" role="img" aria-label="Cross"><svg viewBox="0 0 22 22" width="22" height="22" aria-hidden="true"><circle cx="11" cy="11" r="9.25" fill="none" stroke="currentColor" stroke-width="1.5"></circle><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M7.2 7.2 L14.8 14.8 M14.8 7.2 L7.2 14.8"></path></svg></span>
+          means it missed. <span class="read-term">est.</span> is the estimate published before kickoff. <span class="read-term">Final · date</span> is the kickoff date in Mexico City.</p>
+      </li>
+    </ol>
+    <p class="note">Small sample. Open experiment, not betting advice.</p>
   </section>
 </main>
 

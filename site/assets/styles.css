@@ -198,3 +198,69 @@ h1 .accent{color:var(--color-accent)}
   .legend{gap:var(--space-4)}
 }
 @media (prefers-reduced-motion: reduce){*{transition:none!important}}
+
+.read-jump{margin:var(--space-3) 0 0;font-size:var(--text-sm)}
+.read-jump a{color:var(--color-text-muted);text-underline-offset:2px}
+.read-jump a:hover{color:var(--color-text)}
+#how-to-read{scroll-margin-top:calc(var(--header-height) + var(--space-4))}
+#how-to-read h2{font-weight:var(--weight-bold);display:block}
+#how-to-read h2 .accent{color:var(--color-accent)}
+.read-home{display:inline-block;margin:var(--space-4) 0 0;padding:4px 12px;border:1px solid var(--color-border);border-radius:var(--radius-pill);font:500 var(--text-sm) var(--font-mono);color:var(--color-text)}
+.read-stage{display:flex;flex-direction:column;gap:var(--space-4);margin-top:var(--space-4)}
+.read-example{margin:0}
+.read-cap{display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap;margin:0 0 var(--space-3);position:relative}
+.read-kicker{font:600 var(--text-xs) var(--font-mono);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-muted)}
+.read-when{font:500 var(--text-xs) var(--font-mono);color:var(--color-text-muted)}
+.read-tag{margin-left:auto;font:600 var(--text-xs) var(--font-mono);letter-spacing:var(--tracking-wide);text-transform:uppercase;background:var(--color-disagreement);color:var(--color-disagreement-ink);padding:2px var(--space-2);border-radius:var(--radius-pill)}
+.read-examples,.read-stage{min-width:0}
+.read-stage .card{background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:var(--space-4)}
+.read-stage .card.dis{border-color:var(--color-disagreement);box-shadow:inset 0 0 0 1px var(--color-disagreement)}
+.read-stage .card-top{display:flex;justify-content:space-between;align-items:center;gap:var(--space-3);margin-bottom:var(--space-3)}
+.read-stage .card .matchup{margin-bottom:var(--space-4)}
+.read-stage .score-rail{display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);margin-bottom:var(--space-3);padding-right:6px}
+.read-stage .score-rail .matchup{margin:0;flex:1;min-width:0}
+.read-stage .score-rail .result-well{align-items:flex-end;text-align:right;flex:none}
+.read-stage .score-rail .score-line{justify-content:flex-end;position:relative}
+.read-stage .score-rail .score-stack{align-items:flex-end;font-size:var(--text-xl)}
+.read-stage .card-nums{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--space-2);margin-top:var(--space-3)}
+.read-stage .card-nums > div{display:flex;flex-direction:column;min-width:0}
+.read-stage .card-nums > div > span{display:inline-flex;align-items:center;gap:6px;font:500 var(--text-xs) var(--font-mono);text-transform:uppercase;letter-spacing:var(--tracking-wide);color:var(--color-text-muted)}
+.read-stage .card-nums b{font:500 var(--text-lg) var(--font-mono)}
+.read-stage .card-nums > div:last-child{align-items:flex-end}
+.read-stage .card-nums .market-caption{font:400 11px var(--font-mono);letter-spacing:0;text-transform:none;color:var(--market-caption);text-align:left;max-width:none}
+.read-slot{position:relative}
+.read-est{display:flex;flex-direction:row;align-items:baseline;gap:8px}
+.read-est .est-score{margin:0}
+.pin-block{display:flex;flex-direction:column;align-items:flex-start;gap:4px}
+.pin-block.pin-end{align-items:flex-end}
+.pin-block>.pbar{width:100%;align-self:stretch}
+.read-pin{width:22px;height:22px;border-radius:50%;display:inline-grid;place-items:center;background:var(--color-text);color:var(--color-text-inverse);font:600 12px var(--font-mono);line-height:1;flex:none;align-self:flex-start}
+.read-slot.pin-end>.read-pin{align-self:flex-end}
+.read-pin-inline{width:18px;height:18px;font-size:11px;align-self:center}
+.read-est>.read-pin{align-self:center}
+.read-key{list-style:none;margin:var(--space-5) 0 0;padding:0;display:grid;gap:var(--space-4);color:var(--color-text);font-size:var(--text-sm);line-height:var(--leading-snug)}
+.read-key li{display:flex;gap:var(--space-3);align-items:flex-start;margin:0}
+.read-key li p{margin:0}
+.read-key .read-pin{margin-top:1px}
+.read-key .badge,.read-key .result-mark{vertical-align:middle}
+.read-key .result-mark{display:inline-block}
+.read-term{font-family:var(--font-mono);font-weight:var(--weight-medium)}
+/* Side pins move into the gutter only when the card has room. Narrow viewports keep them in flow. */
+@media (min-width: 761px){
+  .read-stage{padding:0 40px}
+  .read-slot>.read-pin{position:absolute;top:0;left:-32px;margin:0}
+  .read-slot.pin-end>.read-pin{left:auto;right:-32px}
+  .read-slot>.read-pin::after{content:"";position:absolute;top:50%;left:100%;width:8px;height:1px;background:var(--color-border-strong)}
+  .read-slot.pin-end>.read-pin::after{left:auto;right:100%}
+  .read-key{grid-template-columns:1fr 1fr;column-gap:var(--space-5)}
+  .read-key li:last-child{grid-column:1 / -1}
+}
+@media (max-width: 760px){
+  .read-stage .matchup>.read-pin+.pick-box{margin-top:8px}
+  .read-stage .score-rail .score-stack{order:1}
+  .read-stage .score-rail .result-mark{order:2}
+  .read-stage .score-rail .est-line{position:static;right:auto;top:auto;transform:none;order:0;display:flex;flex-direction:column;align-items:flex-end}
+  .read-stage .score-rail .pick-box{min-width:0}
+  .read-stage .score-rail .team{flex:1;min-width:0}
+  .read-stage .score-rail .team-name{min-width:0;overflow-wrap:anywhere}
+}
