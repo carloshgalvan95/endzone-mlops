@@ -541,3 +541,213 @@ for (const [got, expected] of cases) {
         text=True,
     )
     assert completed.returncode == 0, completed.stderr or completed.stdout
+
+
+def test_frontend_estimate_sits_beside_the_final_score() -> None:
+    """A final estimate sits on the score row. The date line stays free of est.
+
+    The report leaves Node as ASCII JSON. A Windows code page must not turn
+    the page's middle dot into a different character before Python reads it.
+    """
+    node = shutil.which("node")
+    assert node is not None
+    script = r"""
+class El {
+  constructor(tag) {
+    this.tagName = String(tag).toUpperCase();
+    this.className = "";
+    this.children = [];
+    this.attributes = {};
+    this.hidden = false;
+    this.value = "";
+    this.selected = false;
+    this._text = "";
+    this.style = { setProperty() {} };
+    const self = this;
+    this.classList = {
+      add(name) {
+        const parts = self.className.split(/\s+/).filter(Boolean);
+        if (!parts.includes(name)) parts.push(name);
+        self.className = parts.join(" ");
+      },
+      remove(name) {
+        self.className = self.className.split(/\s+/).filter((part) => part && part !== name).join(" ");
+      }
+    };
+  }
+  get textContent() {
+    if (this.children.length) return this.children.map((child) => child.textContent || "").join("");
+    return this._text;
+  }
+  set textContent(value) {
+    this.children = [];
+    this._text = value == null ? "" : String(value);
+  }
+  appendChild(child) {
+    this.children.push(child);
+    this._text = "";
+    return child;
+  }
+  setAttribute(name, value) { this.attributes[name] = String(value); }
+  addEventListener() {}
+  remove() {}
+  get options() { return this.children.filter((child) => child.tagName === "OPTION"); }
+}
+const byId = {};
+function mount(id, tag) {
+  const node = new El(tag);
+  node.id = id;
+  byId[id] = node;
+  return node;
+}
+["games-body", "games-cards", "thr-text", "accuracy-block", "accuracy-note", "season-kicker", "week-title", "example-flag"].forEach((id) => mount(id, "div"));
+mount("week-select", "select");
+mount("thr-select", "select");
+global.document = {
+  createElement: (tag) => new El(tag),
+  createElementNS: (_ns, tag) => new El(tag),
+  createTextNode: (text) => {
+    const node = new El("#text");
+    node._text = String(text);
+    return node;
+  },
+  getElementById: (id) => byId[id] || null
+};
+const slate = {
+  sample: false,
+  season: 2026,
+  week: 9,
+  weeks_available: [9],
+  threshold_pp: 5,
+  score_model: { hidden_reason: null, margin: {}, total: {} },
+  games: [
+    {
+      kickoff: "2026-11-08T16:25:00-05:00",
+      status: "final",
+      home: "IND",
+      away: "DAL",
+      home_score: 23,
+      away_score: 27,
+      model_home_wp: 0.38,
+      market_home_wp: 0.34,
+      estimated_home_points: 23.2,
+      estimated_away_points: 26.6
+    },
+    {
+      kickoff: "2026-11-08T13:00:00-05:00",
+      status: "final",
+      home: "CAR",
+      away: "DEN",
+      home_score: 21,
+      away_score: 26,
+      model_home_wp: 0.46,
+      market_home_wp: 0.42,
+      estimated_home_points: null,
+      estimated_away_points: null
+    },
+    {
+      kickoff: "2026-11-08T20:20:00-05:00",
+      status: "scheduled",
+      home: "CHI",
+      away: "TB",
+      home_score: null,
+      away_score: null,
+      model_home_wp: 0.42,
+      market_home_wp: 0.48,
+      estimated_home_points: 24.6,
+      estimated_away_points: 18.4
+    }
+  ]
+};
+global.fetch = (url) => {
+  const key = String(url);
+  const payload = key.indexOf("teams") !== -1 ? { teams: {} } : slate;
+  return Promise.resolve({ ok: true, json: () => Promise.resolve(payload) });
+};
+require("./site/assets/app.js");
+function tokens(className) { return String(className || "").split(/\s+/).filter(Boolean); }
+function hasClass(node, name) { return tokens(node.className).includes(name); }
+function findAll(node, name, out) {
+  out = out || [];
+  if (node && hasClass(node, name)) out.push(node);
+  (node && node.children || []).forEach((child) => findAll(child, name, out));
+  return out;
+}
+function summarize(root) {
+  const lines = findAll(root, "score-line");
+  return {
+    lines: lines.map((line) => line.children.map((child) => child.className)),
+    estimates: lines.map((line) => {
+      const est = (line.children || []).find((child) => hasClass(child, "est-line"));
+      return est ? { className: est.className, text: est.textContent, hidden: est.attributes["aria-hidden"] || "" } : null;
+    }),
+    meta: findAll(root, "result-meta").map((meta) => ({
+      text: meta.textContent,
+      estCount: findAll(meta, "est-line").length
+    })),
+    pending: findAll(root, "est-score").map((node) => node.textContent)
+  };
+}
+setTimeout(() => {
+  const report = {
+    table: summarize(byId["games-body"]),
+    cards: summarize(byId["games-cards"])
+  };
+  process.stdout.write(JSON.stringify(report).replace(/[^\u0000-\u007F]/g, function (ch) {
+    return "\\u" + ("0000" + ch.charCodeAt(0).toString(16)).slice(-4);
+  }));
+  process.exit(0);
+}, 50);
+"""
+    completed = subprocess.run(
+        [node, "-e", script],
+        check=False,
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    assert completed.returncode == 0, completed.stderr or completed.stdout
+    assert completed.stdout.isascii()
+    report = json.loads(completed.stdout)
+    expected_order = ["score-stack", "result-mark", "est-line"]
+    for surface in ("table", "cards"):
+        lines = report[surface]["lines"]
+        assert lines[0] == expected_order
+        assert lines[1] == ["score-stack", "result-mark", "est-line is-placeholder"]
+        assert len(lines) == 2
+        shown = report[surface]["estimates"][0]
+        assert shown["text"] == "est. 27-23"
+        assert "\u2013" not in shown["text"]
+        assert "\u2014" not in shown["text"]
+        hidden = report[surface]["estimates"][1]
+        assert hidden["text"] == ""
+        assert hidden["hidden"] == "true"
+        assert "is-placeholder" in hidden["className"]
+        for meta in report[surface]["meta"]:
+            assert meta["text"].startswith("Final")
+            assert "Sun 8 Nov" in meta["text"]
+            assert "est." not in meta["text"]
+            assert meta["estCount"] == 0
+        assert report[surface]["pending"] == ["TB 18 \u00b7 25 CHI"]
+
+
+def test_frontend_estimate_css_keeps_the_score_row_compact() -> None:
+    """Mobile puts the estimate left. Desktop source order stays on the right."""
+    css = Path("site/assets/styles.css").read_text(encoding="utf-8")
+    mobile_at = css.index("@media (max-width: 760px)")
+    desktop, mobile = css[:mobile_at], css[mobile_at:]
+    assert "right:calc(100% + 8px)" in mobile
+    assert "translateY(-50%)" in mobile
+    assert "order:-1" not in css
+    assert ".score-line{display:flex;align-items:center;gap:8px}" in desktop
+    assert ".games th,.games td{padding-left:12px;padding-right:12px}" in desktop
+    assert "padding-right:6px" in mobile
+    assert (
+        ".result-well .est-line{font:400 var(--text-xs) var(--font-mono);"
+        "color:var(--color-text-muted);line-height:1.15;white-space:nowrap;flex:none}"
+    ) in css
+    assert ".result-well .est-line.is-placeholder{display:none}" in css
+    script = Path("site/assets/app.js").read_text(encoding="utf-8")
+    assert "line.appendChild(estimate)" in script
+    assert "metaBlock.appendChild(estimate)" not in script

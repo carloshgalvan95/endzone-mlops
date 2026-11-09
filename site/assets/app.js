@@ -329,16 +329,23 @@ if (typeof document !== "undefined") {
     line.appendChild(stack);
     var matched = EndzoneView.pickMatched(EndzoneView.pickSide(game.model_home), result);
     if (matched !== null) line.appendChild(resultMark(matched));
+    var estimateText = EndzoneView.estimateLabel(game.estimated_away_points, game.estimated_home_points);
+    var estimate = el("span", estimateText ? "est-line" : "est-line is-placeholder");
+    if (estimateText) {
+      var splitAt = estimateText.indexOf(" ");
+      estimate.appendChild(el("span", "est-k", estimateText.slice(0, splitAt + 1)));
+      estimate.appendChild(el("span", "est-n", estimateText.slice(splitAt + 1)));
+    } else {
+      estimate.setAttribute("aria-hidden", "true");
+    }
+    // Source order is the table: real score, mark, estimate. Card CSS parks the estimate in the gap.
+    line.appendChild(estimate);
     well.appendChild(line);
     var date = finalDate(game.kickoff);
     var meta = result === "tie" ? "Final \u00b7 Tie" : "Final";
     if (date) meta += " \u00b7 " + date;
     var metaBlock = el("div", "result-meta");
     metaBlock.appendChild(el("span", "kick-date final-tag", meta));
-    var estimateText = EndzoneView.estimateLabel(game.estimated_away_points, game.estimated_home_points);
-    var estimate = el("span", estimateText ? "est-line" : "est-line is-placeholder", estimateText);
-    if (!estimateText) estimate.setAttribute("aria-hidden", "true");
-    metaBlock.appendChild(estimate);
     well.appendChild(metaBlock);
     return well;
   }
