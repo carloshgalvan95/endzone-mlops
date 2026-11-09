@@ -17,17 +17,21 @@ from endzone.modeling.score import (
     _market_by_game,
     _register_weekly_model,
     build_parser,
+    main,
     score_upcoming_week,
 )
 from endzone.modeling.weekly import (
     PREDICTION_GAME_FIELDS,
     build_prediction_document,
+    games_before_week,
     load_team_catalog,
     parse_optional_int,
     restore_published_predictions,
+    select_scheduled_week,
     select_slate,
     slate_for_features,
     team_catalog_document,
+    team_games_before_week,
     validate_prediction_document,
     write_prediction_bundle,
 )
@@ -451,6 +455,7 @@ def test_parse_optional_int_and_parser() -> None:
     assert parse_optional_int(args.week) is None
     restore_args = build_parser().parse_args(["--restore-published", "https://example.test"])
     assert restore_args.restore_published == "https://example.test"
+    assert restore_args.replace_published is False
 
 
 def test_score_week_registers_model_and_writes_json(tmp_path: Path) -> None:
@@ -708,3 +713,332 @@ def test_databricks_registry_failure_is_raised(monkeypatch: pytest.MonkeyPatch) 
             model_name="endzone-winprob",
             tracking_uri="databricks",
         )
+
+
+_PUBLISHED_IDS: list[str] = [f"2026_09_{index:02d}" for index in range(13)] + [
+    "2026_09_TB_CHI",
+    "2026_09_BUF_MIN",
+]
+_LEFTOVER_IDS: tuple[str, str] = ("2026_09_TB_CHI", "2026_09_BUF_MIN")
+
+
+def _week_document(game_ids: list[str] | tuple[str, ...], probability: float) -> dict[str, Any]:
+    """A valid week file whose every game shares one model probability."""
+    games = pd.DataFrame(
+        [
+            {
+                "game_id": game_id,
+                "gameday": "2026-11-08",
+                "gametime": "13:00",
+                "home_team": "BUF",
+                "away_team": "MIA",
+            }
+            for game_id in game_ids
+        ]
+    )
+    return build_prediction_document(
+        season=2026,
+        week=9,
+        games=games,
+        model_probabilities=pd.Series({game_id: probability for game_id in game_ids}),
+        market_probabilities={game_id: None for game_id in game_ids},
+        model_name="endzone-winprob",
+        model_version="published",
+        feature_set="h2_full",
+        generated_at="2026-11-04T04:51:24Z",
+    )
+
+
+def _leftover_upcoming() -> pd.DataFrame:
+    """The two games a mid-week upcoming table would still list."""
+    return pd.DataFrame(
+        [
+            {
+                "game_id": game_id,
+                "season": 2026,
+                "week": 9,
+                "gameday": "2026-11-08",
+                "gametime": "20:20",
+                "home_team": "TB" if game_id.endswith("CHI") else "BUF",
+                "away_team": "CHI" if game_id.endswith("CHI") else "MIN",
+                "home_team_franchise": "BUF" if game_id.endswith("CHI") else "KC",
+                "away_team_franchise": "MIA" if game_id.endswith("CHI") else "DEN",
+                "home_rest": 7,
+                "away_rest": 7,
+            }
+            for game_id in _LEFTOVER_IDS
+        ]
+    )
+
+
+def test_games_before_week_drops_same_week_finals() -> None:
+    """Thursday of the scored week is not a training row."""
+    games, _team_games, _upcoming = _completed_and_slate()
+    thursday = games.iloc[[0]].copy()
+    thursday["game_id"] = "THU"
+    thursday["season"] = 2024
+    thursday["week"] = 9
+    thursday["home_won"] = 1
+    mixed = pd.concat([games, thursday], ignore_index=True)
+    kept = games_before_week(mixed, 2024, 9)
+    kept_ids = set(kept["game_id"].astype(str))
+    assert "THU" not in kept_ids
+    assert ((kept["season"] < 2024) | ((kept["season"] == 2024) & (kept["week"] < 9))).all()
+
+
+def test_team_games_before_week_drops_same_week_even_if_listed() -> None:
+    """A same-week EPA row is not a feature, even when its id was passed in."""
+    frame = pd.DataFrame(
+        [
+            {"game_id": "old", "season": 2026, "week": 8},
+            {"game_id": "thu", "season": 2026, "week": 9},
+            {"game_id": "prior", "season": 2025, "week": 18},
+        ]
+    )
+    kept = team_games_before_week(frame, 2026, 9, {"old", "thu", "prior"})
+    assert set(kept["game_id"]) == {"old", "prior"}
+
+
+def test_select_scheduled_week_includes_played_and_unplayed() -> None:
+    """A rebuild lists every game that week, and it does not copy the result."""
+    games, _team_games, upcoming = _completed_and_slate()
+    played = upcoming.iloc[[0]].copy()
+    played["game_id"] = "PLAYED"
+    played["home_won"] = 1
+    played["home_score"] = 21
+    played["away_score"] = 17
+    chosen = select_scheduled_week(pd.concat([games, played], ignore_index=True), upcoming, 2024, 9)
+    assert set(chosen["games"]["game_id"]) == {"PLAYED", "2024W9BUFMIA", "2024W9KCDEN"}
+    assert "home_score" not in chosen["games"].columns
+    assert "home_won" not in chosen["games"].columns
+
+
+def test_write_refuses_to_drop_published_game_ids(tmp_path: Path) -> None:
+    """A 2-game write cannot replace a 15-game week file."""
+    teams = team_catalog_document(_catalog())
+    write_prediction_bundle(_week_document(_PUBLISHED_IDS, 0.42), teams, tmp_path)
+    week_path = tmp_path / "predictions" / "2026-w9.json"
+    original = week_path.read_text(encoding="utf-8")
+    with pytest.raises(ValueError, match="drops 13"):
+        write_prediction_bundle(_week_document(_LEFTOVER_IDS, 0.91), teams, tmp_path)
+    assert week_path.read_text(encoding="utf-8") == original
+    stored = json.loads(original)
+    assert len(stored["games"]) == 15
+    assert stored["games"][0]["model_home_wp"] == 0.42
+
+
+def test_published_week_is_not_replaced_by_a_leftover_slate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Scoring the two remaining games keeps the 15-game file and does not fit."""
+
+    def refuse_fit(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("fitted")
+
+    monkeypatch.setattr("endzone.modeling.score.fit_logistic_pipeline", refuse_fit)
+    monkeypatch.setattr("endzone.modeling.score.build_pregame_features", refuse_fit)
+    output = tmp_path / "out"
+    write_prediction_bundle(
+        _week_document(_PUBLISHED_IDS, 0.42),
+        team_catalog_document(_catalog()),
+        output,
+    )
+    week_path = output / "predictions" / "2026-w9.json"
+    original = week_path.read_bytes()
+    games, team_games, _upcoming = _completed_and_slate()
+    result = score_upcoming_week(
+        games,
+        team_games,
+        _leftover_upcoming(),
+        _catalog(),
+        WeeklyScoreSettings(output_dir=output, generated_at=_FIXED_CLOCK),
+    )
+    assert result["kept_published"] is True
+    assert week_path.read_bytes() == original
+    assert len(result["document"]["games"]) == 15
+    assert result["document"]["games"][0]["model_home_wp"] == 0.42
+    assert result["document"]["generated_at"] == "2026-11-04T04:51:24Z"
+
+
+def test_replace_published_rejects_a_smaller_slate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An explicit rebuild still fails when it would drop game ids."""
+
+    def refuse_fit(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("fitted")
+
+    monkeypatch.setattr("endzone.modeling.score.fit_logistic_pipeline", refuse_fit)
+    output = tmp_path / "out"
+    write_prediction_bundle(
+        _week_document(_PUBLISHED_IDS, 0.42),
+        team_catalog_document(_catalog()),
+        output,
+    )
+    original = (output / "predictions" / "2026-w9.json").read_bytes()
+    games, team_games, _upcoming = _completed_and_slate()
+    with pytest.raises(ValueError, match="drops 13"):
+        score_upcoming_week(
+            games,
+            team_games,
+            _leftover_upcoming(),
+            _catalog(),
+            WeeklyScoreSettings(
+                season=2026,
+                week=9,
+                output_dir=output,
+                replace_published=True,
+            ),
+        )
+    assert (output / "predictions" / "2026-w9.json").read_bytes() == original
+
+
+def test_replace_published_requires_season_and_week(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The rebuild flag is rejected before any warehouse read."""
+
+    def refuse_load(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("warehouse")
+
+    monkeypatch.setattr("endzone.modeling.score.load_data", refuse_load)
+    with pytest.raises(ValueError, match="replace-published"):
+        main(["--replace-published", "--season", "2026"])
+
+
+def test_replace_published_scores_the_full_week_without_same_week_results(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A rebuild predicts played and unplayed games, and trains only before that week."""
+    import endzone.modeling.score as score_module
+    from endzone.features.pregame import build_pregame_features as real_build
+    from endzone.modeling.models import fit_logistic_pipeline as real_fit
+
+    games, team_games, _upcoming = _completed_and_slate()
+    played_ids = [f"2026_09_P{index:02d}" for index in range(13)]
+    pairs = (("BUF", "MIA"), ("KC", "DEN"), ("MIA", "BUF"), ("DEN", "KC"))
+    played_rows: list[dict[str, object]] = []
+    epa_rows: list[dict[str, object]] = []
+    for index, game_id in enumerate(played_ids):
+        home, away = pairs[index % 4]
+        played_rows.append(
+            {
+                "game_id": game_id,
+                "season": 2026,
+                "week": 9,
+                "gameday": pd.Timestamp("2026-11-05"),
+                "gametime": "20:15",
+                "home_team": home,
+                "away_team": away,
+                "home_team_franchise": home,
+                "away_team_franchise": away,
+                "home_won": index % 2,
+                "home_rest": 7,
+                "away_rest": 7,
+                "home_moneyline": -150,
+                "away_moneyline": 130,
+            }
+        )
+        for team, offense in ((home, 40.0 if home == "BUF" else 0.2), (away, -0.2)):
+            epa_rows.append(
+                {
+                    "game_id": game_id,
+                    "season": 2026,
+                    "week": 9,
+                    "gameday": pd.Timestamp("2026-11-05"),
+                    "team_franchise": team,
+                    "avg_offensive_epa": offense,
+                    "avg_defensive_epa_allowed": -offense,
+                }
+            )
+    games = pd.concat([games, pd.DataFrame(played_rows)], ignore_index=True)
+    poisonous = pd.concat([team_games, pd.DataFrame(epa_rows)], ignore_index=True)
+    sunday = _leftover_upcoming()
+    output = tmp_path / "out"
+    write_prediction_bundle(
+        _week_document(_LEFTOVER_IDS, 0.11),
+        team_catalog_document(_catalog()),
+        output,
+    )
+    captured: dict[str, Any] = {}
+
+    def spy_build(frame: pd.DataFrame, epa: pd.DataFrame, **kwargs: Any) -> pd.DataFrame:
+        captured["team_ids"] = set(epa["game_id"].astype(str))
+        captured["labeled"] = set(frame.loc[frame["home_won"].notna(), "game_id"].astype(str))
+        built = real_build(frame, epa, **kwargs)
+        captured["features"] = built
+        return built
+
+    def spy_fit(train_x: pd.DataFrame, train_y: pd.Series, **kwargs: Any) -> Any:
+        captured["train_ids"] = set(train_x["game_id"].astype(str))
+        return real_fit(train_x, train_y, **kwargs)
+
+    monkeypatch.setattr(score_module, "build_pregame_features", spy_build)
+    monkeypatch.setattr(score_module, "fit_logistic_pipeline", spy_fit)
+    settings = WeeklyScoreSettings(
+        season=2026,
+        week=9,
+        output_dir=output,
+        tracking_uri="sqlite:///" + (tmp_path / "mlflow.db").as_posix(),
+        logistic_max_iter=200,
+        generated_at=_FIXED_CLOCK,
+        replace_published=True,
+    )
+    try:
+        result = score_upcoming_week(games, poisonous, sunday, _catalog(), settings)
+    finally:
+        _reset_mlflow_tracking()
+
+    scored_ids = {game["game_id"] for game in result["document"]["games"]}
+    assert result["kept_published"] is False
+    assert scored_ids == set(played_ids) | set(_LEFTOVER_IDS)
+    assert len(result["document"]["games"]) == 15
+    assert captured["train_ids"].isdisjoint(played_ids)
+    assert captured["train_ids"].isdisjoint(_LEFTOVER_IDS)
+    assert captured["labeled"].isdisjoint(played_ids)
+    assert captured["team_ids"].isdisjoint(played_ids)
+    for game in result["document"]["games"]:
+        assert game["status"] == "scheduled"
+        assert "home_score" not in game
+
+    history = games_before_week(games, 2026, 9)
+    slate = slate_for_features(select_scheduled_week(games, sunday, 2026, 9)["games"])
+    matrix = pd.concat([history, slate], ignore_index=True)
+    column = "home_recent_offensive_epa_per_play"
+    clean = real_build(matrix, team_games, lookback_games=10)
+    leaked = real_build(matrix, poisonous, lookback_games=10)
+    clean_value = clean.loc[clean["game_id"] == "2026_09_TB_CHI", column].iloc[0]
+    leaked_value = leaked.loc[leaked["game_id"] == "2026_09_TB_CHI", column].iloc[0]
+    scored_value = (
+        captured["features"]
+        .loc[
+            captured["features"]["game_id"] == "2026_09_TB_CHI",
+            column,
+        ]
+        .iloc[0]
+    )
+    assert leaked_value != pytest.approx(float(clean_value))
+    assert float(scored_value) == pytest.approx(float(clean_value))
+    _reset_mlflow_tracking()
+
+
+def test_pages_push_does_not_invoke_score() -> None:
+    """A push restores and overlays. Scoring is Tuesday or an explicit dispatch."""
+    text = Path(".github/workflows/pages.yml").read_text(encoding="utf-8")
+    steps = text.split("\n      - name:")[1:]
+    score_steps = [step for step in steps if "endzone.modeling.score" in step]
+    assert len(score_steps) == 1
+    assert "github.event_name != 'push'" in score_steps[0]
+    assert "--replace-published" in score_steps[0]
+    for marker in ("load_raw_nflverse", "dbt build"):
+        matched = [step for step in steps if marker in step]
+        assert matched
+        assert all("github.event_name != 'push'" in step for step in matched)
+    result_steps = [step for step in steps if "endzone.site.results" in step]
+    assert len(result_steps) == 1
+    assert "github.event_name != 'push'" not in result_steps[0]
+    assert 'GITHUB_EVENT_NAME}" = "push"' in result_steps[0]
+    assert "replace_published:" in text
+    assert "cron:" in text
+    assert text.index("endzone.site.results") < text.index("latest.json")

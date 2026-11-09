@@ -1,4 +1,4 @@
-.PHONY: help setup install lint lint-structure test vulture dbt-compile dbt-run dbt-test clean reproduce data ingest ingest-current marts dbt-build-databricks train train-sweep train-cv train-s2 mlflow-ui audit-features check-epa-filter verify-reference score refresh-results
+.PHONY: help setup install lint lint-structure test vulture dbt-compile dbt-run dbt-test clean reproduce data ingest ingest-current marts dbt-build-databricks train train-sweep train-cv train-s2 mlflow-ui audit-features check-epa-filter verify-reference score rebuild-week refresh-results
 
 # Finished bronze and mart steps. Gitignored. A second train-cv does not
 # reload bronze when these stamps are current.
@@ -32,8 +32,9 @@ help:
 	@echo "  audit-features      - Profile current pregame inputs (no feature changes)"
 	@echo "  check-epa-filter    - Count play types in the EPA filter, plus kneel and spike rows"
 	@echo "  verify-reference    - Refit logistic h2_full and fail if it drifts from the reference file"
-	@echo "  score               - Fit logistic h2_full, register it, and score one unplayed week"
+	@echo "  score               - Score the next unpublished week. Keeps a week file already on disk"
 	@echo "  train-s2            - Sprint 2 margin and total CV. Registers a target only if it passes"
+	@echo "  rebuild-week        - Rebuild one full week (SEASON and WEEK required), then overlay finals"
 	@echo "  refresh-results     - Overlay final nflverse scores onto published week JSON"
 	@echo "  reproduce           - install, Databricks dbt build, verify-reference"
 	@echo "  clean               - Remove build artifacts"
@@ -136,12 +137,21 @@ check-epa-filter:
 verify-reference:
 	python -m endzone.train.train --verify-reference
 
-# Fit logistic h2_full on completed games and score one unplayed week.
-# make score SEASON=2026 WEEK=9
+# Score the next unpublished week. A file already on disk is kept.
+# make score SEASON=2026 WEEK=10
+# A week file already in site/data is kept. REPLACE=1 rebuilds that week.
 # Generated JSON under site/data is not committed. See ADR-006.
 # Margin and total stay null unless both pass ADR-007.
 score:
-	python -m endzone.modeling.score $(if $(SEASON),--season $(SEASON),) $(if $(WEEK),--week $(WEEK),)
+	python -m endzone.modeling.score $(if $(SEASON),--season $(SEASON),) $(if $(WEEK),--week $(WEEK),) $(if $(REPLACE),--replace-published,)
+
+# Rebuild every scheduled game for one week, then overlay finals.
+# Fits only on completed games before that week. Example:
+# make rebuild-week SEASON=2026 WEEK=9
+rebuild-week:
+	@test -n "$(SEASON)" && test -n "$(WEEK)" || (echo "rebuild-week needs SEASON and WEEK" >&2; exit 1)
+	python -m endzone.modeling.score --season $(SEASON) --week $(WEEK) --replace-published $(if $(RESTORE_PUBLISHED),--restore-published $(RESTORE_PUBLISHED),)
+	python -m endzone.site.results
 
 # Sprint 2 margin and total CV. Writes reports/sprint2/cv_report.json.
 # Registers endzone-margin and endzone-total only when each target passes.

@@ -15,8 +15,14 @@ on:
         required: false
         default: ""
         type: string
+      replace_published:
+        description: Rebuild every scheduled game for season and week. Requires both. Trains only on games before that week.
+        required: false
+        default: false
+        type: boolean
   schedule:
     # Tuesday 12:00 UTC, after the Monday night game.
+    # This is the automatic score. A push does not fit a model.
     - cron: "0 12 * * 2"
 
 permissions:
@@ -53,21 +59,28 @@ jobs:
       - name: Install the locked environment
         run: uv sync --frozen
 
+      # A push restores the live week files and overlays finals. It does not
+      # refresh the warehouse or fit a model.
       - name: Configure the dbt profile
+        if: github.event_name != 'push'
         working-directory: dbt
         run: cp profiles.yml.example profiles.yml
 
       - name: Refresh the current season
+        if: github.event_name != 'push'
         run: uv run python -m endzone.ingest.load_raw_nflverse --current-season --dataset all
 
       - name: Build Databricks marts
+        if: github.event_name != 'push'
         working-directory: dbt
         run: uv run dbt deps --profiles-dir . && uv run dbt build --profiles-dir . --target databricks
 
-      - name: Score the next unplayed week
+      - name: Score an unpublished week
+        if: github.event_name != 'push'
         env:
           SCORE_SEASON: ${{ github.event.inputs.season || '' }}
           SCORE_WEEK: ${{ github.event.inputs.week || '' }}
+          REPLACE_PUBLISHED: ${{ github.event.inputs.replace_published || '' }}
         run: |
           repo_name="${GITHUB_REPOSITORY#*/}"
           pages_base="https://${GITHUB_REPOSITORY_OWNER}.github.io/${repo_name}"
@@ -78,9 +91,29 @@ jobs:
           if [ -n "${SCORE_WEEK}" ]; then
             args+=(--week "${SCORE_WEEK}")
           fi
+          if [ "${REPLACE_PUBLISHED}" = "true" ]; then
+            if [ -z "${SCORE_SEASON}" ] || [ -z "${SCORE_WEEK}" ]; then
+              echo "replace_published needs season and week." >&2
+              exit 1
+            fi
+            args+=(--replace-published)
+          fi
           uv run python -m endzone.modeling.score "${args[@]}"
 
-      - name: Check the generated week is not the example slate
+      - name: Overlay final scores on published weeks
+        run: |
+          repo_name="${GITHUB_REPOSITORY#*/}"
+          pages_base="https://${GITHUB_REPOSITORY_OWNER}.github.io/${repo_name}"
+          args=(--output-dir site/data)
+          # Restore on push only. Tuesday and a rebuild already copied the
+          # live files, then kept or rewrote the week. Restoring again would
+          # copy the previous slate back over that file.
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            args+=(--restore-published "${pages_base}")
+          fi
+          uv run python -m endzone.site.results "${args[@]}"
+
+      - name: Check the published week is not the example slate
         run: |
           uv run python - << 'PY'
           import json
@@ -97,9 +130,6 @@ jobs:
               f"({len(games)} games)."
           )
           PY
-
-      - name: Overlay final scores on published weeks
-        run: uv run python -m endzone.site.results --output-dir site/data
 
       - name: Upload site
         uses: actions/upload-pages-artifact@v3
