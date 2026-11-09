@@ -115,7 +115,7 @@ endzone-mlops demonstrates a modern lakehouse architecture for NFL analytics, co
 - Feature engineering (rolling stats, team form, rest days)
 - Model training (`python -m endzone.modeling.train`, argparse + seed + hyperparameters; `python -m endzone.train.train` is the same command)
 - Experiment tracking (MLflow: params, metrics, artifacts, models)
-- Batch scoring (`python -m endzone.modeling.score` fits logistic `h2_full`, registers it, and writes one week of JSON)
+- Batch scoring (`python -m endzone.modeling.score` fits logistic `h2_full` on games before the scored week, registers it, and writes one unpublished week of JSON. A published week file is kept unless `--replace-published` rebuilds the full scheduled week.)
 - Margin and total (`python -m endzone.modeling.points`, ADR-007). Registered only when the pre-registered MAE rule passes
 - Evaluation (metrics: log loss, Brier score, calibration, MAE, RMSE)
 
@@ -152,7 +152,7 @@ endzone-mlops demonstrates a modern lakehouse architecture for NFL analytics, co
 
 #### 6. GitHub Actions (`github/workflows/ci.yml`)
 
-**Triggers**: Push, pull request. `pages.yml` deploys `site/` to GitHub Pages on push to `main`, on a manual dispatch, and on Tuesdays at 12:00 UTC. That job refreshes the current season, builds the Databricks marts, scores the next unplayed week, and uploads the generated JSON from the runner. See ADR-006.
+**Triggers**: Push, pull request. `pages.yml` deploys `site/` to GitHub Pages on push to `main`, on a manual dispatch, and on Tuesdays at 12:00 UTC. A push restores the published week files and overlays finals. It does not fit a model. Tuesday, and a dispatch without `replace_published`, score the next unpublished week after restoring what is already published. `replace_published` rebuilds every scheduled game for the given season and week, training only on games before that week, then the same overlay runs. See ADR-006.
 
 **Steps**:
 1. Checkout code
@@ -195,7 +195,7 @@ sequenceDiagram
     Train->>MLflow: Log params, metrics, model
     MLflow-->>Train: Return run_id
     Train->>Train: Save model to registry
-    Gold->>Score: Read completed games and the upcoming slate
+    Gold->>Score: Read games before the scored week, and the slate to publish
     Score->>MLflow: Log logistic h2_full with a signature and register it
     Score->>Pred: Write one week of home win probabilities
 ```
@@ -307,7 +307,7 @@ endzone/
 **Requirement**: No real-time inference in v0.1.
 
 **Implementation**:
-- `python -m endzone.modeling.score` writes one week of JSON under `site/data`
+- `python -m endzone.modeling.score` writes one unpublished week of JSON under `site/data`. It refuses to drop a published `game_id`. `--replace-published` rebuilds the full scheduled week.
 - Margin and total points are null until both targets pass ADR-007
 - `python -m endzone.site.results` overlays final nflverse scores on those files. It does not refit the model.
 - Live feed code is not in the repo

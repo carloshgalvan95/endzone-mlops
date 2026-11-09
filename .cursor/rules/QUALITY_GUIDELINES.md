@@ -88,13 +88,14 @@ Examples:
 ### Committing changes
 
 - Git identity must be Carlos Galván <carloshgalvan95@gmail.com> as both author and committer
+- Branch names use a conventional prefix (`feat/`, `fix/`, `docs/`, `chore/`, `ci/`, `test/`, `refactor/`, `perf/`, `build/`). Never use the `cursor/` prefix or any other tool-generated prefix.
 - No Co-authored-by trailers (not even self-attribution)
 - Commit messages in first person or imperative voice
 - No em dash character (U+2014) anywhere; use comma, period, colon, or regular hyphen
 
 ### Pull requests
 
-- Agents push the working branch only. Carlos opens the pull request. Do not open one from the agent.
+- When the work is ready, open the PR. Author it as Carlos Galván <carloshgalvan95@gmail.com>. The title is a Conventional Commit. The body is first person. No AI traces. No Co-authored-by. Do not leave the work as a branch-only draft.
 - Before committing, disable the `commit-msg.cursor.co-author` hook or any other trailer hook. Identity, trailers, and the em dash rule are in `git-and-commits.mdc`. Do not restate them here.
 - PR title must follow Conventional Commit format: `type(scope): description`
 - PR body in first person or imperative voice
@@ -105,6 +106,7 @@ Examples:
 
 The PR Guard workflow validates:
 - Base branch freshness (not stale)
+- Head branch uses a conventional prefix. A tool-generated prefix is rejected.
 - Git authorship (Carlos only, no bots in metadata)
 - No Co-authored-by trailers or AI agent mentions in commit messages
 - Conventional Commit PR title
@@ -189,7 +191,7 @@ Una historia/PR está Done solo si cumple todos los puntos aplicables:
 ### DoD Día 14 - Production-shaped + demo
 - [x] `python -m endzone.modeling.score` escribe el JSON de una semana en `site/data` (ADR-006). No hay tabla de predicciones en el warehouse.
 - [ ] Observability lite: logging + 1 señal drift/calidad
-- [ ] Job Databricks o GHA schedule
+- [x] Job Databricks o GHA schedule
 - [ ] README + capturas + Loom 3-5 min
 - [ ] Tag v0.1.0
 

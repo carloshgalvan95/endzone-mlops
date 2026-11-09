@@ -16,10 +16,11 @@ git log -1 --format='%an %ae %cn %ce'
 Author and committer are both Carlos Galván <carloshgalvan95@gmail.com>.
 
 - Conventional Commits: `type(scope): subject`. Types: feat, fix, docs, chore, ci, test, refactor, perf.
+- Branch names use one of those prefixes: `feat/`, `fix/`, `docs/`, `chore/`, `ci/`, `test/`, `refactor/`, `perf/`. `build/` is also allowed. Never use the `cursor/` prefix or any other tool-generated prefix.
 - Subject is imperative or first person. Do not mention an agent, Cursor, or any other tool in the message.
 - Before committing, disable the `commit-msg.cursor.co-author` hook, or any other trailer hook. `chmod -x` on that hook is enough. A hook that appends `Co-authored-by` is not allowed, including a trailer for Carlos.
 - No Co-authored-by trailer. No tool trailers. Before pushing, `git log origin/main..HEAD --format=%B | grep -ci co-authored` must return 0.
 - No em dash (U+2014). Use a comma, period, colon, or hyphen.
 - Never commit secrets, hosts, http paths, `.env`, `profiles.yml`, or data files (parquet, csv outside dbt seeds, `mlflow.db`).
-- Agents push the working branch only. Carlos opens the pull request. Do not open a pull request from the agent.
+- When the work is ready, open the PR. Author it as Carlos Galván <carloshgalvan95@gmail.com>. The title is a Conventional Commit. The body is first person. No AI or Cursor traces. No Co-authored-by. Do not leave the work as a branch-only draft.
 - Do not rewrite `main`. No force-push, no commit on `main`, no history rewrite of `main`.

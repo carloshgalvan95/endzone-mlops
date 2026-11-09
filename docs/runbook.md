@@ -11,6 +11,7 @@ This document contains operational procedures, setup checklists, and troubleshoo
 5. [MLflow Tracking](#mlflow-tracking)
 6. [Metric locks](#metric-locks)
 7. [Troubleshooting](#troubleshooting)
+8. [Weekly page](#weekly-page)
 
 ---
 
@@ -35,6 +36,7 @@ The PR Guard validates:
 7. **PR template**: Required sections (Summary, Changes, Verification, Risks) present; at least one verification item checked
 8. **Changed files**: No em dash added; no data/secret files (*.parquet, *.csv, .env, *.pem) except in tests/fixtures
 9. **File size**: No very large files (>5 MB heuristic)
+10. **Head branch**: The branch must start with a conventional prefix (`feat/`, `fix/`, `docs/`, `chore/`, `ci/`, `test/`, `refactor/`, `perf/`, `build/`). A tool-generated prefix is rejected.
 
 ### How to Fix Failures
 
@@ -855,7 +857,37 @@ Once spike is PASS:
 2. Run `dbt run` to materialize staging models
 3. Create marts models (Day 7)
 4. Implement `train.py` with MLflow (Day 7)
-5. `make score` writes one unplayed week. See ADR-006. Margin and total points stay null until both pass ADR-007. `.github/workflows/pages.yml` does that on push to `main`, on Tuesdays at 12:00 UTC, and on manual dispatch, then deploys the runner's `site/data`. The JSON is not committed. `make train-s2` writes the Sprint 2 CV report under `reports/sprint2/`. `make refresh-results` overlays final nflverse scores on those week files and does not refit the model. `.github/workflows/refresh-results.yml` deploys that refresh without Databricks.
+5. The public week file is frozen once it is published. See [Weekly page](#weekly-page). `make train-s2` writes the Sprint 2 CV report under `reports/sprint2/`. The frozen copy is `docs/experiments/reports/sprint2_cv_report.json`.
+
+---
+
+## Weekly page
+
+The page is an open experiment. It is not betting picks. Generated week JSON stays out of git. The live site is the copy that matters.
+
+**Push to `main`.** `.github/workflows/pages.yml` restores the published week files, overlays nflverse finals, and deploys `site/`. It does not fit a model and it does not rewrite probabilities. Use a push for UI and overlay changes.
+
+**Tuesday 12:00 UTC.** The same workflow refreshes the current season, builds the Databricks marts, restores published week files, and scores the next unpublished week. If that week file is already present after the restore, it is kept. A score that would drop a `game_id` fails the job, and the previous deployment stays up.
+
+**Rebuild one week.** This is the only way to replace probabilities for a week that is already published. It predicts every scheduled game that week, played and unplayed, and trains only on completed games before that week. Same-week finals are not labels and are not features. The results overlay then sets `status` to `final` only when nflverse has both scores. A 0-0 final is a tie. A missing score stays `scheduled`.
+
+Local:
+
+```bash
+make rebuild-week SEASON=2026 WEEK=9
+```
+
+Windows:
+
+```powershell
+$env:SEASON = "2026"
+$env:WEEK = "9"
+.\scripts\dev.ps1 rebuild-week
+```
+
+GitHub Actions: run Pages with `workflow_dispatch`, set `replace_published` to true, and set both season and week. Leaving the flag off scores the next unpublished week, or keeps it when the file is already there.
+
+`make score` is the unpublished-week command. `make refresh-results` overlays finals and does not refit. `.github/workflows/refresh-results.yml` does that on game-day windows without Databricks. Margin and total points stay null until both pass ADR-007.
 
 ---
 
