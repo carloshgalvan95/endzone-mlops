@@ -2,11 +2,13 @@
 
 The page in `site/` is English. Two strings differ from the Spanish draft below. The honest banner reads: "Open experiment. Model log loss 0.6377 vs market 0.6120 (the market wins). Not betting picks." The disagreement badge reads "DISAGREES". The example flag reads "EXAMPLE".
 
-The model always picks one team. Home wins when `model_home_wp` is at least 0.5. Otherwise the away team wins. The box uses `--pick-win` and `--pick-win-label` (kit yellow, `#EDB01A`), fill `--pick-win-fill`, stroke `--pick-stroke` (1.5 px), radius `--pick-radius`, and padding `--pick-pad` (4 px), so the 3 px team-color border sits inside the outline. On a disagreement row the box keeps the dark fill and a 2 px halo in that same fill. The disagreement badge stays in the Diff. column. The light theme sets the outline and the WINS label to `--black` on a cream fill. The Model legend and column tooltip say the percentage is the home team's win probability.
+The model pick uses the rounded home win percent. Above 50 the home team is picked. Below 50 the away team is picked. 50 shows TIE. The box uses `--pick-win` and `--pick-win-label` (kit yellow, `#EDB01A`), fill `--pick-win-fill`, stroke `--pick-stroke` (1.5 px), radius `--pick-radius`, and padding `--pick-pad` (4 px), so the 3 px team-color border sits inside the outline. On a disagreement row the box keeps the dark fill and a 2 px halo in that same fill. The disagreement badge stays in the Diff. column. The light theme sets the outline and the WINS label to `--black` on a cream fill. The Model legend and column tooltip say the percentage is the home team's win probability.
 
 The estimated score sits under that box. Away points, then home points, rounded to integers for display. When ADR-007 has not passed, the line is the hidden-reason sentence and the Model accuracy block shows MAE as n/a. When it has passed, the block shows margin and total MAE against the baseline and the market. The copy stays an open experiment, not betting picks. The WINS box does not change.
 
 The track record sits under Model accuracy. It is a table on wide screens and a stack of cards at 760 px and below. Each archived week shows finished games, pick hits, final ties, model and market log loss, and margin and total error. A season to date row follows the weeks. One finished week is labeled a small sample. A week with no finals, a week still in progress, and a build that could not read the archive each have their own empty or partial copy. The method link goes to ADR-008. The numbers are not a betting record.
+
+How to read (`#how-to-read`) sits after the track record. It is static markup: two example cards from 2026 week 9 and a numbered key. It is not wired to the live slate, and the live cards do not gain a legend.
 
 The rest of this note is the design specification, copied as delivered.
 
