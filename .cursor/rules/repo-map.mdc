@@ -28,7 +28,7 @@ alwaysApply: true
 - `references/`: external notes. Attribution stays in `docs/ATTRIBUTION.md`.
 - `reports/figures/`: CCDS figures directory. Git tracks `.gitkeep` only. Training still writes `reports/phase0`, `reports/phase1`, `reports/phase2*`, and `reports/epa_filter_check.md`. MLflow artifacts stay in `mlartifacts/`.
 
-Catalog `workspace`. Bronze schema `nfl_raw` (`games`, `play_by_play`, `depth_charts`). dbt target schema is `nfl_dev` (`dbt/profiles.yml.example`). This repo has no `generate_schema_name` macro, so dbt's default macro appends each custom schema: `staging` becomes `nfl_dev_staging`, `marts` becomes `nfl_dev_marts`, and `test_results` becomes `nfl_dev_test_results`. Seeds have no custom schema, so they stay in `nfl_dev`. Do not query staging or marts from unsuffixed `nfl_dev`. Env overrides: `DATABRICKS_CATALOG`, `DATABRICKS_STAGING_SCHEMA`, `DATABRICKS_RAW_SCHEMA`, `DATABRICKS_MARTS_SCHEMA`.
+Catalog `workspace`. Bronze schema `nfl_raw` (`games`, `play_by_play`, `depth_charts`). dbt target schema is `nfl_dev` (`dbt/profiles.yml.example`). This repo has no `generate_schema_name` macro, so dbt's default macro appends each custom schema: `staging` becomes `nfl_dev_staging` and `marts` becomes `nfl_dev_marts`. Seeds have no custom schema, so they stay in `nfl_dev`. `test_results` becomes `nfl_dev_test_results` only when a test is invoked with `--store-failures`. `dbt build` does not store a failure relation per test. Do not query staging or marts from unsuffixed `nfl_dev`. Env overrides: `DATABRICKS_CATALOG`, `DATABRICKS_STAGING_SCHEMA`, `DATABRICKS_RAW_SCHEMA`, `DATABRICKS_MARTS_SCHEMA`.
 
 Split: train seasons through 2023, validation 2024, test 2025. Leakage rule: features for a game use only games with `gameday` strictly before that game.
 
@@ -45,7 +45,7 @@ Before `make train-cv` (or `.\scripts\dev.ps1 train-cv`) on a catalog that does 
 1. Copy `.env.example` to `.env` and set `DATABRICKS_HOST`, `DATABRICKS_HTTP_PATH`, and `DATABRICKS_TOKEN`. Do not commit `.env`.
 2. Copy `dbt/profiles.yml.example` to `dbt/profiles.yml`. Do not commit it. The Databricks target schema in that file is `nfl_dev`. Compare it to the example after every pull.
 3. `make ingest` (or `.\scripts\dev.ps1 ingest`) writes `workspace.nfl_raw.games`, `workspace.nfl_raw.play_by_play`, and `workspace.nfl_raw.depth_charts`.
-4. `make dbt-build-databricks` (or `.\scripts\dev.ps1 dbt-build-databricks`) runs `dbt deps`, then builds `nfl_dev_staging`, `nfl_dev_marts`, and `nfl_dev_test_results`.
+4. `make dbt-build-databricks` (or `.\scripts\dev.ps1 dbt-build-databricks`) runs `dbt deps`, then builds `nfl_dev_staging` and `nfl_dev_marts`. It does not write a stored-failure relation per test.
 5. Then `make train-cv`. It scores H5b (`h5_qb` on the fixed starter) against logistic `h2_full`. Before the fit, each requested feature column has to exist and stay under 50% null. A failure names the feature set and says to run `make dbt-build-databricks`.
 
 On a catalog that already has games and play-by-play, load depth charts only, then rebuild, then train. Chain with `&&` so training does not start after a failed step:

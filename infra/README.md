@@ -44,7 +44,7 @@ endzone_mlops:
       schema: nfl_dev
 ```
 
-`schema: nfl_dev` is the dbt target schema, not the schema that holds staging views. This repo has no `generate_schema_name` macro, so dbt appends custom schemas: `nfl_dev_staging`, `nfl_dev_marts`, and `nfl_dev_test_results`. Bronze tables stay in `nfl_raw`.
+`schema: nfl_dev` is the dbt target schema, not the schema that holds staging views. This repo has no `generate_schema_name` macro, so dbt appends custom schemas: `nfl_dev_staging` and `nfl_dev_marts`. `nfl_dev_test_results` is created only by an explicit `dbt test --store-failures` run. Bronze tables stay in `nfl_raw`.
 
 ### MLflow Setup
 

@@ -28,17 +28,22 @@ This document contains operational procedures, setup checklists, and troubleshoo
 The PR Guard validates:
 
 1. **Base branch freshness**: PR must contain the current base branch HEAD (not stale/behind)
-2. **Git authorship**: Author and committer email must be `carloshgalvan95@gmail.com`; GitHub login must be `carloshgalvan95`
-3. **Co-authored-by trailers**: Only self Co-authored-by (owner's email) is allowed; blocks bots and other contributors
-4. **Commit messages**: No AI agent mentions (cursor, claude, copilot, grok, etc.) except in code context like `db.cursor()`
-5. **PR title**: Must follow Conventional Commit format (feat, fix, docs, chore, ci, test, refactor, perf, build)
-6. **PR body**: No tool-generated footers or em dash character (U+2014); no AI agent mentions
-7. **PR template**: Required sections (Summary, Changes, Verification, Risks) present; at least one verification item checked
-8. **Changed files**: No em dash added; no data/secret files (*.parquet, *.csv, .env, *.pem) except in tests/fixtures
-9. **File size**: No very large files (>5 MB heuristic)
-10. **Head branch**: The branch must start with a conventional prefix (`feat/`, `fix/`, `docs/`, `chore/`, `ci/`, `test/`, `refactor/`, `perf/`, `build/`). A tool-generated prefix is rejected.
+2. **Pull request opener**: The account that opens the pull request is `carloshgalvan95`. The coding agent pushes the branch and does not open the pull request.
+3. **Git authorship**: Author and committer email must be `carloshgalvan95@gmail.com`; GitHub login must be `carloshgalvan95`
+4. **Co-authored-by trailers**: Only self Co-authored-by (owner's email) is allowed; blocks bots and other contributors
+5. **Commit messages**: No AI agent mentions (cursor, claude, copilot, grok, etc.) except in code context like `db.cursor()`
+6. **PR title**: Must follow Conventional Commit format (feat, fix, docs, chore, ci, test, refactor, perf, build)
+7. **PR body**: No tool-generated footers or em dash character (U+2014); no AI agent mentions
+8. **PR template**: Required sections (Summary, Changes, Verification, Risks) present; at least one verification item checked
+9. **Changed files**: No em dash added; no data/secret files (*.parquet, *.csv, .env, *.pem) except in tests/fixtures
+10. **File size**: No very large files (>5 MB heuristic)
+11. **Head branch**: The branch must start with a conventional prefix (`feat/`, `fix/`, `docs/`, `chore/`, `ci/`, `test/`, `refactor/`, `perf/`, `build/`). A tool-generated prefix is rejected.
 
 ### How to Fix Failures
+
+Close the pull request before pushing. A branch with an open pull request does not receive new commits. After the fix is on the branch, open a new pull request from the `carloshgalvan95` account.
+
+The full local suite passes before that push: `ruff check endzone/ tests/`, `ruff format --check endzone/ tests/`, `make lint-structure` (Windows: `.\scripts\dev.ps1 lint-structure`), and `pytest tests/ -v`. Tests that read or write text pass `encoding="utf-8"`.
 
 #### Base branch stale
 ```bash
@@ -46,6 +51,8 @@ git fetch origin
 git rebase origin/main
 git push --force-with-lease
 ```
+
+The rebase rewrites the feature branch. `--force-with-lease` updates that branch after the pull request is closed. It is not a push to `main`.
 
 #### Wrong author/committer
 ```bash
@@ -548,9 +555,48 @@ Catalog `workspace`. The dbt Databricks target schema is `nfl_dev` (`dbt/profile
 | (none, seeds) | `nfl_dev` | `team_franchise_map`, `depth_chart_club_map`, `known_pbp_gaps` |
 | `staging` | `nfl_dev_staging` | `stg_nflverse__games`, `stg_nflverse__pbp`, `stg_nflverse__depth_charts` |
 | `marts` | `nfl_dev_marts` | `fct_games`, `fct_team_game_epa`, `fct_upcoming_games`, `fct_expected_starter`, `fct_qb_dropbacks` |
-| `test_results` | `nfl_dev_test_results` | stored dbt test failures |
+| `test_results` | `nfl_dev_test_results` | empty unless one test is run with `--store-failures` |
 
 Bronze is not a dbt schema. Ingest writes `workspace.nfl_raw.games`, `workspace.nfl_raw.play_by_play`, and `workspace.nfl_raw.depth_charts`. Depth charts start in 2001. 1999 and 2000 were not published.
+
+### Test result schema
+
+`dbt build` and `dbt test` run the tests and do not store a failure relation for each one. Unity Catalog Free Edition allows 100 tables per schema and counts views toward that same quota. The project used to set `store_failures` on every test, so `<target_schema>_test_results` filled with one relation per test, including empty relations from tests that passed. The warning fires at 80 relations. `tests/test_dbt_store_failures.py` fails if a project or directory config turns `store_failures` back on, and the cap on named exceptions is 0.
+
+The default profile uses catalog `workspace` and target schema `nfl_dev`, so the audit schema is `workspace.nfl_dev_test_results`. If `dbt/profiles.yml` uses another catalog or target schema, replace those two names: the schema is `<catalog>.<target_schema>_test_results`. Run each statement on its own. The warehouse rejects a script that starts with `USE`.
+
+Count the relations that are still there:
+
+```sql
+SELECT table_type, COUNT(*) AS relation_count
+FROM workspace.information_schema.tables
+WHERE table_schema = 'nfl_dev_test_results'
+GROUP BY table_type
+ORDER BY table_type;
+```
+
+List them before dropping:
+
+```sql
+SELECT table_name, table_type
+FROM workspace.information_schema.tables
+WHERE table_schema = 'nfl_dev_test_results'
+ORDER BY table_name;
+```
+
+Drop the schema and every table and view in it. `dbt build` does not recreate them. This removes whatever is in that schema, so read the list first.
+
+```sql
+DROP SCHEMA IF EXISTS workspace.nfl_dev_test_results CASCADE;
+```
+
+To inspect one failing test, store only that invocation, then drop the relation it created:
+
+```bash
+dbt test --profiles-dir . --target databricks --select assert_team_game_two_rows_per_game --store-failures
+```
+
+The list query above shows the new name. Drop that one relation when the debugging is done (`DROP TABLE` or `DROP VIEW` in `workspace.nfl_dev_test_results`). Leave `store_failures` off in `dbt/dbt_project.yml`.
 
 ### Depth charts from 2025
 
@@ -666,6 +712,9 @@ LIMIT 10;
 **Problem**: Download fails with network error
 - **Solution**: Check internet connection. nflverse data is downloaded from GitHub releases (public, no auth needed)
 
+**Problem**: Unity Catalog warns that `nfl_dev_test_results` is near the 100-relation quota
+- **Solution**: Run the count, list, and `DROP SCHEMA ... CASCADE` statements in [Test result schema](#test-result-schema). `dbt build` does not recreate those relations.
+
 **Problem**: `dbt test` fails on pbp uniqueness test
 - **Solution**: This indicates duplicate plays in source data. Check:
   ```sql
@@ -691,6 +740,8 @@ When using this data in presentations or publications, credit the nflverse proje
 
 Workflow: `.github/workflows/ci.yml`
 
+CI runs on a push to `main` and on a pull request into `main`.
+
 ### Required Secrets (Databricks Path)
 
 If using Databricks in CI:
@@ -714,7 +765,7 @@ make test    # Run tests
 make dbt-compile  # Validate dbt models
 ```
 
-All must pass before merging PR.
+The suite before any push is `ruff check endzone/ tests/`, `ruff format --check endzone/ tests/`, `make lint-structure` (Windows: `.\scripts\dev.ps1 lint-structure`), and `pytest tests/ -v`. Tests that read or write text pass `encoding="utf-8"`. The same commands pass again before merging. The coding agent pushes the branch and does not open the pull request. Carlos opens it from his account. A branch with an open pull request does not receive new commits.
 
 ---
 

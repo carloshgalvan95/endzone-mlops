@@ -73,7 +73,7 @@ Windows PowerShell 5.1 has no `&&`:
 if ($LASTEXITCODE -eq 0) { python -m endzone.train.train --cv --phase 2 --hypothesis h4 --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h4 }
 ```
 
-`make dbt-build-databricks` runs `dbt deps`, then rebuilds `nfl_dev_staging`, `nfl_dev_marts`, and `nfl_dev_test_results`, including the clean mart columns. The H4 command then reads `fct_games` and `fct_team_game_epa` from `workspace.nfl_dev_marts`. Running it before that rebuild leaves the clean columns absent. Training refuses a feature set whose columns are missing or at least 50% null. `make train-cv` is H5b, not this hypothesis.
+`make dbt-build-databricks` runs `dbt deps`, then rebuilds `nfl_dev_staging` and `nfl_dev_marts`, including the clean mart columns. It does not store a failure relation per test. The H4 command then reads `fct_games` and `fct_team_game_epa` from `workspace.nfl_dev_marts`. Running it before that rebuild leaves the clean columns absent. Training refuses a feature set whose columns are missing or at least 50% null. `make train-cv` is H5b, not this hypothesis.
 
 ## Method
 
