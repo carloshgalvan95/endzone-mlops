@@ -14,6 +14,8 @@ A change is done when the gates below are green. Modules group one responsibilit
 - `make verify-reference` on a machine with warehouse credentials. CI does not run it. It refits logistic `h2_full`, Elo, and the market and fails when they differ from `docs/experiments/reference_metrics.json` by more than 1e-4.
 - Pull request template filled in (`.github/pull_request_template.md`)
 - Conventional Commits (`type(scope): subject`). Author and committer are Carlos Galván. No `Co-authored-by` trailer.
+- The local suite above passes before any push. Tests that read or write text pass `encoding="utf-8"`.
+- The coding agent pushes a `feat/`, `fix/`, or other conventional branch and does not open the pull request. Carlos opens it from his account. A branch with an open pull request does not get new commits: close the pull request, push, then open a new one from Carlos's account.
 - No secrets, hosts, HTTP paths, `.env`, `profiles.yml`, or data files in the diff.
 
 Windows runs the same gates through `.\scripts\dev.ps1` (`lint`, `lint-structure`, `test`, `vulture`, `dbt-compile`, `verify-reference`). `dev.ps1` also has `format`. The Makefile does not.

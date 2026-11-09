@@ -22,5 +22,7 @@ Author and committer are both Carlos Galván <carloshgalvan95@gmail.com>.
 - No Co-authored-by trailer. No tool trailers. Before pushing, `git log origin/main..HEAD --format=%B | grep -ci co-authored` must return 0.
 - No em dash (U+2014). Use a comma, period, colon, or hyphen.
 - Never commit secrets, hosts, http paths, `.env`, `profiles.yml`, or data files (parquet, csv outside dbt seeds, `mlflow.db`).
-- When the work is ready, open the PR. Author it as Carlos Galván <carloshgalvan95@gmail.com>. The title is a Conventional Commit. The body is first person. No AI or Cursor traces. No Co-authored-by. Do not leave the work as a branch-only draft.
-- Do not rewrite `main`. No force-push, no commit on `main`, no history rewrite of `main`.
+- The coding agent pushes a branch with a conventional prefix and does not open the pull request. Carlos opens the pull request from his account (`carloshgalvan95`). The title is a Conventional Commit. The body is first person. No AI or Cursor traces. No Co-authored-by.
+- A branch with an open pull request does not receive new commits. Close that pull request, push the fix, then open a new pull request from Carlos's account.
+- Before any push, the local suite passes: `ruff check endzone/ tests/`, `ruff format --check endzone/ tests/`, `make lint-structure` (Windows: `.\scripts\dev.ps1 lint-structure`), and `pytest tests/ -v`. Tests that read or write text pass `encoding="utf-8"` so Windows does not pick a legacy code page.
+- Do not rewrite `main`. No force-push of `main`, no commit on `main`, no history rewrite of `main`. A feature branch that was rebased after its pull request was closed may be updated with `--force-with-lease`.

@@ -32,9 +32,14 @@ models:
       +schema: marts
 
 # Tests
+# store_failures stays off. Each stored failure is a table or a view in
+# <target_schema>_test_results, and Unity Catalog counts both toward the
+# 100-relation quota on that schema. dbt already reports a failing test.
+# Pass --store-failures on one invocation to inspect rows. Those rows land
+# in the schema below. tests/test_dbt_store_failures.py rejects a project
+# or directory setting that turns store_failures on for every test.
 tests:
   endzone_mlops:
-    +store_failures: true
     +schema: test_results
 
 # Seeds (uncomment when seeds/ has data files)

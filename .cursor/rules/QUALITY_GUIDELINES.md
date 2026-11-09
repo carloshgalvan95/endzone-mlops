@@ -83,7 +83,7 @@ Examples:
 
 - Verify external data schemas by inspecting the real file before writing models
 - One focused change per PR; avoid mixing unrelated changes
-- Run locally before pushing: `ruff check`, `ruff format --check`, `pytest`, `cd dbt && dbt compile --target local`
+- Before any push, the local suite passes: `ruff check endzone/ tests/`, `ruff format --check endzone/ tests/`, `make lint-structure` (Windows: `.\scripts\dev.ps1 lint-structure`), and `pytest tests/ -v`. Tests that read or write text pass `encoding="utf-8"` so Windows does not pick a legacy code page. When dbt files change, also run `make dbt-compile`.
 
 ### Committing changes
 
@@ -95,8 +95,9 @@ Examples:
 
 ### Pull requests
 
-- When the work is ready, open the PR. Author it as Carlos Galván <carloshgalvan95@gmail.com>. The title is a Conventional Commit. The body is first person. No AI traces. No Co-authored-by. Do not leave the work as a branch-only draft.
-- Before committing, disable the `commit-msg.cursor.co-author` hook or any other trailer hook. Identity, trailers, and the em dash rule are in `git-and-commits.mdc`. Do not restate them here.
+- The coding agent pushes a `feat/`, `fix/`, or other conventional branch and does not open the pull request. Carlos opens the pull request from his account (`carloshgalvan95`). The title is a Conventional Commit. The body is first person. No AI traces. No Co-authored-by.
+- A branch with an open pull request does not receive new commits. Close that pull request, push the fix, then open a new pull request from Carlos's account.
+- Before committing, disable the `commit-msg.cursor.co-author` hook or any other trailer hook. Identity, trailers, and the em dash rule are in `git-and-commits.mdc`.
 - PR title must follow Conventional Commit format: `type(scope): description`
 - PR body in first person or imperative voice
 - Complete the PR template sections: Summary, Changes, Verification (with at least one item checked), Risks
@@ -108,6 +109,7 @@ The PR Guard workflow validates:
 - Base branch freshness (not stale)
 - Head branch uses a conventional prefix. A tool-generated prefix is rejected.
 - Git authorship (Carlos only, no bots in metadata)
+- Pull request opened by `carloshgalvan95`
 - No Co-authored-by trailers or AI agent mentions in commit messages
 - Conventional Commit PR title
 - No tool-generated footers or em dash in PR body
@@ -115,7 +117,7 @@ The PR Guard workflow validates:
 - No data/secret files committed (except in tests/fixtures)
 - PR template sections present and verification checklist not entirely unchecked
 
-If PR Guard fails, fix the reported issues and push again.
+If PR Guard fails, close the pull request, fix the reported issues, push the branch, and open a new pull request from the `carloshgalvan95` account.
 
 ---
 
