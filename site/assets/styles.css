@@ -107,9 +107,10 @@ h1 .accent{color:var(--color-accent)}
 .result-well .score-stack .lose{color:var(--score-muted);font-weight:400}
 .result-well .score-stack .tie{color:var(--score);font-weight:500}
 .result-well .kick-date{font-size:var(--text-xs);color:var(--final-label);margin-top:2px;white-space:nowrap}
-.result-well .est-line{font:400 var(--text-xs) var(--font-mono);color:var(--color-text-muted)}
-/* Hidden when estimated_home_points and estimated_away_points are null. */
-.result-well .est-line.is-placeholder{height:0;min-height:0;overflow:hidden;opacity:0}
+.result-well .est-line{font:400 var(--text-xs) var(--font-mono);color:var(--color-text-muted);line-height:1.15;white-space:nowrap;flex:none}
+.result-well .est-n{white-space:nowrap}
+/* Hidden when estimated points are missing. display:none so the check does not shift. */
+.result-well .est-line.is-placeholder{display:none}
 .market-cell{display:flex;flex-direction:column;align-items:flex-end;gap:2px}
 .market-caption{font:400 11px var(--font-mono);color:var(--market-caption);text-align:right;max-width:11rem;line-height:1.25}
 .card-top .final-tag{font:500 var(--text-sm) var(--font-sans);color:var(--final-label)}
@@ -134,6 +135,9 @@ h1 .accent{color:var(--color-accent)}
 .footer-inner p{margin:0;flex:1}
 .footer-inner img{flex:none}
 
+@media (max-width: 960px){
+  .games th,.games td{padding-left:12px;padding-right:12px}
+}
 @media (max-width: 760px){
   .wrap{padding:0 var(--space-4)}
   .nav a:not([aria-current]){display:none}
@@ -154,6 +158,9 @@ h1 .accent{color:var(--color-accent)}
   .card .score-rail .result-well{align-items:flex-end;text-align:right;flex:none}
   .card .score-rail .score-line{justify-content:flex-end}
   .card .score-rail .score-stack{align-items:flex-end;font-size:var(--text-xl)}
+  .card .score-rail .score-line{position:relative}
+  /* Card: stacked estimate in the gap left of the real score, so the team row stays put. */
+  .card .score-rail .est-line{position:absolute;right:calc(100% + 8px);top:50%;transform:translateY(-50%);display:flex;flex-direction:column;align-items:flex-end;white-space:normal;line-height:1.15}
   .market-caption{text-align:left;max-width:none}
   .card-nums{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--space-2);margin-top:var(--space-3)}
   .card-nums div{display:flex;flex-direction:column}
