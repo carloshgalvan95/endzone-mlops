@@ -751,3 +751,59 @@ def test_frontend_estimate_css_keeps_the_score_row_compact() -> None:
     script = Path("site/assets/app.js").read_text(encoding="utf-8")
     assert "line.appendChild(estimate)" in script
     assert "metaBlock.appendChild(estimate)" not in script
+
+
+def test_how_to_read_section_is_static_markup() -> None:
+    """The explainer is frozen HTML after the record, not a live card."""
+    page = Path("site/index.html").read_text(encoding="utf-8")
+    script = Path("site/assets/app.js").read_text(encoding="utf-8")
+    css = Path("site/assets/styles.css").read_text(encoding="utf-8")
+    assert 'id="how-to-read"' in page
+    assert page.index('id="record"') < page.index('id="how-to-read"')
+    assert page.index('id="how-to-read"') < page.index("<footer")
+    assert "Week 9" not in page
+    assert ">2026<" not in page
+    nav = page.split('<nav class="nav"', maxsplit=1)[1].split("</nav>", maxsplit=1)[0]
+    assert nav.index("#predictions") < nav.index("#accuracy")
+    assert nav.index("#accuracy") < nav.index("#record")
+    assert nav.index("#record") < nav.index("#how-to-read")
+    assert "New here? How to read a game" in page
+    section = page.split('id="how-to-read"', maxsplit=1)[1].split("<footer", maxsplit=1)[0]
+    assert "games-cards" not in section
+    assert section.count("Illustrative card, not a live prediction.") == 2
+    for needle in (
+        "Every percent is for the home team.",
+        "2026 week 9",
+        "46%",
+        "40%",
+        "+6 pp",
+        "38%",
+        "21%",
+        "+17 pp",
+        "DISAGREES",
+        "WINS",
+        "TIE",
+        "BUF",
+        "MIN",
+        "JAX",
+        "BAL",
+        'class="est-k">est. </span><span class="est-n">25-22</span>',
+        "favored JAX \u00b7 matched",
+        "Mon, Nov 9",
+        "19:15 CDMX",
+        "Final \u00b7 Thu 5 Nov",
+        "33",
+        "10",
+        "market even",
+        "did not match",
+        "Small sample. Open experiment, not betting advice.",
+        "<ol",
+    ):
+        assert needle in section, needle
+    assert "\u2014" not in section
+    assert "\u2013" not in section
+    assert "how-to-read" not in script
+    wide_at = css.index("@media (min-width: 761px)")
+    assert "position:absolute" not in css[css.index(".read-pin{") : wide_at]
+    wide = css[wide_at:]
+    assert ".read-slot>.read-pin{position:absolute;top:0;left:-32px;margin:0}" in wide
