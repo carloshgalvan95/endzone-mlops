@@ -965,6 +965,12 @@ Optional: protect `published-slates` against force-push and deletion. Do not set
 
 Sprint 2 margin and total passed ADR-007, so the page shows those estimates. A target that fails its pre-registered test stays hidden.
 
+**Track record.** `make track-record` (Windows: `.\scripts\dev.ps1 track-record`) writes `site/data/track_record.json`. It reads `published-slates` unless `ARCHIVE_DIR` points at a checkout of that branch. Probabilities come from the earliest archived copy of each game. Scores come from the newest copy, including the week files already in `site/data`. The command does not edit those files. Pages and Results run it after the overlay and before upload. They also add a content hash to the CSS and JavaScript URLs in the built `index.html`, because Pages caches files for 10 minutes.
+
+If the branch cannot be read, the file says the record is unavailable and the page shows that sentence. It does not fill the table from the site files alone. If an archived week file cannot be parsed, the command fails, deletes a stale `track_record.json`, and the deploy does not go out. Definitions, the clip, ties, and the small-sample labels are in ADR-008.
+
+The table shows one row per archived week and a season to date row. A week with no finals stays in the table with blank rates. A week that still has scheduled games is marked in progress and counts only finals. One finished week is labeled a small sample.
+
 ---
 
 **Last updated**: 2026-11-09  

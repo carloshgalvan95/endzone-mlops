@@ -35,6 +35,7 @@ function Show-Help {
     Write-Host "  train-s2            - Sprint 2 margin and total CV. Registers a target only if it passes"
     Write-Host "  rebuild-week        - Rebuild one full week (SEASON and WEEK required), then overlay finals"
     Write-Host "  refresh-results     - Overlay final nflverse scores onto published week JSON"
+    Write-Host "  track-record        - Write site/data/track_record.json from the archive. Does not edit week files"
     Write-Host "  backfill-archive    - Seed published-slates from PAGES_BASE. Does not score"
     Write-Host "  clean               - Remove build artifacts"
     Write-Host "  reproduce           - install, Databricks dbt build, verify-reference"
@@ -235,6 +236,19 @@ function Invoke-RefreshResults {
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
+function Invoke-TrackRecord {
+    Write-Host "Writing the track record from archived slates..."
+    $recordArgs = @(
+        "-m", "endzone.site.track_record",
+        "--repo", ".",
+        "--site-data", "site/data",
+        "--output", "site/data/track_record.json"
+    )
+    if ($env:ARCHIVE_DIR) { $recordArgs += @("--archive-dir", $env:ARCHIVE_DIR) }
+    python @recordArgs
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
 function Invoke-BackfillArchive {
     if (-not $env:PAGES_BASE) {
         Write-Host "backfill-archive needs PAGES_BASE"
@@ -320,6 +334,7 @@ switch ($Target.ToLower()) {
     "score" { Invoke-Score }
     "rebuild-week" { Invoke-RebuildWeek }
     "refresh-results" { Invoke-RefreshResults }
+    "track-record" { Invoke-TrackRecord }
     "backfill-archive" { Invoke-BackfillArchive }
     "clean" { Invoke-Clean }
     "reproduce" { Invoke-Reproduce }

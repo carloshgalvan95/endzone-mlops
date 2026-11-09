@@ -65,6 +65,18 @@ jobs:
       - name: Overlay final scores on the published weeks
         run: uv run python -m endzone.site.results --output-dir site/data
 
+      # Derived file only. Week JSON is not modified. A missing archive
+      # writes an unavailable record and does not invent week results.
+      - name: Write the track record
+        run: |
+          uv run python -m endzone.site.track_record \
+            --repo "${GITHUB_WORKSPACE}" \
+            --site-data site/data \
+            --output site/data/track_record.json \
+            --remote origin \
+            --branch published-slates \
+            --stamp-html site/index.html
+
       - name: Check the refreshed site still has a real week
         run: |
           uv run python - << 'PY'

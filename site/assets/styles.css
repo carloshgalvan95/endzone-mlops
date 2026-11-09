@@ -118,7 +118,23 @@ h1 .accent{color:var(--color-accent)}
 .note{font-size:var(--text-sm);color:var(--color-text-muted);margin:var(--space-3) 0 0}
 
 .section{margin-top:var(--space-8)}
-.section h2{font-size:var(--text-2xl);margin:0 0 var(--space-4);display:flex;align-items:center;gap:var(--space-3);letter-spacing:var(--tracking-tight)}
+.section h2{font-size:var(--text-2xl);margin:0 0 var(--space-4);display:flex;align-items:center;gap:var(--space-3);letter-spacing:var(--tracking-tight);flex-wrap:wrap}
+.record-wrap{background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-lg);box-shadow:var(--shadow-soft);overflow-x:auto}
+.record{width:100%;border-collapse:collapse}
+.record caption{caption-side:bottom}
+.record th,.record td{padding:var(--space-3) var(--space-3);border-bottom:1px solid var(--color-border);vertical-align:top}
+.record thead th{text-align:left;font:500 var(--text-xs) var(--font-mono);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-muted);background:var(--color-bg)}
+.record thead th span{display:block}
+.record thead th.r{text-align:right}
+.record .r{text-align:right}
+.record td.r{font-family:var(--font-mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.record th[scope="row"]{text-align:left;font-weight:500;color:var(--color-text);background:transparent}
+.record tr.is-summary{background:var(--color-bg)}
+.record tr.is-summary th[scope="row"]{box-shadow:inset 3px 0 0 var(--color-accent)}
+.record .week-name{display:block;font-family:var(--font-sans);font-weight:500;letter-spacing:0;text-transform:none}
+.record .state,.record-card .state{display:block;margin-top:2px;font:500 var(--text-xs) var(--font-mono);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-muted)}
+.record-cards{display:none}
+#record-panel[hidden],#record-empty[hidden],#record-sample[hidden]{display:none !important}
 .soon{font:500 var(--text-xs) var(--font-mono);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-muted);border:1px dashed var(--color-border-strong);border-radius:var(--radius-pill);padding:2px var(--space-2)}
 .placeholder{border:1px dashed var(--color-border-strong);border-radius:var(--radius-lg);padding:var(--space-5);background:transparent}
 .placeholder p{margin:0}
@@ -168,6 +184,16 @@ h1 .accent{color:var(--color-accent)}
   .card-nums b{font:500 var(--text-lg) var(--font-mono)}
   .card-nums div:last-child{align-items:flex-end}
   .grid3,.accuracy{grid-template-columns:1fr}
+  .record-wrap{background:transparent;border:0;box-shadow:none;overflow:visible}
+  .record{display:none}
+  .record-cards{display:flex;flex-direction:column;gap:var(--space-3)}
+  .record-card{background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:var(--space-4)}
+  .record-card header{display:flex;justify-content:space-between;align-items:center;gap:var(--space-3)}
+  .record-card h3{margin:0;font-size:var(--text-lg);font-weight:500}
+  .record-card.is-summary{border-left:4px solid var(--color-accent)}
+  .record-card dl{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3) var(--space-4);margin:var(--space-3) 0 0}
+  .record-card dt{font:500 var(--text-xs) var(--font-mono);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-muted)}
+  .record-card dd{margin:2px 0 0;font-family:var(--font-mono);font-variant-numeric:tabular-nums;color:var(--color-text)}
   .footer-inner{flex-direction:column;align-items:flex-start}
   .legend{gap:var(--space-4)}
 }

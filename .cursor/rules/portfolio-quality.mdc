@@ -37,6 +37,7 @@ This is Carlos Galvan's public MLOps portfolio demonstrating Databricks + dbt + 
 - A mid-week deploy restores `published-slates` first and overlays finals. It must not rescore or drop game_ids.
 - Losing or silently replacing a published slate is a production failure.
 - An intentional rebuild is `--replace-published` or the Pages `replace_published` dispatch input. It predicts every scheduled game that week and trains only on completed games before that week.
+- The weekly track record is a derived file (`site/data/track_record.json`). Writing it must not modify, overwrite, or shrink a published week file or the archive. If the archive cannot be read, the page does not invent a record. See ADR-008.
 - The durable copy is the orphan branch `published-slates`. A deploy restores that branch first, then archives the files it is about to publish. It does not deploy if that write fails. `history/` keeps the earlier file. Adding games is allowed. Dropping a `game_id` already archived fails.
 
 ### Domain

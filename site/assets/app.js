@@ -528,6 +528,153 @@ if (typeof document !== "undefined") {
     });
   }
 
+  function recordState(state) {
+    if (state === "partial") return "In progress";
+    if (state === "no_finals") return "No finals yet";
+    return "";
+  }
+  function recordNumber(value, digits) {
+    if (value == null || Number.isNaN(Number(value))) return "n/a";
+    return Number(value).toFixed(digits);
+  }
+  function recordFinished(row) {
+    return row.finished + " of " + row.games;
+  }
+  function recordHits(row) {
+    if (!row.finished) return "n/a";
+    return row.pick_hits + " of " + row.finished;
+  }
+  function recordMarket(row) {
+    if (!row.decided) return "n/a";
+    if (row.market_missing) return row.market_games + " of " + row.decided;
+    return String(row.market_games);
+  }
+  function recordError(row, value) {
+    if (!row.score_games) return "n/a";
+    return recordNumber(value, 2);
+  }
+  function recordCells(row) {
+    return [
+      ["Finished", recordFinished(row)],
+      ["Pick hits", recordHits(row)],
+      ["Final ties", String(row.ties)],
+      ["Market prices", recordMarket(row)],
+      ["Model log loss", recordNumber(row.model_log_loss, 4)],
+      ["Market log loss", recordNumber(row.market_log_loss, 4)],
+      ["Margin error", recordError(row, row.margin_mae)],
+      ["Total error", recordError(row, row.total_mae)]
+    ];
+  }
+  function appendRecordRow(body, cards, label, row, summary) {
+    var state = recordState(row.state);
+    var tr = el("tr", summary ? "is-summary" : "");
+    var head = el("th");
+    head.scope = "row";
+    head.appendChild(el("span", "week-name", label));
+    if (state) head.appendChild(el("span", "state", state));
+    tr.appendChild(head);
+    recordCells(row).forEach(function (item) {
+      tr.appendChild(el("td", "r", item[1]));
+    });
+    body.appendChild(tr);
+
+    var card = el("article", "record-card" + (summary ? " is-summary" : ""));
+    var header = el("header");
+    header.appendChild(el("h3", null, label));
+    if (state) header.appendChild(el("span", "soon", state));
+    card.appendChild(header);
+    var list = el("dl");
+    recordCells(row).forEach(function (item) {
+      var pair = el("div");
+      pair.appendChild(el("dt", null, item[0]));
+      pair.appendChild(el("dd", null, item[1]));
+      list.appendChild(pair);
+    });
+    card.appendChild(list);
+    cards.appendChild(card);
+  }
+  function recordLede(record) {
+    var seasons = record.seasons || [];
+    var latest = seasons[seasons.length - 1];
+    var label = latest && latest.summary ? latest.summary.sample_label : null;
+    var text = "Counted from the archived slates that were public before kickoff. A later rescore is not used. ";
+    if (label === "one_week") {
+      text += seasons.length > 1
+        ? "The latest season has one archived week with finished games. That is a small sample. "
+        : "One archived week has finished games. That is a small sample. ";
+    } else if (label === "small") {
+      text += "Few games are final so far. Treat the rates as a small sample. ";
+    } else if (label === "no_finals") {
+      text += "Archived weeks have no final scores yet. ";
+    }
+    var partial = false;
+    var firstPublish = false;
+    seasons.forEach(function (season) {
+      (season.weeks || []).forEach(function (week) {
+        if (week.state === "partial") partial = true;
+        if (week.prediction_games_from_this_build) firstPublish = true;
+      });
+    });
+    if (partial) text += "A week still in progress counts only games that are final. ";
+    if (firstPublish) {
+      text += "Games with no earlier archived file use the probabilities from this build. Archived games keep the earlier probabilities. ";
+    }
+    return text + "Not betting picks.";
+  }
+  function renderRecord(record) {
+    var empty = document.getElementById("record-empty");
+    var emptyText = document.getElementById("record-empty-text");
+    var panel = document.getElementById("record-panel");
+    var lede = document.getElementById("record-lede");
+    var pill = document.getElementById("record-sample");
+    var body = document.getElementById("record-body");
+    var cards = document.getElementById("record-cards");
+    if (!empty || !panel || !body || !cards) return;
+    var seasons = record && record.seasons ? record.seasons : [];
+    var showTable = record && record.available === true && seasons.length > 0;
+    if (!showTable) {
+      panel.hidden = true;
+      empty.hidden = false;
+      if (pill) pill.hidden = true;
+      if (emptyText) {
+        emptyText.textContent = record && record.available === true
+          ? "No archived week yet. The record starts once a week is published."
+          : "This build could not read the published-slate archive, so it does not show a track record.";
+      }
+      if (lede && record && record.available !== true) {
+        lede.textContent = "The record is counted from archived slates only. This build does not invent one. Not betting picks.";
+      }
+      return;
+    }
+    empty.hidden = true;
+    panel.hidden = false;
+    body.textContent = "";
+    cards.textContent = "";
+    if (lede) lede.textContent = recordLede(record);
+    var label = seasons[seasons.length - 1].summary
+      ? seasons[seasons.length - 1].summary.sample_label
+      : null;
+    if (pill) {
+      if (label === "one_week" || label === "small") {
+        pill.hidden = false;
+        pill.textContent = "Small sample";
+      } else if (label === "no_finals") {
+        pill.hidden = false;
+        pill.textContent = "No finals yet";
+      } else {
+        pill.hidden = true;
+      }
+    }
+    seasons.forEach(function (season) {
+      (season.weeks || []).forEach(function (week) {
+        appendRecordRow(body, cards, "Week " + week.week, week, false);
+      });
+      if (season.summary) {
+        appendRecordRow(body, cards, season.season + " to date", season.summary, true);
+      }
+    });
+  }
+
   document.getElementById("thr-select").addEventListener("change", function (event) {
     state.threshold = Number(event.target.value);
     if (state.data) render();
@@ -549,6 +696,10 @@ if (typeof document !== "undefined") {
       body.appendChild(row);
     });
   });
+
+  loadJson("data/track_record.json?v=" + Date.now()).catch(function () {
+    return { available: false, reason: "missing", seasons: [] };
+  }).then(renderRecord);
 
   loadJson("data/latest.json").catch(function () {
     return loadJson("data/sample.json");
