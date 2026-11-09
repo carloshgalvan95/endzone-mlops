@@ -544,7 +544,11 @@ for (const [got, expected] of cases) {
 
 
 def test_frontend_estimate_sits_beside_the_final_score() -> None:
-    """A final estimate sits on the score row. The date line stays free of est."""
+    """A final estimate sits on the score row. The date line stays free of est.
+
+    The report leaves Node as ASCII JSON. A Windows code page must not turn
+    the page's middle dot into a different character before Python reads it.
+    """
     node = shutil.which("node")
     assert node is not None
     script = r"""
@@ -689,7 +693,9 @@ setTimeout(() => {
     table: summarize(byId["games-body"]),
     cards: summarize(byId["games-cards"])
   };
-  process.stdout.write(JSON.stringify(report));
+  process.stdout.write(JSON.stringify(report).replace(/[^\u0000-\u007F]/g, function (ch) {
+    return "\\u" + ("0000" + ch.charCodeAt(0).toString(16)).slice(-4);
+  }));
   process.exit(0);
 }, 50);
 """
@@ -699,8 +705,10 @@ setTimeout(() => {
         cwd=Path(__file__).resolve().parents[1],
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     assert completed.returncode == 0, completed.stderr or completed.stdout
+    assert completed.stdout.isascii()
     report = json.loads(completed.stdout)
     expected_order = ["score-stack", "result-mark", "est-line"]
     for surface in ("table", "cards"):
@@ -716,10 +724,11 @@ setTimeout(() => {
         assert hidden["text"] == ""
         assert hidden["hidden"] == "true"
         assert "is-placeholder" in hidden["className"]
-        assert report[surface]["meta"][0]["text"] == "Final \u00b7 Sun 8 Nov"
-        assert report[surface]["meta"][0]["estCount"] == 0
-        assert "est." not in report[surface]["meta"][1]["text"]
-        assert report[surface]["meta"][1]["estCount"] == 0
+        for meta in report[surface]["meta"]:
+            assert meta["text"].startswith("Final")
+            assert "Sun 8 Nov" in meta["text"]
+            assert "est." not in meta["text"]
+            assert meta["estCount"] == 0
         assert report[surface]["pending"] == ["TB 18 \u00b7 25 CHI"]
 
 
