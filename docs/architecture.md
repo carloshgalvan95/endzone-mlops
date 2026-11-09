@@ -141,7 +141,7 @@ endzone-mlops demonstrates a modern lakehouse architecture for NFL analytics, co
 #### 5. MLflow Tracking (Databricks/Local)
 
 **Functionality**:
-- **Experiments**: `nfl_pregame`, `nfl_pregame/phase0_audit`, `nfl_pregame/phase1_baselines`, `nfl_pregame/phase2_h1` through `phase2_h5b` and `phase2_ridge`, `nfl_pregame/sprint2_score`, and `nfl_pregame/weekly`. There is no in-game experiment in the repo.
+- **Experiments**: `nfl_pregame`, `nfl_pregame/phase0_audit`, `nfl_pregame/phase1_baselines`, `nfl_pregame/phase2_h1` through `phase2_h5b` and `phase2_ridge`, `nfl_pregame/sprint2_score`, `nfl_pregame/weekly`, and `nfl_pregame/registry`. Those are the sqlite names. A Databricks tracking URI stores a relative name under `/Shared/endzone-mlops` (`ENDZONE_MLFLOW_EXPERIMENT_ROOT`). There is no in-game experiment in the repo.
 - **Runs**: Each training iteration with params, metrics, artifacts
 - **Model Registry**: Versioned models with lineage
 - **Artifacts**: Plots, feature importance, confusion matrices

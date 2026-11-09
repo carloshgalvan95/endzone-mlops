@@ -21,6 +21,14 @@ A sqlite or file registry keeps the name `endzone-winprob`. Tests use sqlite for
 
 The first registration creates the model object in the existing schema `nfl_dev`. It does not create a schema, and it does not alter a table.
 
+### Experiment path
+
+The logical experiment name stays `nfl_pregame/registry`. SQLite tracking, including Pages and the tests, keeps that relative name.
+
+Databricks tracking (`databricks` or `databricks://...`) rejects a relative name. `activate_tracking_experiment` is the only rewrite. A relative name is stored under `ENDZONE_MLFLOW_EXPERIMENT_ROOT`, which defaults to `/Shared/endzone-mlops`. `nfl_pregame/registry` becomes `/Shared/endzone-mlops/nfl_pregame/registry`. A name that already starts with `/` is unchanged. The same rule covers training and scoring when those commands use a Databricks tracking URI. It does not apply to `databricks-uc`, which is a registry URI.
+
+`mlflow.set_experiment` does not create the parent workspace folder. The same function calls `WorkspaceClient.workspace.mkdirs` on the parent only. That call creates missing parents and does nothing when the folder already exists. It does not create a folder at the experiment path, because that path has to stay free for the experiment object. If `/Shared` is not writable, set the root to `/Users/<email>/endzone-mlops`.
+
 ### What gets registered
 
 `make register-model` fits logistic `h2_full` on completed games through season 2023 (`games_before_week` of season 2024, week 1). The default cutoff is `--through-season 2023`.

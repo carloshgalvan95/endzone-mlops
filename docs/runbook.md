@@ -780,7 +780,10 @@ import os
 # Authenticate (uses DATABRICKS_TOKEN env var)
 mlflow.set_tracking_uri("databricks")
 
-# Set experiment
+# Set experiment. The library resolves a relative name for you.
+# nfl_pregame becomes /Shared/endzone-mlops/nfl_pregame unless
+# ENDZONE_MLFLOW_EXPERIMENT_ROOT is set. This notebook spike still
+# passes an absolute path because it does not call the library.
 mlflow.set_experiment("/Users/<your-email>/nfl_pregame")
 
 # Training script usage
@@ -982,7 +985,9 @@ MLFLOW_TRACKING_URI=databricks
 MLFLOW_REGISTRY_URI=databricks-uc
 ```
 
-Keep the existing `DATABRICKS_HOST`, `DATABRICKS_HTTP_PATH`, and `DATABRICKS_TOKEN`. Then:
+Keep the existing `DATABRICKS_HOST`, `DATABRICKS_HTTP_PATH`, and `DATABRICKS_TOKEN`. Optional: `ENDZONE_MLFLOW_EXPERIMENT_ROOT=/Shared/endzone-mlops`. That is the default. Databricks rejects the relative name `nfl_pregame/registry`. The register command resolves it to `/Shared/endzone-mlops/nfl_pregame/registry` and creates the parent folder `/Shared/endzone-mlops/nfl_pregame` when it is missing. Creating the folder is idempotent: an existing folder is left as it is. The experiment path itself is not created as a folder. A name that already starts with `/` is not prefixed. sqlite, and the Pages workflow, keep `nfl_pregame/registry` and the other relative names. If `/Shared` is not writable, set the root to `/Users/<your-email>/endzone-mlops` before `make register-model`.
+
+Then:
 
 ```bash
 make verify-reference
