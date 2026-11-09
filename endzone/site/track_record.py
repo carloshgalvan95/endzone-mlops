@@ -288,6 +288,62 @@ def build_track_record(
     return _document(available=True, reason=None, generated_at=stamp, seasons=seasons)
 
 
+def finished_market_games(
+    archive_dir: Path | None,
+    site_data: Path | None,
+) -> list[dict[str, Any]]:
+    """Decided games that enter the track-record log loss, oldest week first.
+
+    Ties and games with a missing or unusable price are omitted. Probabilities
+    are clipped the same way as the track record. A missing archive returns
+    an empty list and does not fall back to site files. A corrupt week file
+    raises ``TrackRecordError``.
+
+    Each row has ``season``, ``week``, ``game_id``, ``label`` (1 for a home
+    win), ``model_probability``, and ``market_probability``.
+    """
+    if archive_dir is None or not Path(archive_dir).is_dir():
+        return []
+    archive: Path = Path(archive_dir)
+    site_docs: dict[tuple[int, int], dict[str, Any]] = _site_weeks(site_data)
+    keys: set[tuple[int, int]] = _archived_keys(archive)
+    keys.update(site_docs)
+    rows: list[dict[str, Any]] = []
+    for season, week in sorted(keys):
+        snapshots: list[dict[str, Any]] = _week_snapshots(archive, season, week)
+        site_doc: dict[str, Any] | None = site_docs.get((season, week))
+        if not snapshots and site_doc is None:
+            continue
+        games: list[dict[str, Any]] = _assemble_week(snapshots, site_doc)
+        for game in games:
+            result: str | None = result_side(
+                game.get("status"),
+                game.get("home_score"),
+                game.get("away_score"),
+            )
+            if result not in {"home", "away"}:
+                continue
+            model_probability: float | None = clip_probability(
+                _finite_float(game.get("model_home_wp"))
+            )
+            market_probability: float | None = clip_probability(
+                _finite_float(game.get("market_home_wp"))
+            )
+            if model_probability is None or market_probability is None:
+                continue
+            rows.append(
+                {
+                    "season": season,
+                    "week": week,
+                    "game_id": str(game.get("game_id", "")),
+                    "label": 1 if result == "home" else 0,
+                    "model_probability": model_probability,
+                    "market_probability": market_probability,
+                }
+            )
+    return rows
+
+
 def assert_derived_output(
     output: Path,
     archive_dir: Path | None,
@@ -640,6 +696,7 @@ def _assemble_week(
                 break
         games.append(
             {
+                "game_id": game_id,
                 "model_home_wp": prediction.get("model_home_wp"),
                 "market_home_wp": prediction.get("market_home_wp"),
                 "estimated_margin": prediction.get("estimated_margin"),

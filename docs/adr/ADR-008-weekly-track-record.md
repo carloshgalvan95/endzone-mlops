@@ -81,4 +81,6 @@ A week file that cannot be parsed, or that names a different season or week than
 
 The Pages push, the Tuesday score, and the Results overlay all write this file before upload. Asset URLs in `site/index.html` get a content hash at the same time, because Pages caches files for 10 minutes and the HTML otherwise keeps the old CSS and JavaScript name. The track record request also sends a unique query, for the same cache.
 
+Results then runs the model alert in ADR-009. The alert reads the same earliest probabilities and the same clipped log loss. It does not edit a week file, `latest.json`, or this track record. A missing token or a GitHub error is logged and does not fail the deploy.
+
 The 0.003 rule in ADR-005 is unchanged. This record is a description of published weeks, not a reason to move a threshold.

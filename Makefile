@@ -1,4 +1,4 @@
-.PHONY: help setup install lint lint-structure test vulture dbt-compile dbt-run dbt-test clean reproduce data ingest ingest-current marts dbt-build-databricks train train-sweep train-cv train-s2 mlflow-ui audit-features check-epa-filter verify-reference score rebuild-week refresh-results track-record backfill-archive
+.PHONY: help setup install lint lint-structure test vulture dbt-compile dbt-run dbt-test clean reproduce data ingest ingest-current marts dbt-build-databricks train train-sweep train-cv train-s2 mlflow-ui audit-features check-epa-filter verify-reference score rebuild-week refresh-results track-record backfill-archive register-model promote-model
 
 # Finished bronze and mart steps. Gitignored. A second train-cv does not
 # reload bronze when these stamps are current.
@@ -32,6 +32,8 @@ help:
 	@echo "  audit-features      - Profile current pregame inputs (no feature changes)"
 	@echo "  check-epa-filter    - Count play types in the EPA filter, plus kneel and spike rows"
 	@echo "  verify-reference    - Refit logistic h2_full and fail if it drifts from the reference file"
+	@echo "  register-model      - Register logistic h2_full. Does not set the prod alias"
+	@echo "  promote-model       - Set alias prod on VERSION when its CV tags pass the gate"
 	@echo "  score               - Score the next unpublished week. Keeps a week file already on disk"
 	@echo "  train-s2            - Sprint 2 margin and total CV. Registers a target only if it passes"
 	@echo "  rebuild-week        - Rebuild one full week (SEASON and WEEK required), then overlay finals"
@@ -139,6 +141,19 @@ check-epa-filter:
 verify-reference:
 	python -m endzone.train.train --verify-reference
 
+# Register logistic h2_full through THROUGH_SEASON (default 2023).
+# Does not set the prod alias. COMPARISON points at a comparison CSV and
+# skips the reference check. The gate still applies.
+# Unity Catalog needs MLFLOW_TRACKING_URI=databricks and
+# MLFLOW_REGISTRY_URI=databricks-uc. See the runbook.
+register-model:
+	python -m endzone.modeling.registry_command register $(if $(THROUGH_SEASON),--through-season $(THROUGH_SEASON),) $(if $(COMPARISON),--comparison-csv $(COMPARISON),)
+
+# Set alias prod on one existing version. Example: make promote-model VERSION=1
+promote-model:
+	@test -n "$(VERSION)" || (echo "promote-model needs VERSION" >&2; exit 1)
+	python -m endzone.modeling.registry_command promote --version $(VERSION)
+
 # Score the next unpublished week. A file already on disk is kept.
 # make score SEASON=2026 WEEK=10
 # A week file already in site/data is kept. REPLACE=1 rebuilds that week.
@@ -179,7 +194,8 @@ backfill-archive:
 
 # Installs the lock, builds Databricks marts from bronze already in the
 # warehouse, and refits the reference. It does not download nflverse and it
-# does not register a model. Run `make data` first on an empty catalog.
+# does not register a model and does not set an alias. Run `make data`
+# first on an empty catalog. Register and promote are separate targets.
 # Local DuckDB compile stays `make dbt-compile`.
 reproduce: install
 	$(MAKE) dbt-build-databricks

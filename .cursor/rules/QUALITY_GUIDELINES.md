@@ -137,7 +137,9 @@ If PR Guard fails, close the pull request, fix the reported issues, push the bra
 
 - Combatir glue code, pipeline jungles, config debt
 - MLflow: train dentro de start_run(); log params/metrics/artifacts/model; seed fijo
-- Reproducibilidad: deps pinneadas, make reproduce
+- Registro: `make register-model` no pone el alias. `make promote-model VERSION=n` lo pone solo si las tags pasan el golden. El score semanal carga `@prod` y, si falta, ajusta la semana. ADR-009.
+- Alerta: log loss publicado contra el mercado, un issue, no tumba el deploy. ADR-009.
+- Reproducibilidad: deps pinneadas, make reproduce (no registra un modelo)
 
 ---
 
@@ -181,7 +183,7 @@ Una historia/PR está Done solo si cumple todos los puntos aplicables:
 
 ### DoD Día 14 - Production-shaped + demo
 - [x] `python -m endzone.modeling.score` escribe el JSON de una semana en `site/data` (ADR-006). No hay tabla de predicciones en el warehouse.
-- [ ] Observability lite: logging + 1 señal drift/calidad
+- [x] Observability lite: logging + 1 señal de calidad (log loss publicado vs mercado, ADR-009). No es un monitor de drift de features.
 - [x] Job Databricks o GHA schedule
 - [ ] README + capturas + Loom 3-5 min
 - [ ] Tag v0.1.0

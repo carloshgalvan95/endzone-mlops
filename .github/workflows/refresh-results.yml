@@ -19,6 +19,7 @@ on:
     - cron: "30 8 * * 2"
 
 # Jobs narrow this. contents: write is only on the archive job.
+# issues: write is only on the build job, for the model alert.
 # Warehouse credentials are not used here.
 permissions:
   contents: read
@@ -35,6 +36,7 @@ jobs:
     permissions:
       contents: read
       actions: write
+      issues: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -76,6 +78,17 @@ jobs:
             --remote origin \
             --branch published-slates \
             --stamp-html site/index.html
+
+      - name: Alert when the model is behind the market
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          uv run python -m endzone.site.model_alert \
+            --repo "${GITHUB_WORKSPACE}" \
+            --site-data site/data \
+            --remote origin \
+            --branch published-slates
 
       - name: Check the refreshed site still has a real week
         run: |

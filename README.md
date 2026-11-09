@@ -16,9 +16,9 @@ Published week files are not on `main`. The durable copy is the orphan branch `p
 
 Times are UTC, as the workflow crons set them.
 
-[Pages](.github/workflows/pages.yml) scores on Tuesday at 12:00 (`0 12 * * 2`). That run refreshes the current season, builds the Databricks marts, restores `published-slates`, fits logistic `h2_full` on completed games strictly before the scored week, and writes the next unpublished week. It then overlays finals, writes `site/data/track_record.json`, archives the week files, and deploys `site/`. A push to `main` restores the branch, overlays finals, writes the track record, archives, and deploys. A push does not fit a model. If the archive write fails, the site is not deployed. A manual dispatch can score a chosen week. `replace_published` rebuilds every scheduled game for that season and week and trains only on games before it. `backfill_archive` seeds the branch from the live site and does not score or deploy.
+[Pages](.github/workflows/pages.yml) scores on Tuesday at 12:00 (`0 12 * * 2`). That run refreshes the current season, builds the Databricks marts, restores `published-slates`, and writes the next unpublished week. It loads alias `prod` when the registry has it. If the alias is missing or the registry cannot be read, it logs that and fits logistic `h2_full` on completed games strictly before the scored week. It then overlays finals, writes `site/data/track_record.json`, archives the week files, and deploys `site/`. A push to `main` restores the branch, overlays finals, writes the track record, archives, and deploys. A push does not fit a model. If the archive write fails, the site is not deployed. A manual dispatch can score a chosen week. `replace_published` rebuilds every scheduled game for that season and week and trains only on games before it. `backfill_archive` seeds the branch from the live site and does not score or deploy.
 
-[Results](.github/workflows/refresh-results.yml) adds finals to the slate that is already published. It does not use warehouse credentials and it does not rescore. It restores `published-slates`, overlays nflverse finals, writes the derived track record, archives the week files, and deploys. The crons are Friday 08:30 (`30 8 * * 5`, after Thursday night), every hour at minute 15 on Sunday (`15 * * * 0`), Monday 00:15 through 08:15 (`15 0-8 * * 1`, after the late Sunday kickoff), and Tuesday 08:30 (`30 8 * * 2`). The Tuesday run is the early pass for Monday Night Football, before the 12:00 scoring deploy.
+[Results](.github/workflows/refresh-results.yml) adds finals to the slate that is already published. It does not use warehouse credentials and it does not rescore. It restores `published-slates`, overlays nflverse finals, writes the derived track record, archives the week files, and deploys. After the track record it opens or updates one issue when published log loss is behind the no-vig market. That step does not fail the deploy. See [ADR-009](docs/adr/ADR-009-model-registry.md). The crons are Friday 08:30 (`30 8 * * 5`, after Thursday night), every hour at minute 15 on Sunday (`15 * * * 0`), Monday 00:15 through 08:15 (`15 0-8 * * 1`, after the late Sunday kickoff), and Tuesday 08:30 (`30 8 * * 2`). The Tuesday run is the early pass for Monday Night Football, before the 12:00 scoring deploy.
 
 Dropping a `game_id` that is already archived fails. Adding games is allowed. The intentional rebuild is `replace_published`, or `make rebuild-week` locally.
 
@@ -102,14 +102,14 @@ Sprint 2 is a different rule, for home margin and total points. Ridge on `h2_ful
 Planned, not done.
 
 - Next hypothesis: an opponent-adjusted rating combined with Elo.
-- Register the model in Unity Catalog with a prod alias.
-- Monitor the model against the market.
+
+The registry and the published log-loss alert are in [ADR-009](docs/adr/ADR-009-model-registry.md). The alert compares the published record with the market. It does not say the model wins. On the reference table the market is closer.
 
 ## Reproduce
 
 Needs `DATABRICKS_HOST`, `DATABRICKS_HTTP_PATH`, and `DATABRICKS_TOKEN` in `.env` (copy `.env.example`, do not commit it) and `dbt/profiles.yml` (copy `dbt/profiles.yml.example`, catalog `workspace`, target `databricks`). Python 3.12 from `uv.lock`.
 
-`make reproduce` installs the lock, runs `dbt build` on Databricks, and refits the reference. It does not download nflverse. It does not register a model. On an empty catalog, load bronze first. `make train-cv` scores H5b. It loads bronze and builds marts when `.stamp/` says those steps are missing or bronze is newer. Delete `.stamp` to force them. `make ingest` and `make dbt-build-databricks` still run only their own step.
+`make reproduce` installs the lock, runs `dbt build` on Databricks, and refits the reference. It does not download nflverse. It does not register a model and it does not set an alias. On an empty catalog, load bronze first. `make register-model` and `make promote-model VERSION=<n>` are separate. The runbook has the one-time commands. `make train-cv` scores H5b. It loads bronze and builds marts when `.stamp/` says those steps are missing or bronze is newer. Delete `.stamp` to force them. `make ingest` and `make dbt-build-databricks` still run only their own step.
 
 `scripts/train_sweep.sh` and `scripts/train_sweep.ps1` are the single-split five-config sweep (`make train-sweep`). They are not the reference comparison.
 
@@ -126,7 +126,7 @@ mlflow run . -e verify_reference --env-manager local
 
 ## Score a week locally
 
-`make score` fits logistic `h2_full` on completed games strictly before the scored week, registers `endzone-winprob` in MLflow, and writes the next unpublished week to `site/data/predictions/<season>-w<week>.json` and `site/data/latest.json`. If that week file is already on disk, it is kept. The fit does not use same-week finals as labels or as features. It also runs the Sprint 2 rule. Home points are `(total + margin) / 2` and away points are `(total - margin) / 2`, rounded on the page only. `endzone-margin` and `endzone-total` are registered only when that target passes. Both passed, so the command writes the estimate. `make score SEASON=<year> WEEK=<week>` scores that week when it is not already published. `make rebuild-week SEASON=<year> WEEK=<week>` rebuilds every scheduled game that week, played and unplayed, then overlays finals. A rebuild that would drop a `game_id` already in the week file fails. Windows: set `SEASON` and `WEEK`, then `.\scripts\dev.ps1 score` or `.\scripts\dev.ps1 rebuild-week`. The score command is also `mlflow run . -e score --env-manager local`.
+`make score` loads alias `prod` when the registry has it. If the alias is missing or the registry cannot be read, it logs that and fits logistic `h2_full` on completed games strictly before the scored week, registers that fit in the tracking store, and does not set the alias. It writes the next unpublished week to `site/data/predictions/<season>-w<week>.json` and `site/data/latest.json`. If that week file is already on disk, it is kept. The fit does not use same-week finals as labels or as features. It also runs the Sprint 2 rule. Home points are `(total + margin) / 2` and away points are `(total - margin) / 2`, rounded on the page only. `endzone-margin` and `endzone-total` are registered only when that target passes. Both passed, so the command writes the estimate. `make score SEASON=<year> WEEK=<week>` scores that week when it is not already published. `make rebuild-week SEASON=<year> WEEK=<week>` rebuilds every scheduled game that week, played and unplayed, then overlays finals. A rebuild that would drop a `game_id` already in the week file fails. Windows: set `SEASON` and `WEEK`, then `.\scripts\dev.ps1 score` or `.\scripts\dev.ps1 rebuild-week`. The score command is also `mlflow run . -e score --env-manager local`.
 
 `make train-s2` (Windows: `.\scripts\dev.ps1 train-s2`) writes `reports/sprint2/cv_report.json`. That directory is local scratch. The frozen warehouse copy is already `docs/experiments/reports/sprint2_cv_report.json`. Do not hand-edit the numbers. `mlflow run . -e score_cv --env-manager local` is the same comparison.
 
@@ -158,7 +158,7 @@ Listed in [docs/definition_of_done.md](docs/definition_of_done.md): ruff, `make 
 ## Docs
 
 - [Architecture](docs/architecture.md)
-- [ADR-001 Databricks](docs/adr/ADR-001-databricks.md), [ADR-002 CCDS](docs/adr/ADR-002-ccds-layout.md), [ADR-003 config and warehouse](docs/adr/ADR-003-config-and-warehouse.md), [ADR-004 modeling](docs/adr/ADR-004-modeling-and-hypotheses.md), [ADR-005 acceptance rule](docs/adr/ADR-005-acceptance-rule.md), [ADR-006 weekly predictions](docs/adr/ADR-006-weekly-predictions.md), [ADR-007 margin and total](docs/adr/ADR-007-score-regression.md), [ADR-008 track record](docs/adr/ADR-008-weekly-track-record.md)
+- [ADR-001 Databricks](docs/adr/ADR-001-databricks.md), [ADR-002 CCDS](docs/adr/ADR-002-ccds-layout.md), [ADR-003 config and warehouse](docs/adr/ADR-003-config-and-warehouse.md), [ADR-004 modeling](docs/adr/ADR-004-modeling-and-hypotheses.md), [ADR-005 acceptance rule](docs/adr/ADR-005-acceptance-rule.md), [ADR-006 weekly predictions](docs/adr/ADR-006-weekly-predictions.md), [ADR-007 margin and total](docs/adr/ADR-007-score-regression.md), [ADR-008 track record](docs/adr/ADR-008-weekly-track-record.md), [ADR-009 model registry](docs/adr/ADR-009-model-registry.md)
 - [Experiments](docs/experiments/reports/README.md)
 - [Runbook](docs/runbook.md)
 - [Site identity](docs/design/site_identity.md)

@@ -7,6 +7,8 @@ import pytest
 
 from endzone.config import (
     DEFAULT_MLFLOW_TRACKING_URI,
+    configured_registered_model_name,
+    configured_registry_uri,
     configured_tracking_uri,
     get_databricks_config,
     load_env_file,
@@ -151,3 +153,21 @@ class TestEnvFile:
         assert configured_tracking_uri() == "sqlite:///other.db"
         monkeypatch.setenv("MLFLOW_TRACKING_URI", "./mlruns")
         assert configured_tracking_uri() == DEFAULT_MLFLOW_TRACKING_URI
+
+    def test_registry_uri_and_model_name(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Unity Catalog gets a three-level name. sqlite keeps endzone-winprob."""
+        monkeypatch.delenv("MLFLOW_REGISTRY_URI", raising=False)
+        monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
+        monkeypatch.delenv("ENDZONE_REGISTERED_MODEL", raising=False)
+        monkeypatch.delenv("DATABRICKS_CATALOG", raising=False)
+        monkeypatch.delenv("ENDZONE_UC_SCHEMA", raising=False)
+        monkeypatch.delenv("ENDZONE_UC_MODEL", raising=False)
+        assert configured_registry_uri() == DEFAULT_MLFLOW_TRACKING_URI
+        monkeypatch.setenv("MLFLOW_REGISTRY_URI", "databricks-uc")
+        assert configured_registry_uri() == "databricks-uc"
+        assert configured_registered_model_name("sqlite:///mlflow.db") == "endzone-winprob"
+        assert (
+            configured_registered_model_name("databricks-uc") == "workspace.nfl_dev.endzone_winprob"
+        )
+        monkeypatch.setenv("ENDZONE_REGISTERED_MODEL", "workspace.other.custom")
+        assert configured_registered_model_name("databricks-uc") == "workspace.other.custom"

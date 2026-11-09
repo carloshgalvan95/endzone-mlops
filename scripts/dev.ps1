@@ -31,6 +31,8 @@ function Show-Help {
     Write-Host "  audit-features      - Profile current pregame inputs (no feature changes)"
     Write-Host "  check-epa-filter    - Count play types in the EPA filter, plus kneel and spike rows"
     Write-Host "  verify-reference    - Refit logistic h2_full and fail if it drifts from the reference file"
+    Write-Host "  register-model      - Register logistic h2_full. Does not set the prod alias"
+    Write-Host "  promote-model       - Set alias prod on VERSION when its CV tags pass the gate"
     Write-Host "  score               - Score the next unpublished week. Keeps a week file already on disk"
     Write-Host "  train-s2            - Sprint 2 margin and total CV. Registers a target only if it passes"
     Write-Host "  rebuild-week        - Rebuild one full week (SEASON and WEEK required), then overlay finals"
@@ -198,6 +200,25 @@ function Invoke-VerifyReference {
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
+function Invoke-RegisterModel {
+    Write-Host "Registering logistic h2_full. The prod alias is not set..."
+    $registerArgs = @("-m", "endzone.modeling.registry_command", "register")
+    if ($env:THROUGH_SEASON) { $registerArgs += @("--through-season", $env:THROUGH_SEASON) }
+    if ($env:COMPARISON) { $registerArgs += @("--comparison-csv", $env:COMPARISON) }
+    python @registerArgs
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
+function Invoke-PromoteModel {
+    if (-not $env:VERSION) {
+        Write-Host "promote-model needs VERSION"
+        exit 1
+    }
+    Write-Host "Setting alias prod on version $env:VERSION when the gate passes..."
+    python -m endzone.modeling.registry_command promote --version $env:VERSION
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
 function Invoke-TrainS2 {
     Write-Host "Cross-validating ridge margin and total (ADR-007)..."
     python -m endzone.modeling.points
@@ -330,6 +351,8 @@ switch ($Target.ToLower()) {
     "audit-features" { Invoke-AuditFeatures }
     "check-epa-filter" { Invoke-CheckEpaFilter }
     "verify-reference" { Invoke-VerifyReference }
+    "register-model" { Invoke-RegisterModel }
+    "promote-model" { Invoke-PromoteModel }
     "train-s2" { Invoke-TrainS2 }
     "score" { Invoke-Score }
     "rebuild-week" { Invoke-RebuildWeek }

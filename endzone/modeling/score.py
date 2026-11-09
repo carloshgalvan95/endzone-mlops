@@ -1,12 +1,14 @@
 """Score one week with the reference logistic model.
 
 Canonical command: ``python -m endzone.modeling.score``.
-Fits ``h2_full`` on completed games strictly before the scored week, logs the
-pipeline with a signature, registers ``endzone-winprob``, and writes the week
-JSON under ``site/data``. A week file that is already on disk is kept unless
-``--replace-published`` rebuilds every scheduled game in that week. A write
-that would drop a published ``game_id`` fails. Margin and total estimates are
-included only when both pass ADR-007.
+Loads the registered model at alias ``prod`` when that alias can be read.
+If the alias is missing or the registry cannot be reached, fits ``h2_full``
+on completed games strictly before the scored week and registers that fit
+in the tracking store only. The ``prod`` alias is never set here. A week
+file that is already on disk is kept unless ``--replace-published`` rebuilds
+every scheduled game in that week. A write that would drop a published
+``game_id`` fails. Margin and total estimates are included only when both
+pass ADR-007.
 """
 
 from __future__ import annotations
@@ -22,7 +24,7 @@ import pandas as pd
 from mlflow.models import infer_signature
 from sklearn.pipeline import Pipeline
 
-from endzone.config import configured_tracking_uri
+from endzone.config import configured_registry_uri, configured_tracking_uri
 from endzone.features.pregame import (
     build_pregame_features,
     feature_columns_for,
@@ -32,6 +34,15 @@ from endzone.features.pregame import (
 from endzone.modeling.dataset import load_data, load_upcoming_games, validate_feature_columns
 from endzone.modeling.models import fit_logistic_pipeline
 from endzone.modeling.points import attach_score_estimates
+from endzone.modeling.registry import (
+    PROD_ALIAS,
+    ProdAliasError,
+    ProdModel,
+    default_model_name,
+    format_scored_version,
+    load_prod_model,
+    pinned_registry,
+)
 from endzone.modeling.tracking import (
     RegisteredModelLog,
     activate_tracking_experiment,
@@ -77,6 +88,7 @@ class WeeklyScoreSettings(NamedTuple):
     random_state: int = 42
     output_dir: Path = DEFAULT_OUTPUT_DIR
     tracking_uri: str | None = None
+    registry_uri: str | None = None
     model_name: str = REGISTERED_MODEL_NAME
     generated_at: datetime | None = None
     replace_published: bool = False
@@ -89,19 +101,23 @@ def score_upcoming_week(
     team_catalog: pd.DataFrame,
     settings: WeeklyScoreSettings,
 ) -> dict[str, Any]:
-    """Fit ``h2_full`` on games before the slate week and score that week.
+    """Score one week, loading alias ``prod`` when the registry has it.
 
     The default slate is the next unplayed week in ``fct_upcoming_games``.
     When that week file is already on disk, it is kept and nothing is fit.
-    ``settings.replace_published`` scores every scheduled game in the requested
-    week, played and unplayed. Same-week finals are not training rows and are
-    not features. A Sunday rebuild does not learn from a game that already
-    finished that week. Pregame features still use only rows with ``gameday``
-    strictly before the game being scored.
+    A readable ``prod`` alias scores the slate. The version on the file is
+    ``<version>@prod``. A missing alias or an unreachable registry logs the
+    failure and fits ``h2_full`` on games before the week, which is the
+    previous behavior. That fit is registered in the tracking store and does
+    not receive the alias. ``settings.replace_published`` scores every
+    scheduled game in the requested week, played and unplayed. Same-week
+    finals are not training rows and are not features. A Sunday rebuild does
+    not learn from a game that already finished that week. Pregame features
+    still use only rows with ``gameday`` strictly before the game being scored.
 
     Returns:
-        Dict with ``document``, ``paths``, ``model_version``, ``run_id``,
-        and ``kept_published``.
+        Dict with ``document``, ``paths``, ``model_version``, ``model_alias``,
+        ``model_source``, ``run_id``, and ``kept_published``.
 
     Raises:
         ValueError: The slate is empty, the fit has one class, or the new
@@ -151,6 +167,172 @@ def score_upcoming_week(
         features["game_id"].astype(str).isin(history_ids)
     ].copy()
     validate_feature_columns(history_features, (WEEKLY_FEATURE_SET,))
+    columns: list[str] = list(feature_columns_for(WEEKLY_FEATURE_SET))
+    score_frame: pd.DataFrame = _score_frame(slate, features, columns)
+    score_frame[columns] = score_frame[columns].astype(float)
+    tracking_uri: str = settings.tracking_uri or configured_tracking_uri()
+    registry_uri: str = _registry_uri_for_score(settings)
+    loaded: ProdModel | None = _try_load_prod(registry_uri)
+    probabilities: pd.Series | None = None
+    if loaded is not None:
+        try:
+            probabilities = _home_win_probabilities(loaded.model, score_frame, columns)
+        except Exception as exc:
+            logger.warning(
+                "Loaded %s@%s could not score this slate (%s: %s). "
+                "Fitting logistic h2_full on games before this week.",
+                loaded.model_name,
+                loaded.alias,
+                type(exc).__name__,
+                exc,
+            )
+            loaded = None
+            probabilities = None
+    train_x: pd.DataFrame | None = None
+    example: pd.DataFrame | None = None
+    signature: Any = None
+    fitted_pipeline: Pipeline | None = None
+    if loaded is None or probabilities is None:
+        fitted: dict[str, Any] = _fit_week_model(
+            history,
+            features,
+            score_frame,
+            columns,
+            settings,
+        )
+        fitted_pipeline = fitted["pipeline"]
+        train_x = fitted["train_x"]
+        probabilities = fitted["probabilities"]
+        example = fitted["example"]
+        signature = fitted["signature"]
+    # Sprint 2 opens its own run. Pin the registry to the tracking store so a
+    # Unity Catalog URI used to load prod does not receive a weekly version.
+    with pinned_registry(tracking_uri):
+        score_attachment: dict[str, Any] = attach_score_estimates(
+            history,
+            features,
+            slate,
+            tracking_uri=tracking_uri,
+        )
+        activate_tracking_experiment(WEEKLY_EXPERIMENT_NAME, tracking_uri)
+        generated_at: str = _generated_at(settings.generated_at)
+        model_name: str = settings.model_name
+        model_alias: str | None = None
+        version_label: str = ""
+        run_id: str = ""
+        source: str = "refit"
+        with mlflow.start_run(run_name=f"score-{chosen['season']}-w{chosen['week']}"):
+            if fitted_pipeline is not None and example is not None:
+                source = "refit"
+                _log_score_params(
+                    settings,
+                    chosen,
+                    train_x,
+                    slate,
+                    columns,
+                    model_name=settings.model_name,
+                    model_source=source,
+                )
+                mlflow.set_tag("git_commit", get_git_sha())
+                mlflow.set_tag("feature_set", WEEKLY_FEATURE_SET)
+                mlflow.set_tag("stage", "weekly")
+                mlflow.set_tag("model_source", source)
+                mlflow.set_tag("model_alias", "none")
+                logged: RegisteredModelLog = _register_weekly_model(
+                    fitted_pipeline,
+                    signature=signature,
+                    input_example=example,
+                    model_name=settings.model_name,
+                    tracking_uri=tracking_uri,
+                )
+                version_label = logged.model_version
+                run_id = logged.run_id
+                mlflow.log_param("model_version", version_label)
+            else:
+                source = "registry"
+                assert loaded is not None
+                model_name = loaded.model_name
+                model_alias = loaded.alias
+                version_label = format_scored_version(loaded.version, loaded.alias)
+                _log_score_params(
+                    settings,
+                    chosen,
+                    None,
+                    slate,
+                    columns,
+                    model_name=model_name,
+                    model_source=source,
+                )
+                mlflow.set_tag("git_commit", get_git_sha())
+                mlflow.set_tag("feature_set", WEEKLY_FEATURE_SET)
+                mlflow.set_tag("stage", "weekly")
+                mlflow.set_tag("model_source", source)
+                mlflow.set_tag("model_alias", loaded.alias)
+                mlflow.log_param("model_version", version_label)
+                mlflow.log_param("registered_model", loaded.model_name)
+                active = mlflow.active_run()
+                run_id = "" if active is None else str(active.info.run_id)
+    document: dict[str, Any] = build_prediction_document(
+        season=chosen["season"],
+        week=chosen["week"],
+        games=slate,
+        model_probabilities=probabilities,
+        market_probabilities=_market_by_game(slate),
+        model_name=model_name,
+        model_version=version_label,
+        feature_set=WEEKLY_FEATURE_SET,
+        generated_at=generated_at,
+        score_lines=score_attachment["lines"],
+        score_model=score_attachment["score_model"],
+        model_alias=model_alias,
+    )
+    teams: dict[str, Any] = team_catalog_document(team_catalog)
+    paths: dict[str, str] = write_prediction_bundle(document, teams, Path(settings.output_dir))
+    if model_alias:
+        logger.info(
+            "Scored %s week %s with %s version %s (%s games).",
+            chosen["season"],
+            chosen["week"],
+            model_name,
+            version_label,
+            len(document["games"]),
+        )
+    else:
+        logger.info(
+            "Prod alias was not used. Registered %s version %s for %s week %s (%s games).",
+            model_name,
+            version_label,
+            chosen["season"],
+            chosen["week"],
+            len(document["games"]),
+        )
+    return {
+        "document": document,
+        "paths": paths,
+        "model_version": version_label,
+        "model_alias": model_alias,
+        "model_source": source,
+        "run_id": run_id,
+        "kept_published": False,
+    }
+
+
+def _fit_week_model(
+    history: pd.DataFrame,
+    features: pd.DataFrame,
+    score_frame: pd.DataFrame,
+    columns: list[str],
+    settings: WeeklyScoreSettings,
+) -> dict[str, Any]:
+    """Fit logistic ``h2_full`` on ``history`` and score ``score_frame``.
+
+    Returns:
+        Dict with ``pipeline``, ``train_x``, ``probabilities``, ``example``,
+        and ``signature``.
+
+    Raises:
+        ValueError: Completed games have only one class.
+    """
     train_x, train_y = prepare_training_data(
         history,
         features,
@@ -161,8 +343,6 @@ def score_upcoming_week(
     train_y = train_y.loc[labeled].astype(int).reset_index(drop=True)
     if train_y.nunique() < 2:
         raise ValueError("Completed games need both home wins and home losses to fit h2_full.")
-
-    columns: list[str] = list(feature_columns_for(WEEKLY_FEATURE_SET))
     # Float columns keep a missing value representable in the model signature.
     train_x[columns] = train_x[columns].astype(float)
     pipeline: Pipeline = fit_logistic_pipeline(
@@ -172,66 +352,88 @@ def score_upcoming_week(
         max_iter=settings.logistic_max_iter,
         random_state=settings.random_state,
     )
-    score_frame: pd.DataFrame = _score_frame(slate, features, columns)
-    score_frame[columns] = score_frame[columns].astype(float)
-    probabilities: pd.Series = pd.Series(
-        pipeline.predict_proba(score_frame[columns])[:, 1],
-        index=score_frame["game_id"].astype(str),
-    )
     example: pd.DataFrame = train_x[columns].head(1)
     signature = infer_signature(example, pipeline.predict_proba(example)[:, 1])
-    tracking_uri: str = settings.tracking_uri or configured_tracking_uri()
-    # Sprint 2 opens its own run. It has to finish before the win-prob run.
-    score_attachment: dict[str, Any] = attach_score_estimates(
-        history,
-        features,
-        slate,
-        tracking_uri=tracking_uri,
-    )
-    activate_tracking_experiment(WEEKLY_EXPERIMENT_NAME, tracking_uri)
-    generated_at: str = _generated_at(settings.generated_at)
-    with mlflow.start_run(run_name=f"score-{chosen['season']}-w{chosen['week']}"):
-        _log_score_params(settings, chosen, train_x, slate, columns)
-        mlflow.set_tag("git_commit", get_git_sha())
-        mlflow.set_tag("feature_set", WEEKLY_FEATURE_SET)
-        mlflow.set_tag("stage", "weekly")
-        logged: RegisteredModelLog = _register_weekly_model(
-            pipeline,
-            signature=signature,
-            input_example=example,
-            model_name=settings.model_name,
-            tracking_uri=tracking_uri,
-        )
-    document: dict[str, Any] = build_prediction_document(
-        season=chosen["season"],
-        week=chosen["week"],
-        games=slate,
-        model_probabilities=probabilities,
-        market_probabilities=_market_by_game(slate),
-        model_name=settings.model_name,
-        model_version=logged.model_version,
-        feature_set=WEEKLY_FEATURE_SET,
-        generated_at=generated_at,
-        score_lines=score_attachment["lines"],
-        score_model=score_attachment["score_model"],
-    )
-    teams: dict[str, Any] = team_catalog_document(team_catalog)
-    paths: dict[str, str] = write_prediction_bundle(document, teams, Path(settings.output_dir))
-    logger.info(
-        "Registered %s version %s for %s week %s (%s games).",
-        settings.model_name,
-        logged.model_version,
-        chosen["season"],
-        chosen["week"],
-        len(document["games"]),
-    )
     return {
-        "document": document,
-        "paths": paths,
-        "model_version": logged.model_version,
-        "run_id": logged.run_id,
-        "kept_published": False,
+        "pipeline": pipeline,
+        "train_x": train_x,
+        "probabilities": _home_win_probabilities(pipeline, score_frame, columns),
+        "example": example,
+        "signature": signature,
     }
+
+
+def _home_win_probabilities(
+    model: object,
+    score_frame: pd.DataFrame,
+    columns: list[str],
+) -> pd.Series:
+    """Home-win probability for each slate row, using class 1 when it is named."""
+    predict = getattr(model, "predict_proba", None)
+    if not callable(predict):
+        raise TypeError("The scoring model has no predict_proba.")
+    raw = predict(score_frame[columns])
+    column: int = 1
+    classes = getattr(model, "classes_", None)
+    if classes is not None:
+        labels: list[int] = [int(label) for label in list(classes)]
+        if 1 not in labels:
+            raise ValueError("The scoring model has no home-win class.")
+        column = labels.index(1)
+    home: list[float] = [float(row[column]) for row in raw]
+    return pd.Series(home, index=score_frame["game_id"].astype(str))
+
+
+def _registry_uri_for_score(settings: WeeklyScoreSettings) -> str:
+    """Registry used to load ``prod``.
+
+    An explicit registry URI wins. A caller that passed a tracking URI, which
+    tests do, uses that same store. Otherwise the configured registry URI is
+    used, so Pages can point ``MLFLOW_REGISTRY_URI`` at Unity Catalog while
+    tracking stays on sqlite.
+    """
+    if settings.registry_uri is not None and settings.registry_uri.strip() != "":
+        return settings.registry_uri.strip()
+    if settings.tracking_uri is not None and settings.tracking_uri.strip() != "":
+        return settings.tracking_uri.strip()
+    return configured_registry_uri()
+
+
+def _try_load_prod(registry_uri: str) -> ProdModel | None:
+    """Load alias ``prod``, or return None and log the reason.
+
+    Any failure is a fallback, including a missing alias and a registry that
+    cannot be reached. The week file is still written.
+    """
+    model_name: str = default_model_name(registry_uri)
+    try:
+        loaded: ProdModel = load_prod_model(model_name, registry_uri)
+    except ProdAliasError as exc:
+        logger.warning(
+            "Alias %s is missing on %s (%s). Fitting logistic h2_full on games before this week.",
+            PROD_ALIAS,
+            model_name,
+            exc,
+        )
+        return None
+    except Exception as exc:
+        logger.warning(
+            "Could not load %s@%s from registry %s (%s: %s). "
+            "Fitting logistic h2_full on games before this week.",
+            model_name,
+            PROD_ALIAS,
+            registry_uri,
+            type(exc).__name__,
+            exc,
+        )
+        return None
+    logger.info(
+        "Loaded %s version %s alias %s.",
+        loaded.model_name,
+        loaded.version,
+        loaded.alias,
+    )
+    return loaded
 
 
 def _score_frame(
@@ -319,12 +521,13 @@ def _register_weekly_model(
     week file is still written.
     """
     try:
-        return log_registered_sklearn_model(
-            pipeline,
-            signature=signature,
-            input_example=input_example,
-            registered_model_name=model_name,
-        )
+        with pinned_registry(tracking_uri):
+            return log_registered_sklearn_model(
+                pipeline,
+                signature=signature,
+                input_example=input_example,
+                registered_model_name=model_name,
+            )
     except (RuntimeError, mlflow.MlflowException) as exc:
         if not _local_registry(tracking_uri):
             raise
@@ -359,25 +562,37 @@ def _generated_at(clock: datetime | None) -> str:
 def _log_score_params(
     settings: WeeklyScoreSettings,
     chosen: dict[str, Any],
-    train_x: pd.DataFrame,
+    train_x: pd.DataFrame | None,
     slate: pd.DataFrame,
     columns: list[str],
+    *,
+    model_name: str,
+    model_source: str,
 ) -> None:
-    """Log the fit settings on the active run. No held-out test metric is read."""
+    """Log the fit settings on the active run. No held-out test metric is read.
+
+    A registry load has no training frame. Those params say ``loaded``.
+    """
     mlflow.log_param("model_type", "logistic")
     mlflow.log_param("feature_set", WEEKLY_FEATURE_SET)
-    mlflow.log_param("model_name", settings.model_name)
+    mlflow.log_param("model_name", model_name)
+    mlflow.log_param("model_source", model_source)
     mlflow.log_param("C", settings.logistic_c)
     mlflow.log_param("max_iter", settings.logistic_max_iter)
     mlflow.log_param("random_state", settings.random_state)
     mlflow.log_param("lookback_games", settings.lookback_games)
     mlflow.log_param("season", chosen["season"])
     mlflow.log_param("week", chosen["week"])
-    mlflow.log_param("n_train", len(train_x))
     mlflow.log_param("n_scored", len(slate))
+    mlflow.log_param("features", ",".join(columns))
+    if train_x is None:
+        mlflow.log_param("n_train", "loaded")
+        mlflow.log_param("train_season_min", "loaded")
+        mlflow.log_param("train_season_max", "loaded")
+        return
+    mlflow.log_param("n_train", len(train_x))
     mlflow.log_param("train_season_min", int(train_x["season"].min()))
     mlflow.log_param("train_season_max", int(train_x["season"].max()))
-    mlflow.log_param("features", ",".join(columns))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -426,6 +641,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="MLflow tracking URI. The default is the configured sqlite or Databricks URI.",
     )
     parser.add_argument(
+        "--registry-uri",
+        type=str,
+        default=None,
+        help=(
+            "MLflow registry URI used to load alias prod. "
+            "The default is MLFLOW_REGISTRY_URI, or the tracking URI when that is unset. "
+            "A missing alias falls back to a fit on this week's games."
+        ),
+    )
+    parser.add_argument(
         "--restore-published",
         type=str,
         default=None,
@@ -471,6 +696,7 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
         random_state=args.seed,
         output_dir=Path(args.output_dir),
         tracking_uri=args.tracking_uri,
+        registry_uri=args.registry_uri,
         replace_published=bool(args.replace_published),
     )
     return score_upcoming_week(games, team_games, upcoming, catalog, settings)

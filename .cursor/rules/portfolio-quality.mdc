@@ -132,7 +132,7 @@ A PR is Done when:
 
 ### Day 14 (Target)
 - [x] `python -m endzone.modeling.score` writes one week of JSON under `site/data` (ADR-006). A warehouse predictions table is not part of v0.1.
-- [ ] Logging + 1 drift/quality signal
+- [x] Logging + 1 quality signal: published log loss versus the no-vig market (ADR-009). A feature-distribution drift monitor is still out.
 - [x] Job (Databricks or GHA schedule)
 - [ ] README + screenshots + Loom video (3-5 min)
 - [ ] Tag v0.1.0
