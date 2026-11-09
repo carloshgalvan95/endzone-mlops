@@ -1,9 +1,12 @@
-"""Score one unplayed week with the reference logistic model.
+"""Score one week with the reference logistic model.
 
 Canonical command: ``python -m endzone.modeling.score``.
-Fits ``h2_full`` on every completed game, logs the pipeline with a signature,
-registers ``endzone-winprob``, and writes the week JSON under ``site/data``.
-Margin and total estimates are included only when both pass ADR-007.
+Fits ``h2_full`` on completed games strictly before the scored week, logs the
+pipeline with a signature, registers ``endzone-winprob``, and writes the week
+JSON under ``site/data``. A week file that is already on disk is kept unless
+``--replace-published`` rebuilds every scheduled game in that week. A write
+that would drop a published ``game_id`` fails. Margin and total estimates are
+included only when both pass ADR-007.
 """
 
 from __future__ import annotations
@@ -42,13 +45,17 @@ from endzone.modeling.weekly import (
     WEEKLY_EXPERIMENT_NAME,
     WEEKLY_FEATURE_SET,
     build_prediction_document,
-    completed_games,
+    games_before_week,
+    kept_published_week,
     load_team_catalog,
     parse_optional_int,
+    refuse_dropped_game_ids,
     restore_published_predictions,
+    select_scheduled_week,
     select_slate,
     slate_for_features,
     team_catalog_document,
+    team_games_before_week,
     write_prediction_bundle,
 )
 from endzone.utils.logging import setup_logger
@@ -72,6 +79,7 @@ class WeeklyScoreSettings(NamedTuple):
     tracking_uri: str | None = None
     model_name: str = REGISTERED_MODEL_NAME
     generated_at: datetime | None = None
+    replace_published: bool = False
 
 
 def score_upcoming_week(
@@ -81,23 +89,64 @@ def score_upcoming_week(
     team_catalog: pd.DataFrame,
     settings: WeeklyScoreSettings,
 ) -> dict[str, Any]:
-    """Fit ``h2_full`` on completed games and score one unplayed week.
+    """Fit ``h2_full`` on games before the slate week and score that week.
 
-    Features for every row use only games with ``gameday`` strictly before
-    that game. Unplayed rows are not treated as results.
+    The default slate is the next unplayed week in ``fct_upcoming_games``.
+    When that week file is already on disk, it is kept and nothing is fit.
+    ``settings.replace_published`` scores every scheduled game in the requested
+    week, played and unplayed. Same-week finals are not training rows and are
+    not features. A Sunday rebuild does not learn from a game that already
+    finished that week. Pregame features still use only rows with ``gameday``
+    strictly before the game being scored.
 
     Returns:
-        Dict with ``document``, ``paths``, ``model_version``, and ``run_id``.
+        Dict with ``document``, ``paths``, ``model_version``, ``run_id``,
+        and ``kept_published``.
+
+    Raises:
+        ValueError: The slate is empty, the fit has one class, or the new
+            file would drop a published ``game_id``.
     """
-    chosen: dict[str, Any] = select_slate(upcoming, settings.season, settings.week)
-    history: pd.DataFrame = completed_games(games)
+    if settings.replace_published and (settings.season is None or settings.week is None):
+        raise ValueError(
+            "replace-published needs both season and week so the full slate is explicit."
+        )
+    if settings.replace_published:
+        chosen: dict[str, Any] = select_scheduled_week(
+            games,
+            upcoming,
+            int(settings.season),
+            int(settings.week),
+        )
+    else:
+        chosen = select_slate(upcoming, settings.season, settings.week)
+        kept: dict[str, Any] | None = kept_published_week(
+            Path(settings.output_dir),
+            int(chosen["season"]),
+            int(chosen["week"]),
+        )
+        if kept is not None:
+            return kept
+    target_season: int = int(chosen["season"])
+    target_week: int = int(chosen["week"])
+    incoming_ids: set[str] = {str(game_id) for game_id in chosen["games"]["game_id"].tolist()}
+    refuse_dropped_game_ids(Path(settings.output_dir), target_season, target_week, incoming_ids)
+    # Same-week finals stay out of the fit. Thursday's result is not a
+    # feature for Sunday, and it is not a training label either.
+    history: pd.DataFrame = games_before_week(games, target_season, target_week)
+    history_ids: set[str] = set(history["game_id"].astype(str))
+    prior_team_games: pd.DataFrame = team_games_before_week(
+        team_games,
+        target_season,
+        target_week,
+        history_ids,
+    )
     slate: pd.DataFrame = slate_for_features(chosen["games"])
     features: pd.DataFrame = build_pregame_features(
         pd.concat([history, slate], ignore_index=True),
-        team_games,
+        prior_team_games,
         lookback_games=settings.lookback_games,
     )
-    history_ids: set[str] = set(history["game_id"].astype(str))
     history_features: pd.DataFrame = features.loc[
         features["game_id"].astype(str).isin(history_ids)
     ].copy()
@@ -181,6 +230,7 @@ def score_upcoming_week(
         "paths": paths,
         "model_version": logged.model_version,
         "run_id": logged.run_id,
+        "kept_published": False,
     }
 
 
@@ -384,12 +434,27 @@ def build_parser() -> argparse.ArgumentParser:
             "directory before scoring. A failed copy does not stop the score."
         ),
     )
+    parser.add_argument(
+        "--replace-published",
+        action="store_true",
+        help=(
+            "Rebuild every scheduled game for --season and --week, including games "
+            "already played. Fits only on completed games before that week. "
+            "Refuses to drop a game_id that is already in the week file."
+        ),
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> dict[str, Any]:
     """Score one week and return the written document summary."""
     args: argparse.Namespace = build_parser().parse_args(argv)
+    if args.replace_published and (
+        parse_optional_int(args.season) is None or parse_optional_int(args.week) is None
+    ):
+        raise ValueError(
+            "replace-published needs both --season and --week so the full slate is explicit."
+        )
     if args.restore_published:
         restore_published_predictions(Path(args.output_dir), args.restore_published)
     fixture_path: str | None = args.fixture_path if args.fixture_path else None
@@ -406,6 +471,7 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
         random_state=args.seed,
         output_dir=Path(args.output_dir),
         tracking_uri=args.tracking_uri,
+        replace_published=bool(args.replace_published),
     )
     return score_upcoming_week(games, team_games, upcoming, catalog, settings)
 

@@ -31,8 +31,9 @@ function Show-Help {
     Write-Host "  audit-features      - Profile current pregame inputs (no feature changes)"
     Write-Host "  check-epa-filter    - Count play types in the EPA filter, plus kneel and spike rows"
     Write-Host "  verify-reference    - Refit logistic h2_full and fail if it drifts from the reference file"
-    Write-Host "  score               - Fit logistic h2_full, register it, and score one unplayed week"
+    Write-Host "  score               - Score the next unpublished week. Keeps a week file already on disk"
     Write-Host "  train-s2            - Sprint 2 margin and total CV. Registers a target only if it passes"
+    Write-Host "  rebuild-week        - Rebuild one full week (SEASON and WEEK required), then overlay finals"
     Write-Host "  refresh-results     - Overlay final nflverse scores onto published week JSON"
     Write-Host "  clean               - Remove build artifacts"
     Write-Host "  reproduce           - install, Databricks dbt build, verify-reference"
@@ -202,11 +203,26 @@ function Invoke-TrainS2 {
 }
 
 function Invoke-Score {
-    Write-Host "Scoring one unplayed week with logistic h2_full..."
+    Write-Host "Scoring one unpublished week with logistic h2_full..."
     $scoreArgs = @("-m", "endzone.modeling.score")
     if ($env:SEASON) { $scoreArgs += @("--season", $env:SEASON) }
     if ($env:WEEK) { $scoreArgs += @("--week", $env:WEEK) }
+    if ($env:REPLACE -eq "1") { $scoreArgs += "--replace-published" }
     python @scoreArgs
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
+function Invoke-RebuildWeek {
+    if (-not $env:SEASON -or -not $env:WEEK) {
+        Write-Host "rebuild-week needs SEASON and WEEK"
+        exit 1
+    }
+    Write-Host "Rebuilding season $env:SEASON week $env:WEEK, then overlaying finals..."
+    $scoreArgs = @("-m", "endzone.modeling.score", "--season", $env:SEASON, "--week", $env:WEEK, "--replace-published")
+    if ($env:RESTORE_PUBLISHED) { $scoreArgs += @("--restore-published", $env:RESTORE_PUBLISHED) }
+    python @scoreArgs
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    python -m endzone.site.results
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
@@ -291,6 +307,7 @@ switch ($Target.ToLower()) {
     "verify-reference" { Invoke-VerifyReference }
     "train-s2" { Invoke-TrainS2 }
     "score" { Invoke-Score }
+    "rebuild-week" { Invoke-RebuildWeek }
     "refresh-results" { Invoke-RefreshResults }
     "clean" { Invoke-Clean }
     "reproduce" { Invoke-Reproduce }

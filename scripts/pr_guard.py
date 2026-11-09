@@ -11,6 +11,7 @@ Catches common issues:
 - Em dash character (U+2014) in PR body or changed files
 - Data/secret files in changes
 - Missing PR template sections or unchecked verification
+- Head branch names that are not a conventional prefix, including tool prefixes
 """
 
 import argparse
@@ -50,6 +51,17 @@ class PRGuard:
         "build",
         "perf",
     }
+
+    # Head branch must start with one of these. A tool prefix is rejected
+    # even when the rest of the name looks conventional.
+    BRANCH_PREFIXES = tuple(f"{name}/" for name in sorted(CONVENTIONAL_COMMIT_TYPES))
+    TOOL_BRANCH_PREFIXES = (
+        "cursor/",
+        "cursoragent/",
+        "copilot/",
+        "claude/",
+        "grok/",
+    )
 
     # Tool-generated footer patterns
     TOOL_FOOTER_PATTERNS = [
@@ -130,6 +142,35 @@ class PRGuard:
     def _add_error(self, check: str, message: str) -> None:
         """Record a validation error."""
         self.errors.append(ValidationError(check=check, message=message))
+
+    def check_head_branch(self, pr: dict[str, Any]) -> None:
+        """Reject a tool prefix and require a conventional branch prefix.
+
+        ``feat/`` and ``fix/`` are allowed. ``cursor/`` and the other tool
+        prefixes are not, including a mixed name such as ``cursor/feat-foo``.
+        """
+        head: object = pr.get("head")
+        ref: str = ""
+        if isinstance(head, dict):
+            raw_ref: object = head.get("ref")
+            if isinstance(raw_ref, str):
+                ref = raw_ref
+        lowered: str = ref.lower()
+        for prefix in self.TOOL_BRANCH_PREFIXES:
+            if lowered.startswith(prefix):
+                self._add_error(
+                    "branch-name",
+                    f"Branch '{ref}' uses a tool-generated prefix ({prefix}). "
+                    "Use a conventional prefix such as feat/ or fix/.",
+                )
+                return
+        if not any(ref.startswith(prefix) for prefix in self.BRANCH_PREFIXES):
+            allowed: str = ", ".join(self.BRANCH_PREFIXES)
+            self._add_error(
+                "branch-name",
+                f"Branch '{ref}' must start with a conventional prefix ({allowed}). "
+                "Do not use a tool-generated prefix.",
+            )
 
     def check_base_branch_freshness(self, pr: dict[str, Any]) -> None:
         """
@@ -294,6 +335,10 @@ class PRGuard:
         for pattern in self.AI_MENTION_PATTERNS:
             matches = re.finditer(pattern, body, re.IGNORECASE)
             for match in matches:
+                # The branch-prefix rule names the forbidden prefix. That
+                # token is not an attribution.
+                if body[match.end() : match.end() + 1] == "/":
+                    continue
                 context = body[max(0, match.start() - 10) : match.end() + 10]
                 if not any(
                     skip in context.lower() for skip in ["cursor()", ".cursor", "db.cursor"]
@@ -414,6 +459,7 @@ class PRGuard:
             files = self._get_files()
 
             self.check_base_branch_freshness(pr)
+            self.check_head_branch(pr)
             self.check_commit_authorship(commits)
             self.check_commit_messages(commits)
             self.check_pr_title(pr)

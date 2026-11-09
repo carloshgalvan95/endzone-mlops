@@ -10,6 +10,8 @@ Gates: `docs/definition_of_done.md`. Modules group one responsibility. Size is a
 - [ ] Golden test (`tests/test_golden_cv.py`) still matches `tests/golden/cv_report.json`
 - [ ] `make dbt-compile`
 - [ ] Conventional Commits, Carlos as author and committer, no Co-authored-by
+- [ ] Branch name uses a conventional prefix (`feat/`, `fix/`, ...), never `cursor/`
+- [ ] This change does not overwrite or shrink a published weekly prediction file unless the PR is an explicit, documented regenerate
 - [ ] No secrets, hosts, HTTP paths, `.env`, or data files
 - [ ] `make verify-reference` is for a warehouse machine, not CI
 

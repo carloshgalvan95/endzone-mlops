@@ -101,6 +101,69 @@ def completed_games(games: pd.DataFrame) -> pd.DataFrame:
     return played
 
 
+def games_before_week(games: pd.DataFrame, season: int, week: int) -> pd.DataFrame:
+    """Completed games strictly before ``season`` and ``week``.
+
+    A row counts when ``season`` is earlier, or the season matches and
+    ``week`` is earlier. Games from the week being scored stay out, including
+    ones that already have a final. A Sunday fit must not train on Thursday.
+
+    Raises:
+        ValueError: ``season`` or ``week`` is missing, or nothing is left.
+    """
+    played: pd.DataFrame = completed_games(games)
+    for column in ("season", "week"):
+        if column not in played.columns:
+            raise ValueError(f"Completed games are missing {column}.")
+    season_values: pd.Series = pd.to_numeric(played["season"], errors="coerce")
+    week_values: pd.Series = pd.to_numeric(played["week"], errors="coerce")
+    if season_values.isna().any() or week_values.isna().any():
+        raise ValueError("Completed games need season and week before the fit cutoff.")
+    target_season: int = int(season)
+    target_week: int = int(week)
+    before: pd.Series = (season_values < target_season) | (
+        (season_values == target_season) & (week_values < target_week)
+    )
+    kept: pd.DataFrame = played.loc[before].copy()
+    if kept.empty:
+        raise ValueError(f"No completed games before season {target_season} week {target_week}.")
+    return kept
+
+
+def team_games_before_week(
+    team_games: pd.DataFrame,
+    season: int,
+    week: int,
+    history_ids: set[str],
+) -> pd.DataFrame:
+    """Team-game rows that may be used as pregame features for this week.
+
+    Rows whose ``game_id`` is not in ``history_ids`` are dropped. When
+    ``season`` and ``week`` are present, a row dated on or after the scored
+    week is dropped too, even if its id was passed in. A row with a missing
+    week stays when its id is in the history set.
+
+    Raises:
+        ValueError: ``game_id`` is missing.
+    """
+    if "game_id" not in team_games.columns:
+        raise ValueError("Team-game features are missing game_id.")
+    frame: pd.DataFrame = team_games.copy()
+    frame["game_id"] = frame["game_id"].astype(str)
+    allowed: pd.Series = frame["game_id"].isin(history_ids)
+    if "season" in frame.columns and "week" in frame.columns:
+        season_values: pd.Series = pd.to_numeric(frame["season"], errors="coerce")
+        week_values: pd.Series = pd.to_numeric(frame["week"], errors="coerce")
+        known: pd.Series = season_values.notna() & week_values.notna()
+        target_season: int = int(season)
+        target_week: int = int(week)
+        earlier: pd.Series = (season_values < target_season) | (
+            (season_values == target_season) & (week_values < target_week)
+        )
+        allowed = allowed & ((~known) | earlier)
+    return frame.loc[allowed].reset_index(drop=True)
+
+
 def select_slate(
     upcoming: pd.DataFrame,
     season: int | None,
@@ -139,6 +202,77 @@ def select_slate(
         kind="mergesort",
     ).reset_index(drop=True)
     return {"season": chosen_season, "week": chosen_week, "games": ordered}
+
+
+def select_scheduled_week(
+    games: pd.DataFrame,
+    upcoming: pd.DataFrame,
+    season: int,
+    week: int,
+) -> dict[str, Any]:
+    """Every scheduled game in one season and week, played and unplayed.
+
+    Completed rows come from ``fct_games``. Rows that still have no final
+    come from ``fct_upcoming_games``. Scores and ``home_won`` are not copied
+    onto the slate. A ``game_id`` that appears in both tables is kept once.
+
+    Returns:
+        Dict with ``season``, ``week``, and ``games``.
+
+    Raises:
+        ValueError: That week has no games, or a table repeats ``game_id``.
+    """
+    target_season: int = int(season)
+    target_week: int = int(week)
+    played: pd.DataFrame = _schedule_rows(games, target_season, target_week)
+    remaining: pd.DataFrame = _schedule_rows(upcoming, target_season, target_week)
+    # Prefer the upcoming row when a game is listed twice. It has no result.
+    combined: pd.DataFrame = pd.concat([remaining, played], ignore_index=True)
+    if combined.empty:
+        raise ValueError(f"No scheduled games for season {target_season} week {target_week}.")
+    combined["game_id"] = combined["game_id"].astype(str)
+    combined = combined.drop_duplicates(subset=["game_id"], keep="first")
+    ordered: pd.DataFrame = combined.sort_values(
+        ["gameday", "game_id"],
+        kind="mergesort",
+    ).reset_index(drop=True)
+    return {"season": target_season, "week": target_week, "games": ordered}
+
+
+def _schedule_rows(frame: pd.DataFrame, season: int, week: int) -> pd.DataFrame:
+    """Schedule columns for one week, without scores or labels.
+
+    An empty table contributes no rows. A non-empty table must name the week.
+
+    Raises:
+        ValueError: A required schedule column is missing, or ``game_id`` repeats.
+    """
+    if frame.empty:
+        return pd.DataFrame(columns=list(_SLATE_COLUMNS))
+    if "season" not in frame.columns or "week" not in frame.columns:
+        raise ValueError("Schedule rows need season and week.")
+    if frame["season"].isna().any() or frame["week"].isna().any():
+        raise ValueError("Schedule rows need season and week.")
+    working: pd.DataFrame = frame.copy()
+    working["season"] = working["season"].astype(int)
+    working["week"] = working["week"].astype(int)
+    chosen: pd.DataFrame = working.loc[
+        (working["season"] == season) & (working["week"] == week)
+    ].copy()
+    if chosen.empty:
+        return pd.DataFrame(columns=list(_SLATE_COLUMNS))
+    missing: list[str] = [column for column in _SLATE_COLUMNS if column not in chosen.columns]
+    if missing:
+        missing_list: str = ", ".join(missing)
+        raise ValueError(f"Scheduled games missing columns: {missing_list}.")
+    if chosen["game_id"].duplicated().any():
+        raise ValueError("Scheduled slate has duplicate game_id values.")
+    keep: list[str] = [
+        column
+        for column in (*_SLATE_COLUMNS, "gametime", "home_moneyline", "away_moneyline")
+        if column in chosen.columns
+    ]
+    return chosen.loc[:, keep].reset_index(drop=True)
 
 
 def slate_for_features(slate: pd.DataFrame) -> pd.DataFrame:
@@ -497,6 +631,189 @@ def weeks_present(output_dir: Path, season: int) -> list[int]:
     return sorted(set(weeks))
 
 
+def week_prediction_path(output_dir: Path, season: int, week: int) -> Path:
+    """Path of ``predictions/<season>-w<week>.json`` under ``output_dir``."""
+    return Path(output_dir) / "predictions" / f"{int(season)}-w{int(week)}.json"
+
+
+def published_game_ids(output_dir: Path, season: int, week: int) -> set[str]:
+    """Game ids already stored for this season and week.
+
+    The week file contributes its ids when it is not an example. ``latest.json``
+    contributes ids only when it is that same season and week. A file that
+    cannot be read fails closed so a score cannot replace it blindly.
+
+    Raises:
+        ValueError: A file exists but is not a JSON object, or the week file
+            names a different season or week.
+    """
+    root: Path = Path(output_dir)
+    target_season: int = int(season)
+    target_week: int = int(week)
+    ids: set[str] = _game_ids_in_file(
+        week_prediction_path(root, target_season, target_week),
+        target_season,
+        target_week,
+        require_week_match=True,
+    )
+    ids.update(
+        _game_ids_in_file(
+            root / "latest.json",
+            target_season,
+            target_week,
+            require_week_match=False,
+        )
+    )
+    return ids
+
+
+def refuse_dropped_game_ids(
+    output_dir: Path,
+    season: int,
+    week: int,
+    incoming_ids: set[str],
+) -> None:
+    """Raise when a new slate would drop a game id that is already published.
+
+    Adding games is allowed. Replacing probabilities for the same ids is the
+    caller's decision. Dropping an id is not.
+
+    Raises:
+        ValueError: At least one published ``game_id`` is absent from
+            ``incoming_ids``.
+    """
+    existing: set[str] = published_game_ids(output_dir, season, week)
+    dropped: set[str] = existing - {str(game_id) for game_id in incoming_ids}
+    if not dropped:
+        return
+    shown: list[str] = sorted(dropped)[:20]
+    suffix: str = ""
+    if len(dropped) > len(shown):
+        suffix = f" and {len(dropped) - len(shown)} more"
+    dropped_list: str = ", ".join(shown)
+    raise ValueError(
+        f"Refusing to replace {int(season)} week {int(week)}: the published file "
+        f"has {len(existing)} game_id(s) and the new slate drops {len(dropped)} "
+        f"({dropped_list}{suffix})."
+    )
+
+
+def kept_published_week(output_dir: Path, season: int, week: int) -> dict[str, Any] | None:
+    """Return the on-disk week when a score should keep it.
+
+    A missing file, or an example slate, returns None so the caller can score.
+    The week file itself is not rewritten. ``latest.json`` is pointed at that
+    file when the bytes differ.
+
+    Returns:
+        Dict with ``document``, ``paths``, ``model_version``, ``run_id``,
+        and ``kept_published`` set to True. None when there is nothing to keep.
+
+    Raises:
+        ValueError: The week file exists, is not an example, and has no games
+            or names a different season or week.
+    """
+    path: Path = week_prediction_path(output_dir, season, week)
+    if not path.is_file():
+        return None
+    document: dict[str, Any] = _read_json_object(path)
+    if document.get("sample") is True:
+        return None
+    file_season: object = document.get("season")
+    file_week: object = document.get("week")
+    if file_season != int(season) or file_week != int(week):
+        raise ValueError(
+            f"{path.name} says season {file_season} week {file_week}, "
+            f"expected {int(season)} week {int(week)}."
+        )
+    games: object = document.get("games")
+    if not isinstance(games, list) or len(games) == 0:
+        raise ValueError(f"Refusing to score over {path.name}: the published file has no games.")
+    latest: Path = Path(output_dir) / "latest.json"
+    _point_latest_at(path, latest)
+    teams: Path = Path(output_dir) / "teams.json"
+    logger.info(
+        "Keeping published %s week %s (%s games). "
+        "Pass --replace-published to rebuild the full week.",
+        int(season),
+        int(week),
+        len(games),
+    )
+    return {
+        "document": document,
+        "paths": {
+            "week": str(path),
+            "latest": str(latest),
+            "teams": str(teams) if teams.is_file() else "",
+        },
+        "model_version": str(document.get("model_version", "")),
+        "run_id": "",
+        "kept_published": True,
+    }
+
+
+def _point_latest_at(week_path: Path, latest_path: Path) -> None:
+    """Copy the week file onto ``latest.json`` when the bytes differ."""
+    payload: str = week_path.read_text(encoding="utf-8")
+    if latest_path.is_file() and latest_path.read_text(encoding="utf-8") == payload:
+        return
+    latest_path.write_text(payload, encoding="utf-8")
+
+
+def _read_json_object(path: Path) -> dict[str, Any]:
+    """Load one JSON object.
+
+    Raises:
+        ValueError: The file is missing, unreadable, or not an object.
+    """
+    try:
+        payload: object = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(
+            f"Refusing to replace unreadable predictions file {path.name}: {exc}."
+        ) from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"Refusing to replace {path.name}: it is not a JSON object.")
+    return payload
+
+
+def _game_ids_in_file(
+    path: Path,
+    season: int,
+    week: int,
+    *,
+    require_week_match: bool,
+) -> set[str]:
+    """Game ids in one predictions file, or an empty set when it does not apply."""
+    if not path.is_file():
+        return set()
+    document: dict[str, Any] = _read_json_object(path)
+    if document.get("sample") is True:
+        return set()
+    file_season: object = document.get("season")
+    file_week: object = document.get("week")
+    matches: bool = file_season == season and file_week == week
+    if not matches:
+        if require_week_match:
+            raise ValueError(
+                f"{path.name} says season {file_season} week {file_week}, "
+                f"expected {season} week {week}."
+            )
+        return set()
+    games: object = document.get("games")
+    if not isinstance(games, list):
+        raise ValueError(f"{path.name} is missing a games list.")
+    ids: set[str] = set()
+    for game in games:
+        if not isinstance(game, dict):
+            continue
+        game_id: object = game.get("game_id")
+        if game_id is None:
+            continue
+        ids.add(str(game_id))
+    return ids
+
+
 def write_prediction_bundle(
     document: dict[str, Any],
     teams: dict[str, Any],
@@ -506,12 +823,23 @@ def write_prediction_bundle(
 
     ``weeks_available`` lists every non-example week file for this season
     already in ``output_dir``, including the file just written. Sibling week
-    files get the same list so the page selector stays complete.
+    files get the same list so the page selector stays complete. A week file
+    that already exists cannot lose a ``game_id``. The write fails first.
 
     Returns:
         Paths for ``week``, ``latest``, and ``teams``.
+
+    Raises:
+        ValueError: The document is invalid, or it drops a published game id.
     """
     validate_prediction_document(document)
+    incoming_ids: set[str] = {str(game["game_id"]) for game in document["games"]}
+    refuse_dropped_game_ids(
+        output_dir,
+        int(document["season"]),
+        int(document["week"]),
+        incoming_ids,
+    )
     root: Path = Path(output_dir)
     predictions: Path = root / "predictions"
     predictions.mkdir(parents=True, exist_ok=True)

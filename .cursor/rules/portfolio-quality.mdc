@@ -17,9 +17,10 @@ This is Carlos Galvan's public MLOps portfolio demonstrating Databricks + dbt + 
 
 ### Git Authorship (HARD RULE)
 - **EVERY commit must be authored by Carlos Galvan**
-- NEVER include Co-authored-by: Cursor, Grok Bot, Idaho, or any AI agent
+- NEVER include Co-authored-by: Cursor, Grok Bot, Idaho, or any AI agent. Not even a trailer for Carlos.
 - NEVER add AI/bot to CONTRIBUTORS, AUTHORS, or commit metadata
 - AI can help write code but NEVER appears in git history
+- Branch names use a conventional prefix: `feat/`, `fix/`, `docs/`, `chore/`, `ci/`, `test/`, `refactor/`, `perf/`, or `build/`. Never use the `cursor/` prefix or any other tool-generated prefix.
 
 ### Typography
 - Never use em dash character (U+2014)
@@ -30,6 +31,12 @@ This is Carlos Galvan's public MLOps portfolio demonstrating Databricks + dbt + 
 - Plan B: Snowflake. The Databricks Free Edition spike passed, so Plan B stays unused.
 - NEVER run two lakes in parallel
 - Batch-first: `python -m endzone.modeling.score` writes one week of JSON. No real-time API in v0.1. See ADR-006.
+
+### Published week
+- A published weekly slate is frozen.
+- A mid-week deploy restores published files and overlays finals. It must not rescore or drop game_ids.
+- Losing or silently replacing a published slate is a production failure.
+- An intentional rebuild is `--replace-published` or the Pages `replace_published` dispatch input. It predicts every scheduled game that week and trains only on completed games before that week.
 
 ### Domain
 - NFL data from nflverse (CC BY 4.0)
@@ -47,7 +54,9 @@ This is Carlos Galvan's public MLOps portfolio demonstrating Databricks + dbt + 
 - [ ] Update README/docs if behavior or architecture changes
 - [ ] Never commit secrets (.env, profiles.yml, API keys)
 - [ ] Have commits authored as Carlos Galvan (no AI in metadata)
-- [ ] Agents push the branch only. Carlos opens the PR. The co-author hook is disabled. See `git-and-commits.mdc`.
+- [ ] Branch name uses a conventional prefix (`feat/`, `fix/`, ...), never `cursor/`.
+- [ ] Open the PR when the work is ready, authored as Carlos Galván <carloshgalvan95@gmail.com>, first person, Conventional Commits title, no AI traces, no Co-authored-by. Do not leave a branch-only draft. The co-author hook is disabled. See `git-and-commits.mdc`.
+- [ ] This change does not overwrite or shrink a published weekly prediction file unless the PR is an explicit, documented regenerate.
 
 ## Code Quality Standards
 
@@ -123,7 +132,7 @@ A PR is Done when:
 ### Day 14 (Target)
 - [x] `python -m endzone.modeling.score` writes one week of JSON under `site/data` (ADR-006). A warehouse predictions table is not part of v0.1.
 - [ ] Logging + 1 drift/quality signal
-- [ ] Job (Databricks or GHA schedule)
+- [x] Job (Databricks or GHA schedule)
 - [ ] README + screenshots + Loom video (3-5 min)
 - [ ] Tag v0.1.0
 
@@ -144,7 +153,7 @@ A PR is Done when:
 - docs/ATTRIBUTION.md: Data source credits (nflverse CC BY 4.0)
 - `.cursor/rules/QUALITY_GUIDELINES.md`: Full SWEBOK + Wilson + TC5062 quality bar
 - `docs/definition_of_done.md`: the gates for a change
-- `.cursor/rules/ml-experiments.mdc`: phase status. Phase 0 and Phase 1 are done. H1 rejected. H2 accepted, logistic `h2_full` is the reference. H3 rejected. Ridge did not help. H4 clean EPA is rejected. H5 and H5b are rejected. The 0.003 threshold was not moved. Phases 3 and 4 are planned. Sprint 2 margin and total is pre-registered in ADR-007. Warehouse numbers are not in the repo until `make train-s2`.
+- `.cursor/rules/ml-experiments.mdc`: phase status. Phase 0 and Phase 1 are done. H1 rejected. H2 accepted, logistic `h2_full` is the reference. H3 rejected. Ridge did not help. H4 clean EPA is rejected. H5 and H5b are rejected. The 0.003 threshold was not moved. Phases 3 and 4 are planned. Sprint 2 margin and total is live. `docs/experiments/reports/sprint2_cv_report.json` records the warehouse CV, n=2191, seasons 2016-2023. Both targets accepted. Margin MAE 10.155811 versus Elo/25 10.412221 (8 of 8 seasons). Total MAE 10.925618 versus the league mean 11.130543 (5 of 8 seasons). Do not hand-edit that file.
 
 ## For AI Assistants
 

@@ -364,6 +364,58 @@ class TestPRGuard:
         assert len(mock_pr_guard.errors) == 1
         assert "behind base branch" in mock_pr_guard.errors[0].message.lower()
 
+    def test_conventional_branch_prefix_passes(self, mock_pr_guard: PRGuard) -> None:
+        """A feat/ or fix/ head branch is accepted."""
+        mock_pr_guard.check_head_branch({"head": {"ref": "feat/protect-published-weeks"}})
+        mock_pr_guard.check_head_branch({"head": {"ref": "fix/market-null"}})
+        assert mock_pr_guard.errors == []
+
+    def test_tool_branch_prefix_fails(self, mock_pr_guard: PRGuard) -> None:
+        """A tool-generated prefix is rejected, including a mixed name."""
+        mock_pr_guard.check_head_branch({"head": {"ref": "cursor/sprint2-score-regression"}})
+        mock_pr_guard.check_head_branch({"head": {"ref": "Cursor/Feat-foo"}})
+        mock_pr_guard.check_head_branch({"head": {"ref": "cursor/feat-protect"}})
+        assert len(mock_pr_guard.errors) == 3
+        assert all(error.check == "branch-name" for error in mock_pr_guard.errors)
+        assert all("tool-generated" in error.message for error in mock_pr_guard.errors)
+
+    def test_unprefixed_branch_fails(self, mock_pr_guard: PRGuard) -> None:
+        """A branch without a conventional prefix is rejected."""
+        mock_pr_guard.check_head_branch({"head": {"ref": "protect-published-weeks"}})
+        mock_pr_guard.check_head_branch({"head": {"ref": "feature/protect-published-weeks"}})
+        assert len(mock_pr_guard.errors) == 2
+        assert all("conventional prefix" in error.message for error in mock_pr_guard.errors)
+
+    def test_pr_body_may_name_the_forbidden_prefix(self, mock_pr_guard: PRGuard) -> None:
+        """The template names the forbidden prefix. That is not an attribution."""
+        mock_pr_guard.check_pr_body(
+            {
+                "body": (
+                    "- [ ] branch name uses a conventional prefix "
+                    "(`feat/`, `fix/`, ...), never `cursor/`."
+                )
+            }
+        )
+        assert mock_pr_guard.errors == []
+
+    def test_pr_body_still_rejects_an_agent_mention(self, mock_pr_guard: PRGuard) -> None:
+        """Naming an agent in the body still fails."""
+        mock_pr_guard.check_pr_body({"body": "Written with cursor agent help."})
+        assert len(mock_pr_guard.errors) == 1
+        assert "ai/agent" in mock_pr_guard.errors[0].message.lower()
+
+    def test_commit_message_still_rejects_the_prefix_word(self, mock_pr_guard: PRGuard) -> None:
+        """Commit messages do not get the prefix exemption."""
+        mock_pr_guard.check_commit_messages(
+            [
+                {
+                    "sha": "abc1234567890",
+                    "commit": {"message": "docs: reject cursor/ branches"},
+                }
+            ]
+        )
+        assert any("cursor" in error.message.lower() for error in mock_pr_guard.errors)
+
 
 class TestValidationError:
     """Test ValidationError dataclass."""
