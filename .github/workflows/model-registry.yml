@@ -1,0 +1,70 @@
+name: Model registry
+
+# Manual only. Register writes one version and does not set an alias.
+# Promote sets alias prod when that version's CV tags pass the gate.
+# This is not the weekly publish. A failure here does not touch Pages.
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Register a version, or set the prod alias on an existing version
+        required: true
+        type: choice
+        options:
+          - register
+          - promote
+      version:
+        description: Version number for promote. Ignored by register.
+        required: false
+        type: string
+        default: ""
+      through_season:
+        description: Last completed season included in the registered fit
+        required: false
+        type: string
+        default: "2023"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: model-registry
+  cancel-in-progress: false
+
+jobs:
+  registry:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv and Python 3.12
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install the locked environment
+        run: uv sync --frozen
+
+      - name: Register or promote
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_HTTP_PATH: ${{ secrets.DATABRICKS_HTTP_PATH }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+          MLFLOW_TRACKING_URI: databricks
+          MLFLOW_REGISTRY_URI: databricks-uc
+          MSYS_NO_PATHCONV: "1"
+          ACTION: ${{ inputs.action }}
+          VERSION: ${{ inputs.version }}
+          THROUGH_SEASON: ${{ inputs.through_season }}
+        run: |
+          if [ "${ACTION}" = "promote" ]; then
+            if [ -z "${VERSION}" ]; then
+              echo "promote needs a version number." >&2
+              exit 1
+            fi
+            uv run python -m endzone.modeling.registry_command promote --version "${VERSION}"
+          else
+            uv run python -m endzone.modeling.registry_command register --through-season "${THROUGH_SEASON}"
+          fi

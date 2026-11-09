@@ -121,7 +121,7 @@ endzone-mlops demonstrates a modern lakehouse architecture for NFL analytics, co
 
 **v0.1 Scope**: Pregame win probability (logistic `h2_full`) plus margin and total. Both score targets passed ADR-007, so weekly scoring writes the estimate.
 
-**Future**: In-game model, ensemble methods, drift monitoring. None of those are in the repo.
+**Future**: In-game model, ensemble methods, and a feature-distribution drift monitor. None of those are in the repo. The published log-loss alert is ADR-009.
 
 #### 4. Delta Lake / Storage (Databricks/Snowflake)
 
@@ -196,7 +196,7 @@ sequenceDiagram
     MLflow-->>Train: Return run_id
     Train->>Train: Save model to registry
     Gold->>Score: Read games before the scored week, and the slate to publish
-    Score->>MLflow: Log logistic h2_full with a signature and register it
+    Score->>MLflow: Load alias prod, or fit h2_full and register that fallback
     Score->>Pred: Write one week of home win probabilities
 ```
 
@@ -212,7 +212,7 @@ A second vendor for in-play data is not in this repo. Bronze history comes from 
 
 ```
 endzone/
-├── config.py                 # .env, DATABRICKS_*, MLflow tracking URI
+├── config.py                 # .env, DATABRICKS_*, MLflow tracking and registry URIs
 ├── data/
 │   └── warehouse.py          # SQL reads and Volume upload
 ├── ingest/
@@ -225,8 +225,8 @@ endzone/
 │   └── volume.py             # Volume upload and bronze DDL
 ├── features/
 │   └── pregame.py            # Pregame feature engineering
-├── modeling/                 # CV, train, score, margin and total
-├── site/                     # Results overlay, archive, track record
+├── modeling/                 # CV, train, score, registry, margin and total
+├── site/                     # Results overlay, archive, track record, model alert
 ├── train/
 │   └── train.py              # Training script (argparse, MLflow)
 ├── analysis/                 # Input audits
@@ -263,11 +263,12 @@ endzone/
 
 ### Weekly batch (live)
 
-- **Pages** (`.github/workflows/pages.yml`): Tuesday 12:00 UTC scores the next unpublished week, overlays finals, archives `published-slates`, and deploys `site/`. A push to `main` restores that branch and does not fit a model.
-- **Results** (`.github/workflows/refresh-results.yml`): overlays finals on the published slate and deploys, without warehouse credentials. Tuesday 08:30 UTC is the early pass before the scoring deploy.
+- **Pages** (`.github/workflows/pages.yml`): Tuesday 12:00 UTC loads alias `prod` for the next unpublished week, or fits that week when the alias is missing, then overlays finals, archives `published-slates`, and deploys `site/`. A push to `main` restores that branch and does not fit a model.
+- **Results** (`.github/workflows/refresh-results.yml`): overlays finals on the published slate, writes the track record, runs the log-loss alert, and deploys, without warehouse credentials. Tuesday 08:30 UTC is the early pass before the scoring deploy.
+- **Registry** (`.github/workflows/model-registry.yml`): manual register or promote. It is not on the Pages schedule.
 - **Archive**: the orphan branch `published-slates`. A published week is not rescored.
 
-A daily refresh, a drift signal, and a live feed are not part of this batch.
+A daily refresh, a feature-distribution drift monitor, and a live feed are not part of this batch. The published log-loss alert is the quality signal (ADR-009).
 
 ### NOT in Scope (v0.1)
 
@@ -340,12 +341,12 @@ A daily refresh, a drift signal, and a live feed are not part of this batch.
 
 **Day 14 Scope**:
 - Logging: Python `logging` module with timestamps
-- One drift/quality signal: e.g., log prediction distribution to MLflow or `monitoring_*` table
+- One quality signal: published log loss gap above the reference CV gap plus a margin, one GitHub issue (ADR-009)
 
 **Future**:
-- Drift detection (PSI, KS test)
+- Feature-distribution drift (PSI, KS test)
 - Data quality dashboards (Great Expectations + dbt tests)
-- Alerting (Slack, email on drift)
+- Alerting beyond that one issue (Slack, email)
 
 ## References
 

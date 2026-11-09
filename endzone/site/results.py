@@ -54,6 +54,7 @@ _FROZEN_DOCUMENT_FIELDS: tuple[str, ...] = (
     "generated_at",
     "model_name",
     "model_version",
+    "model_alias",
     "feature_set",
 )
 

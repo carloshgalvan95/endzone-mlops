@@ -295,6 +295,7 @@ def test_prediction_document_schema_and_market_gap() -> None:
     assert second["kickoff"] == "2026-11-08"
     assert document["sample"] is False
     assert document["model_version"] == "3"
+    assert document["model_alias"] is None
     assert document["score_model"]["accepted"] is False
     assert first["estimated_home_points"] is None
     assert first["estimated_away_points"] is None
@@ -501,7 +502,7 @@ def test_score_week_registers_model_and_writes_json(tmp_path: Path) -> None:
     assert lined["kickoff"] == "2024-11-03T13:00:00-05:00"
     week_file = json.loads(Path(result["paths"]["week"]).read_text(encoding="utf-8"))
     assert week_file["model_version"] == result["model_version"]
-    client = mlflow.MlflowClient(tracking_uri=tracking_uri)
+    client = mlflow.MlflowClient(tracking_uri=tracking_uri, registry_uri=tracking_uri)
     versions = client.search_model_versions("name='endzone-winprob'")
     assert len(versions) == 1
     _reset_mlflow_tracking()
@@ -1048,3 +1049,172 @@ def test_pages_push_does_not_invoke_score() -> None:
     assert "cron:" in text
     assert text.index("endzone.site.archive restore") < text.index("endzone.modeling.score")
     assert text.index("endzone.site.results") < text.index("latest.json")
+    assert "MLFLOW_REGISTRY_URI: databricks-uc" in score_steps[0]
+    assert "MLFLOW_TRACKING_URI: sqlite:///mlflow.db" in score_steps[0]
+
+
+def test_score_uses_the_prod_alias_and_does_not_register_again(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A promoted version scores the next week and the registry does not grow."""
+    import mlflow
+
+    from endzone.modeling.score import fit_logistic_pipeline as real_fit
+
+    games, team_games, upcoming = _completed_and_slate()
+    catalog = load_team_catalog()
+    tracking_uri: str = "sqlite:///" + (tmp_path / "mlflow.db").as_posix()
+    first_settings = WeeklyScoreSettings(
+        output_dir=tmp_path / "first",
+        tracking_uri=tracking_uri,
+        logistic_max_iter=400,
+        generated_at=_FIXED_CLOCK,
+    )
+    calls: dict[str, int] = {"fit": 0}
+
+    def counting_fit(*args: object, **kwargs: object) -> object:
+        calls["fit"] += 1
+        return real_fit(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr("endzone.modeling.score.fit_logistic_pipeline", counting_fit)
+    try:
+        first = score_upcoming_week(games, team_games, upcoming, catalog, first_settings)
+        version: str = first["model_version"]
+        assert version.isdigit()
+        assert first["model_alias"] is None
+        client = mlflow.MlflowClient(tracking_uri=tracking_uri, registry_uri=tracking_uri)
+        client.set_registered_model_alias("endzone-winprob", "prod", version)
+        second_settings = WeeklyScoreSettings(
+            output_dir=tmp_path / "second",
+            tracking_uri=tracking_uri,
+            logistic_max_iter=400,
+            generated_at=_FIXED_CLOCK,
+        )
+        second = score_upcoming_week(games, team_games, upcoming, catalog, second_settings)
+    finally:
+        _reset_mlflow_tracking()
+
+    assert calls["fit"] == 1
+    assert second["model_source"] == "registry"
+    assert second["model_alias"] == "prod"
+    assert second["model_version"] == f"{version}@prod"
+    assert second["document"]["model_alias"] == "prod"
+    assert second["document"]["model_name"] == "endzone-winprob"
+    first_probs = {game["game_id"]: game["model_home_wp"] for game in first["document"]["games"]}
+    second_probs = {game["game_id"]: game["model_home_wp"] for game in second["document"]["games"]}
+    assert second_probs == first_probs
+    for game in second["document"]["games"]:
+        assert game["model_version"] == f"{version}@prod"
+    client = mlflow.MlflowClient(tracking_uri=tracking_uri, registry_uri=tracking_uri)
+    versions = client.search_model_versions("name='endzone-winprob'")
+    assert len(versions) == 1
+
+
+def test_missing_prod_alias_registers_only_on_the_tracking_store(tmp_path: Path) -> None:
+    """The weekly fit stays on the tracking store when the prod registry is empty."""
+    import mlflow
+
+    games, team_games, upcoming = _completed_and_slate()
+    catalog = load_team_catalog()
+    tracking_uri: str = "sqlite:///" + (tmp_path / "tracking.db").as_posix()
+    registry_uri: str = "sqlite:///" + (tmp_path / "registry.db").as_posix()
+    settings = WeeklyScoreSettings(
+        output_dir=tmp_path / "out",
+        tracking_uri=tracking_uri,
+        registry_uri=registry_uri,
+        logistic_max_iter=400,
+        generated_at=_FIXED_CLOCK,
+    )
+    try:
+        result = score_upcoming_week(games, team_games, upcoming, catalog, settings)
+    finally:
+        _reset_mlflow_tracking()
+
+    assert result["model_source"] == "refit"
+    assert result["model_alias"] is None
+    assert result["model_version"].isdigit()
+    tracking = mlflow.MlflowClient(tracking_uri=tracking_uri, registry_uri=tracking_uri)
+    assert len(tracking.search_model_versions("name='endzone-winprob'")) == 1
+    registry = mlflow.MlflowClient(tracking_uri=registry_uri, registry_uri=registry_uri)
+    assert registry.search_registered_models() == []
+
+
+def test_a_loaded_model_that_cannot_score_falls_back_to_a_fit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A prod model that cannot score the slate does not stop the week file."""
+    from endzone.modeling.registry import ProdModel
+
+    class Unusable:
+        """A stand-in whose probabilities cannot be read."""
+
+        classes_ = [0, 1]
+
+        def predict_proba(self, frame: object) -> object:
+            raise ValueError("this artifact cannot score the slate")
+
+    def fake_load(model_name: str, registry_uri: str) -> ProdModel:
+        return ProdModel(
+            model=Unusable(),
+            version="9",
+            alias="prod",
+            model_name=model_name,
+            model_uri=f"models:/{model_name}@prod",
+        )
+
+    monkeypatch.setattr("endzone.modeling.score.load_prod_model", fake_load)
+    games, team_games, upcoming = _completed_and_slate()
+    catalog = load_team_catalog()
+    tracking_uri: str = "sqlite:///" + (tmp_path / "mlflow.db").as_posix()
+    settings = WeeklyScoreSettings(
+        output_dir=tmp_path / "out",
+        tracking_uri=tracking_uri,
+        logistic_max_iter=400,
+        generated_at=_FIXED_CLOCK,
+    )
+    try:
+        result = score_upcoming_week(games, team_games, upcoming, catalog, settings)
+    finally:
+        _reset_mlflow_tracking()
+
+    assert result["model_source"] == "refit"
+    assert result["model_version"].isdigit()
+    assert result["model_version"] != "9@prod"
+    assert result["document"]["model_alias"] is None
+
+
+def test_model_alias_is_optional_and_must_be_text_when_present() -> None:
+    """Old week files omit the alias. A present value is text or null."""
+    games = pd.DataFrame(
+        [
+            {
+                "game_id": "G1",
+                "gameday": "2026-11-08",
+                "gametime": "13:00",
+                "home_team": "BUF",
+                "away_team": "MIA",
+            }
+        ]
+    )
+    document = build_prediction_document(
+        season=2026,
+        week=9,
+        games=games,
+        model_probabilities=pd.Series({"G1": 0.6}),
+        market_probabilities={"G1": 0.55},
+        model_name="endzone-winprob",
+        model_version="3",
+        feature_set="h2_full",
+        generated_at="2026-11-04T12:00:00Z",
+    )
+    del document["model_alias"]
+    validate_prediction_document(document)
+    document["model_alias"] = None
+    validate_prediction_document(document)
+    document["model_alias"] = "prod"
+    validate_prediction_document(document)
+    document["model_alias"] = 3
+    with pytest.raises(ValueError, match="model_alias"):
+        validate_prediction_document(document)

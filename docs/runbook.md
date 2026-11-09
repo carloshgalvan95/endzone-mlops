@@ -920,7 +920,7 @@ The page is an open experiment. It is not betting picks. Generated week JSON sta
 
 **Push to `main`.** `.github/workflows/pages.yml` restores `published-slates` first. A week the branch does not have yet is copied from the live site. It then overlays nflverse finals, archives those exact files, and deploys `site/`. It does not fit a model and it does not rewrite probabilities. If the archive push fails, the site is not deployed. Use a push for UI and overlay changes.
 
-**Tuesday 12:00 UTC.** The same workflow refreshes the current season, builds the Databricks marts, restores the archive first, and scores the next unpublished week. If that week file is already present after the restore, it is kept. A score or an archive write that would drop a `game_id` fails the job, and the previous deployment stays up. Adding games is allowed.
+**Tuesday 12:00 UTC.** The same workflow refreshes the current season, builds the Databricks marts, restores the archive first, and scores the next unpublished week. The score loads alias `prod` from Unity Catalog (`MLFLOW_REGISTRY_URI=databricks-uc`). Tracking stays `sqlite:///mlflow.db`. If the alias is missing or the registry cannot be read, the log says so and the job fits logistic `h2_full` on games before that week. That fit is registered in the sqlite file and does not get the alias. If that week file is already present after the restore, it is kept. A score or an archive write that would drop a `game_id` fails the job, and the previous deployment stays up. Adding games is allowed.
 
 **Rebuild one week.** This is the only way to replace probabilities for a week that is already published. It predicts every scheduled game that week, played and unplayed, and trains only on completed games before that week. Same-week finals are not labels and are not features. The results overlay then sets `status` to `final` only when nflverse has both scores. A 0-0 final is a tie. A missing score stays `scheduled`. The archive is updated before the deploy, and it still refuses a dropped `game_id`.
 
@@ -940,7 +940,9 @@ $env:WEEK = "9"
 
 GitHub Actions: run Pages with `workflow_dispatch`, set `replace_published` to true, and set both season and week. Leaving the flag off scores the next unpublished week, or keeps it when the file is already there. The archive is updated before the deploy.
 
-**Results.** `make score` is the unpublished-week command. `make refresh-results` overlays finals and does not refit. `.github/workflows/refresh-results.yml` restores the archive first, overlays, archives, and deploys on game-day windows. It has no warehouse credentials. A pass that does not change the JSON does not add a commit. A new `results_updated_at` does.
+**Results.** `make score` is the unpublished-week command. `make refresh-results` overlays finals and does not refit. `.github/workflows/refresh-results.yml` restores the archive first, overlays, writes the track record, runs the model alert, archives, and deploys on game-day windows. It has no warehouse credentials. A pass that does not change the JSON does not add a commit. A new `results_updated_at` does.
+
+The alert compares published log loss with the no-vig market on the last 64 decided games that have a price, and only after 48 of them. The reference gap is logistic `h2_full` minus the market row in `docs/experiments/reference_metrics.json` (0.6377 minus 0.6120 today). It trips when the window gap exceeds that reference gap by the margin, default 0.02, so the bar is about 0.046. A window that matches the reference table stays quiet. Trailing the market by the reference gap is the known state. The issue is not a betting signal. Override the margin with `ENDZONE_ALERT_GAP_MARGIN`. The other overrides are `ENDZONE_ALERT_WINDOW_GAMES` and `ENDZONE_ALERT_MIN_GAMES`. A trip opens or updates one issue labeled `model-behind-market`. A 403 or any other GitHub error is logged. The step does not fail the deploy. See ADR-009.
 
 **Backfill, once.** Run this after the archive change is on `main`, and before the next Tuesday score, so 2026 week 9 is on the branch. That slate has 15 games and was regenerated at 2026-11-09T04:28:37Z. In Actions, open Pages, Run workflow, and set `backfill_archive` to true. Leave season and week empty. It copies the live site onto `published-slates`. It does not score and it does not deploy.
 
@@ -970,6 +972,38 @@ Sprint 2 margin and total passed ADR-007, so the page shows those estimates. A t
 If the branch cannot be read, the file says the record is unavailable and the page shows that sentence. It does not fill the table from the site files alone. If an archived week file cannot be parsed, the command fails, deletes a stale `track_record.json`, and the deploy does not go out. Definitions, the clip, ties, and the small-sample labels are in ADR-008.
 
 The table shows one row per archived week and a season to date row. A week with no finals stays in the table with blank rates. A week that still has scheduled games is marked in progress and counts only finals. One finished week is labeled a small sample.
+
+**First registration, once.** Run this after ADR-009 is on `main`, and before you expect Tuesday to load alias `prod`. Until the promote step finishes, Tuesday logs that the alias is missing and fits the week. These commands use the existing Databricks secrets. They create the model object `workspace.nfl_dev.endzone_winprob` in schema `nfl_dev`. They do not create a schema, and they do not alter or delete a table or a model version. Do not drop the model to retry. Register again only creates the next version.
+
+Marts have to exist (`make dbt-build-databricks` if `make verify-reference` cannot read them). A local `.env` that is not committed:
+
+```bash
+MLFLOW_TRACKING_URI=databricks
+MLFLOW_REGISTRY_URI=databricks-uc
+```
+
+Keep the existing `DATABRICKS_HOST`, `DATABRICKS_HTTP_PATH`, and `DATABRICKS_TOKEN`. Then:
+
+```bash
+make verify-reference
+make register-model
+make promote-model VERSION=1
+```
+
+`make register-model` fits logistic `h2_full` through season 2023 and stores the rolling-origin CV tags from the reference check. It refuses, and writes nothing, when that check fails. It does not set the alias. `make promote-model VERSION=1` sets alias `prod` only when those tags match the golden row. A refusal leaves the alias unset.
+
+Windows, from the repo root, with the same `.env`:
+
+```powershell
+.\scripts\dev.ps1 verify-reference
+.\scripts\dev.ps1 register-model
+$env:VERSION = "1"
+.\scripts\dev.ps1 promote-model
+```
+
+The same two steps are the Model registry workflow (`workflow_dispatch` only). Run it once with action `register` and `through_season` `2023`. When that succeeds, run it again with action `promote` and `version` `1`. That workflow is not the Pages job. A failure there does not deploy.
+
+`make reproduce` still does not register a model.
 
 ---
 

@@ -399,6 +399,7 @@ def build_prediction_document(
     sample: bool = False,
     score_lines: dict[str, dict[str, float | None]] | None = None,
     score_model: dict[str, Any] | None = None,
+    model_alias: str | None = None,
 ) -> dict[str, Any]:
     """Build the weekly JSON document.
 
@@ -455,6 +456,7 @@ def build_prediction_document(
         "generated_at": generated_at,
         "model_name": model_name,
         "model_version": model_version,
+        "model_alias": model_alias,
         "feature_set": feature_set,
         "threshold_pp": DEFAULT_THRESHOLD_PP,
         "score_model": model,
@@ -485,6 +487,10 @@ def validate_prediction_document(document: dict[str, Any]) -> None:
     missing: list[str] = [key for key in required if key not in document]
     if missing:
         raise ValueError(f"Prediction document missing keys: {', '.join(missing)}.")
+    if "model_alias" in document:
+        alias: object = document["model_alias"]
+        if alias is not None and (not isinstance(alias, str) or alias.strip() == ""):
+            raise ValueError("model_alias must be a string or null.")
     _validate_results_updated_at(document.get("results_updated_at"))
     if not isinstance(document["games"], list) or len(document["games"]) == 0:
         raise ValueError("Prediction document needs at least one game.")

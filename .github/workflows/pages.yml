@@ -104,7 +104,10 @@ jobs:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
           DATABRICKS_HTTP_PATH: ${{ secrets.DATABRICKS_HTTP_PATH }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+          # Load alias prod from Unity Catalog. A missing alias still fits
+          # this week and registers that fit in the sqlite file below.
           MLFLOW_TRACKING_URI: sqlite:///mlflow.db
+          MLFLOW_REGISTRY_URI: databricks-uc
           MSYS_NO_PATHCONV: "1"
           SCORE_SEASON: ${{ github.event.inputs.season || '' }}
           SCORE_WEEK: ${{ github.event.inputs.week || '' }}

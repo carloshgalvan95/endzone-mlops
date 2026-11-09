@@ -83,6 +83,36 @@ def load_reference_metrics(path: Path | None = None) -> dict[str, Any]:
     return payload
 
 
+def reference_market_gap(path: Path | None = None) -> float:
+    """Return logistic ``h2_full`` log loss minus the no-vig market log loss.
+
+    Both numbers come from the locked reference file. The difference is the
+    validated baseline. A published window that matches it is the known state.
+
+    Raises:
+        ValueError: A required row has no log loss.
+    """
+    payload: dict[str, Any] = load_reference_metrics(path)
+    model_loss: float = _reference_log_loss(payload, "logistic", "h2_full")
+    market_loss: float = _reference_log_loss(payload, "market", "market")
+    return model_loss - market_loss
+
+
+def _reference_log_loss(payload: dict[str, Any], model_name: str, feature_set: str) -> float:
+    """Return one locked log loss.
+
+    Raises:
+        ValueError: The row is missing or the log loss is not a finite number.
+    """
+    for row in payload["models"]:
+        if row.get("model") == model_name and row.get("feature_set") == feature_set:
+            number: float | None = _reference_metric_number(row.get("log_loss"))
+            if number is None:
+                raise ValueError(f"{model_name}/{feature_set} has no log loss.")
+            return number
+    raise ValueError(f"Reference metrics have no {model_name} {feature_set} row.")
+
+
 def compare_reference_metrics(
     report: dict[str, Any],
     reference: dict[str, Any],

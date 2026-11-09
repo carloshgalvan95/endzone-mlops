@@ -23,6 +23,11 @@ DEFAULT_MARTS_SCHEMA: str = "nfl_dev_marts"
 DEFAULT_STAGING_SCHEMA: str = "nfl_dev_staging"
 DEFAULT_RAW_SCHEMA: str = "nfl_raw"
 DEFAULT_MLFLOW_TRACKING_URI: str = "sqlite:///mlflow.db"
+# Unity Catalog names cannot contain a hyphen. The local registry keeps
+# endzone-winprob. The UC model is catalog.schema.endzone_winprob.
+DEFAULT_LOCAL_REGISTERED_MODEL: str = "endzone-winprob"
+DEFAULT_UC_SCHEMA: str = "nfl_dev"
+DEFAULT_UC_MODEL: str = "endzone_winprob"
 
 _MISSING_CREDENTIALS: str = (
     "Missing required Databricks environment variables. "
@@ -172,6 +177,54 @@ def configured_tracking_uri() -> str:
     if raw is None:
         raw = DEFAULT_MLFLOW_TRACKING_URI
     return resolve_tracking_uri(raw)
+
+
+def configured_registry_uri() -> str:
+    """Return the MLflow registry URI.
+
+    ``MLFLOW_REGISTRY_URI`` wins when it is set. Otherwise the registry is
+    the tracking URI, so a sqlite store used in tests is also the registry.
+
+    Returns:
+        A scheme URI. ``databricks-uc`` is returned unchanged.
+    """
+    load_env_file()
+    raw: str | None = os.environ.get("MLFLOW_REGISTRY_URI")
+    if raw is not None and raw.strip() != "":
+        return resolve_tracking_uri(raw.strip())
+    return configured_tracking_uri()
+
+
+def unity_catalog_registry(registry_uri: str) -> bool:
+    """True when the registry URI targets Unity Catalog."""
+    text: str = registry_uri.strip()
+    return text == "databricks-uc" or text.startswith("databricks-uc")
+
+
+def configured_registered_model_name(registry_uri: str | None = None) -> str:
+    """Return the registered model name for this registry.
+
+    ``ENDZONE_REGISTERED_MODEL`` overrides the default. Unity Catalog uses
+    ``catalog.schema.endzone_winprob`` (default ``workspace.nfl_dev.endzone_winprob``).
+    A sqlite or file registry uses ``endzone-winprob``.
+
+    Args:
+        registry_uri: Registry to name. ``None`` reads the configured URI.
+
+    Returns:
+        The model name passed to MLflow.
+    """
+    load_env_file()
+    explicit: str | None = os.environ.get("ENDZONE_REGISTERED_MODEL")
+    if explicit is not None and explicit.strip() != "":
+        return explicit.strip()
+    resolved: str = configured_registry_uri() if registry_uri is None else registry_uri.strip()
+    if not unity_catalog_registry(resolved):
+        return DEFAULT_LOCAL_REGISTERED_MODEL
+    catalog: str = resolve_setting(None, "DATABRICKS_CATALOG", DEFAULT_CATALOG)
+    schema: str = resolve_setting(None, "ENDZONE_UC_SCHEMA", DEFAULT_UC_SCHEMA)
+    model_name: str = resolve_setting(None, "ENDZONE_UC_MODEL", DEFAULT_UC_MODEL)
+    return f"{catalog}.{schema}.{model_name}"
 
 
 load_env_file()
