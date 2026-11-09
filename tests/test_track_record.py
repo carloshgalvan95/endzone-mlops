@@ -566,6 +566,56 @@ def test_stamp_rewrites_asset_urls_and_not_json(tmp_path: Path) -> None:
     assert week.read_bytes() == original
 
 
+_OG_IMAGE_URL: str = "https://carloshgalvan95.github.io/endzone-mlops/assets/og-image.png"
+
+
+def _png_size(payload: bytes) -> tuple[int, int]:
+    """Return width and height from a PNG IHDR chunk."""
+    if payload[:8] != b"\x89PNG\r\n\x1a\n" or payload[12:16] != b"IHDR":
+        raise AssertionError("og-image.png is not a PNG")
+    width: int = int.from_bytes(payload[16:20], "big")
+    height: int = int.from_bytes(payload[20:24], "big")
+    return width, height
+
+
+def test_open_graph_image_stays_unhashed_in_the_built_site(tmp_path: Path) -> None:
+    """Pages hashes CSS and JS. The Open Graph file keeps a stable absolute URL.
+
+    The Pages artifact is the site directory after ``stamp_asset_urls``.
+    """
+    source_root: Path = Path("site")
+    source_image: Path = source_root / "assets" / "og-image.png"
+    source_bytes: bytes = source_image.read_bytes()
+    assert _png_size(source_bytes) == (1200, 627)
+
+    built: Path = tmp_path / "site"
+    assets: Path = built / "assets"
+    assets.mkdir(parents=True)
+    index: Path = built / "index.html"
+    index.write_text(
+        (source_root / "index.html").read_text(encoding="utf-8"),
+        encoding="utf-8",
+        newline="\n",
+    )
+    for asset in (source_root / "assets").iterdir():
+        if asset.is_file():
+            (assets / asset.name).write_bytes(asset.read_bytes())
+
+    stamped: dict[str, str] = stamp_asset_urls(index)
+    html: str = index.read_text(encoding="utf-8")
+    names: list[str] = sorted(path.name for path in assets.glob("og-image*.png"))
+
+    assert names == ["og-image.png"]
+    assert (assets / "og-image.png").read_bytes() == source_bytes
+    assert f'property="og:image" content="{_OG_IMAGE_URL}"' in html
+    assert f'name="twitter:image" content="{_OG_IMAGE_URL}"' in html
+    assert f"{_OG_IMAGE_URL}?" not in html
+    assert "og-image.png?v=" not in html
+    assert "assets/og-image.png" not in stamped
+    assert "assets/styles.css?v=" in html
+    assert "assets/app.js?v=" in html
+
+
 def test_record_section_is_a_table() -> None:
     """The public page exposes the record as a table and points at the method."""
     html: str = Path("site/index.html").read_text(encoding="utf-8")
