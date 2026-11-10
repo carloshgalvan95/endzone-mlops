@@ -55,7 +55,7 @@ Flow: nflverse -> bronze (`endzone/ingest`) -> dbt staging -> dbt marts -> `endz
 
 `endzone/config.py` reads `.env`. `endzone/data/warehouse.py` is the SQL and Volume client. Hypothesis files are `configs/experiments/*.yaml`. The canonical command is `python -m endzone.modeling.train`. `python -m endzone.train.train` is the same flags. Weekly scoring is `python -m endzone.modeling.score`.
 
-MLflow experiments: `nfl_pregame` (single split), `nfl_pregame/phase0_audit`, `nfl_pregame/phase1_baselines`, `nfl_pregame/phase2_h1` through `phase2_h5b` and `phase2_ridge`, `nfl_pregame/sprint2_score`, and `nfl_pregame/weekly`. A CV run logs one parent and one nested child per model. Child tag `decision` is `accepted`, `rejected`, `reference`, `baseline`, or `inconclusive`.
+MLflow experiments: `nfl_pregame` (single split), `nfl_pregame/phase0_audit`, `nfl_pregame/phase1_baselines`, `nfl_pregame/phase2_h1` through `phase2_h5b` and `phase2_ridge`, `nfl_pregame/sprint2_score`, `nfl_pregame/weekly`, and `nfl_pregame/registry`. Those are the sqlite names. A Databricks tracking URI stores a relative name under `/Shared/endzone-mlops` unless `ENDZONE_MLFLOW_EXPERIMENT_ROOT` is set. A CV run logs one parent and one nested child per model. Child tag `decision` is `accepted`, `rejected`, `reference`, `baseline`, or `inconclusive`.
 
 CI is [`.github/workflows/ci.yml`](.github/workflows/ci.yml), on push and pull request to `main`. Ubuntu runs ruff, the structure and import check, vulture, pytest, analysis coverage, and the local DuckDB dbt compile. Windows and macOS run ruff, the structure and import check, and pytest.
 

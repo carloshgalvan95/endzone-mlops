@@ -11,8 +11,9 @@ from typing import Any, NamedTuple
 import mlflow
 import mlflow.sklearn
 import pandas as pd
+from mlflow.utils.uri import is_databricks_uri
 
-from endzone.config import resolve_tracking_uri
+from endzone.config import resolve_setting, resolve_tracking_uri
 from endzone.modeling.evaluation import (
     MIN_LOG_LOSS_IMPROVEMENT,
     acceptance_decisions,
@@ -36,6 +37,10 @@ REVIEWED_SKOPS_TRUSTED_TYPES: frozenset[str] = frozenset(
 )
 CV_SCHEME: str = "rolling_season_2016_2023"
 CV_DATASET_NAME: str = "nfl_pregame_cv"
+# Databricks rejects a relative experiment name. Relative names are stored
+# under this workspace folder unless ENDZONE_MLFLOW_EXPERIMENT_ROOT is set.
+DEFAULT_DATABRICKS_EXPERIMENT_ROOT: str = "/Shared/endzone-mlops"
+_ENV_EXPERIMENT_ROOT: str = "ENDZONE_MLFLOW_EXPERIMENT_ROOT"
 BASELINE_MODEL_NAMES: frozenset[str] = frozenset({"baseline-home", "elo", "market"})
 SCORED_FEATURE_MODELS: frozenset[str] = frozenset({"logistic", "logistic_l2"})
 
@@ -147,36 +152,156 @@ def log_registered_sklearn_model(
     )
 
 
+def resolve_experiment_name(
+    experiment_name: str,
+    tracking_uri: str,
+    *,
+    root: str | None = None,
+) -> str:
+    """Return the experiment name for this tracking store.
+
+    SQLite, file, and HTTP stores keep the name, including when
+    ``ENDZONE_MLFLOW_EXPERIMENT_ROOT`` is set. A Databricks tracking URI
+    (``databricks`` or ``databricks://...``) prefixes a relative name with
+    the workspace root. A name that already starts with ``/`` is unchanged.
+    ``databricks-uc`` is a registry URI and is not rewritten.
+
+    Args:
+        experiment_name: Logical name such as ``nfl_pregame/registry``.
+        tracking_uri: Tracking URI passed to ``mlflow.set_tracking_uri``.
+        root: Workspace folder. ``None`` reads ``ENDZONE_MLFLOW_EXPERIMENT_ROOT``,
+            then ``/Shared/endzone-mlops``.
+
+    Returns:
+        The name ``set_experiment`` should receive.
+
+    Raises:
+        ValueError: The name is blank, or a Databricks root is not an
+            absolute workspace path.
+    """
+    name: str = experiment_name.strip()
+    if name == "":
+        raise ValueError("Experiment name must not be blank.")
+    if not is_databricks_uri(tracking_uri):
+        return name
+    if name.startswith("/"):
+        return name
+    return f"{_databricks_experiment_root(root)}/{name}"
+
+
+def databricks_experiment_parent(experiment_path: str) -> str | None:
+    """Return the workspace folder that must exist before ``set_experiment``.
+
+    Databricks stores an experiment as a workspace object. Creating it does
+    not create the parent folder. The experiment path itself is not a folder.
+
+    Args:
+        experiment_path: Absolute workspace path of the experiment.
+
+    Returns:
+        The parent folder, or ``None`` when the experiment sits at the
+        workspace root.
+
+    Raises:
+        ValueError: The path is not absolute.
+    """
+    if not experiment_path.startswith("/"):
+        raise ValueError("Databricks experiment path must be absolute.")
+    parent: str = experiment_path.rsplit("/", 1)[0]
+    if parent == "":
+        return None
+    return parent
+
+
+def ensure_databricks_experiment_parent(experiment_path: str, tracking_uri: str) -> None:
+    """Create the parent workspace folder if it is missing.
+
+    ``WorkspaceClient.workspace.mkdirs`` creates missing parents and does
+    nothing when the folder already exists. A ``databricks://profile`` URI
+    uses that profile. ``databricks`` and a secret-scope URI use the default
+    client, which reads the same ``DATABRICKS_HOST`` and ``DATABRICKS_TOKEN``
+    MLflow uses.
+
+    Raises:
+        ValueError: The experiment path is not absolute.
+    """
+    parent: str | None = databricks_experiment_parent(experiment_path)
+    if parent is None:
+        return
+    from databricks.sdk import WorkspaceClient
+
+    profile: str | None = _databricks_profile(tracking_uri)
+    client = WorkspaceClient(profile=profile) if profile else WorkspaceClient()
+    logger.info("Ensuring Databricks workspace folder %s", parent)
+    client.workspace.mkdirs(parent)
+
+
+def _databricks_experiment_root(explicit: str | None) -> str:
+    """Return a clean absolute workspace folder.
+
+    Raises:
+        ValueError: The root is blank, relative, or contains an empty or
+            ``..`` segment.
+    """
+    raw: str = resolve_setting(explicit, _ENV_EXPERIMENT_ROOT, DEFAULT_DATABRICKS_EXPERIMENT_ROOT)
+    root: str = raw.rstrip("/")
+    parts: list[str] = root.split("/")
+    if root == "" or not root.startswith("/") or any(part in ("", "..") for part in parts[1:]):
+        raise ValueError(
+            "ENDZONE_MLFLOW_EXPERIMENT_ROOT must be an absolute Databricks "
+            "workspace path such as /Shared/endzone-mlops."
+        )
+    return root
+
+
+def _databricks_profile(tracking_uri: str) -> str | None:
+    """Return a profile name from ``databricks://profile``, or ``None``."""
+    if not tracking_uri.startswith("databricks://"):
+        return None
+    profile: str = tracking_uri.removeprefix("databricks://").split("/", 1)[0]
+    if profile == "" or ":" in profile:
+        return None
+    return profile
+
+
 def activate_tracking_experiment(experiment_name: str, tracking_uri: str) -> None:
     """Point MLflow at a tracking URI and activate an experiment.
 
-    Scheme URIs such as ``sqlite:///mlflow.db`` are used as given.
+    Scheme URIs such as ``sqlite:///mlflow.db`` keep the given experiment
+    name. A Databricks tracking URI turns a relative name into an absolute
+    workspace path and creates the parent folder when it is missing.
     ``databricks`` targets keep the workspace artifact root. A new SQLite
     experiment stores artifacts under ``mlartifacts/``.
     """
     mlflow.set_tracking_uri(tracking_uri)
+    resolved_name: str = resolve_experiment_name(experiment_name, tracking_uri)
+    if is_databricks_uri(tracking_uri):
+        logger.info("Using Databricks MLflow experiment %s", resolved_name)
+        ensure_databricks_experiment_parent(resolved_name, tracking_uri)
+        mlflow.set_experiment(resolved_name)
+        return
     is_databricks_target: bool = tracking_uri == "databricks" or tracking_uri.startswith(
         "databricks"
     )
     if is_databricks_target:
         logger.info("Using Databricks MLflow tracking")
-        mlflow.set_experiment(experiment_name)
+        mlflow.set_experiment(resolved_name)
         return
 
     logger.info(f"Using local MLflow tracking: {tracking_uri}")
     if not tracking_uri.startswith("sqlite:"):
-        mlflow.set_experiment(experiment_name)
+        mlflow.set_experiment(resolved_name)
         return
 
     client = mlflow.MlflowClient()
-    experiment = client.get_experiment_by_name(experiment_name)
+    experiment = client.get_experiment_by_name(resolved_name)
     if experiment is not None:
         mlflow.set_experiment(experiment_id=experiment.experiment_id)
         return
 
     artifact_location: str = Path(LOCAL_ARTIFACT_DIR).resolve().as_uri()
     experiment_id: str = client.create_experiment(
-        experiment_name,
+        resolved_name,
         artifact_location=artifact_location,
     )
     mlflow.set_experiment(experiment_id=experiment_id)
