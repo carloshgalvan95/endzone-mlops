@@ -26,9 +26,15 @@ on:
         default: false
         type: boolean
   schedule:
-    # Tuesday 12:00 UTC, after the Monday night game.
-    # This is the automatic score. A push does not fit a model.
+    # GitHub cron is UTC and best effort. America/Mexico_City is UTC-6.
+    # Tuesday 12:00 UTC (06:00 CT) is the automatic score. A push does not
+    # fit a model. The later passes are backups. Odd minutes avoid landing
+    # on the same schedule as the primary. A week already on
+    # published-slates is not scored again. replace_published stays a
+    # manual dispatch input.
     - cron: "0 12 * * 2"
+    - cron: "17 13 * * 2"
+    - cron: "43 14 * * 2"
 
 # Jobs narrow this. contents: write is only on the archive job.
 permissions:
@@ -62,31 +68,9 @@ jobs:
         run: uv sync --frozen
 
       # A push restores published files and overlays finals. It does not
-      # refresh the warehouse or fit a model.
-      - name: Configure the dbt profile
-        if: github.event_name != 'push'
-        working-directory: dbt
-        run: cp profiles.yml.example profiles.yml
-
-      - name: Refresh the current season
-        if: github.event_name != 'push'
-        env:
-          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
-          DATABRICKS_HTTP_PATH: ${{ secrets.DATABRICKS_HTTP_PATH }}
-          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
-          MSYS_NO_PATHCONV: "1"
-        run: uv run python -m endzone.ingest.load_raw_nflverse --current-season --dataset all
-
-      - name: Build Databricks marts
-        if: github.event_name != 'push'
-        working-directory: dbt
-        env:
-          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
-          DATABRICKS_HTTP_PATH: ${{ secrets.DATABRICKS_HTTP_PATH }}
-          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
-          MSYS_NO_PATHCONV: "1"
-        run: uv run dbt deps --profiles-dir . && uv run dbt build --profiles-dir . --target databricks
-
+      # refresh the warehouse or fit a model. A scheduled backup restores
+      # first, and skips the warehouse and the score when that week's file
+      # is already on published-slates.
       - name: Restore published slates
         run: |
           repo_name="${GITHUB_REPOSITORY#*/}"
@@ -98,8 +82,52 @@ jobs:
             --remote origin \
             --branch published-slates
 
-      - name: Score an unpublished week
+      - name: Decide whether the target week is already published
+        id: score_gate
         if: github.event_name != 'push'
+        env:
+          SCORE_SEASON: ${{ github.event.inputs.season || '' }}
+          SCORE_WEEK: ${{ github.event.inputs.week || '' }}
+          REPLACE_PUBLISHED: ${{ github.event.inputs.replace_published || '' }}
+        run: |
+          args=(--output-dir site/data)
+          if [ -n "${SCORE_SEASON}" ]; then
+            args+=(--season "${SCORE_SEASON}")
+          fi
+          if [ -n "${SCORE_WEEK}" ]; then
+            args+=(--week "${SCORE_WEEK}")
+          fi
+          if [ "${REPLACE_PUBLISHED}" = "true" ]; then
+            args+=(--replace-published)
+          fi
+          uv run python -m endzone.site.score_gate "${args[@]}"
+
+      - name: Configure the dbt profile
+        if: github.event_name != 'push' && steps.score_gate.outputs.skip != 'true'
+        working-directory: dbt
+        run: cp profiles.yml.example profiles.yml
+
+      - name: Refresh the current season
+        if: github.event_name != 'push' && steps.score_gate.outputs.skip != 'true'
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_HTTP_PATH: ${{ secrets.DATABRICKS_HTTP_PATH }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+          MSYS_NO_PATHCONV: "1"
+        run: uv run python -m endzone.ingest.load_raw_nflverse --current-season --dataset all
+
+      - name: Build Databricks marts
+        if: github.event_name != 'push' && steps.score_gate.outputs.skip != 'true'
+        working-directory: dbt
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_HTTP_PATH: ${{ secrets.DATABRICKS_HTTP_PATH }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+          MSYS_NO_PATHCONV: "1"
+        run: uv run dbt deps --profiles-dir . && uv run dbt build --profiles-dir . --target databricks
+
+      - name: Score an unpublished week
+        if: github.event_name != 'push' && steps.score_gate.outputs.skip != 'true'
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
           DATABRICKS_HTTP_PATH: ${{ secrets.DATABRICKS_HTTP_PATH }}

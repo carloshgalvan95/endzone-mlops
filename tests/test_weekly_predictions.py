@@ -1021,6 +1021,57 @@ def test_replace_published_scores_the_full_week_without_same_week_results(
     _reset_mlflow_tracking()
 
 
+@pytest.mark.cross_platform
+def test_second_scheduled_score_does_not_change_a_published_week(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A later Tuesday run keeps model_version, generated_at, and the file bytes.
+
+    The scheduled command passes no season and no week. The week file is
+    already the full unplayed slate, which is what a restore from
+    published-slates leaves on disk.
+    """
+
+    def refuse_fit(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("fitted")
+
+    monkeypatch.setattr("endzone.modeling.score.fit_logistic_pipeline", refuse_fit)
+    monkeypatch.setattr("endzone.modeling.score.build_pregame_features", refuse_fit)
+    _games, team_games, upcoming = _completed_and_slate()
+    output = tmp_path / "out"
+    document = build_prediction_document(
+        season=2024,
+        week=9,
+        games=upcoming,
+        model_probabilities=pd.Series({"2024W9BUFMIA": 0.61, "2024W9KCDEN": 0.44}),
+        market_probabilities={"2024W9BUFMIA": 0.58, "2024W9KCDEN": None},
+        model_name="endzone-winprob",
+        model_version="7@prod",
+        feature_set="h2_full",
+        generated_at="2026-11-10T12:05:00Z",
+    )
+    document["results_updated_at"] = "2026-11-10T12:20:00Z"
+    write_prediction_bundle(document, team_catalog_document(_catalog()), output)
+    week_path = output / "predictions" / "2024-w9.json"
+    original = week_path.read_bytes()
+    stored = json.loads(original)
+    result = score_upcoming_week(
+        _games,
+        team_games,
+        upcoming,
+        _catalog(),
+        WeeklyScoreSettings(output_dir=output, generated_at=_FIXED_CLOCK),
+    )
+    assert result["kept_published"] is True
+    assert result["model_version"] == "7@prod"
+    assert week_path.read_bytes() == original
+    assert stored["generated_at"] == "2026-11-10T12:05:00Z"
+    assert stored["model_version"] == "7@prod"
+    assert len(stored["games"]) == 2
+    assert {game["game_id"] for game in stored["games"]} == {"2024W9BUFMIA", "2024W9KCDEN"}
+
+
 def test_pages_push_does_not_invoke_score() -> None:
     """A push restores and overlays. Scoring is Tuesday or an explicit dispatch."""
     text = Path(".github/workflows/pages.yml").read_text(encoding="utf-8")
@@ -1033,6 +1084,7 @@ def test_pages_push_does_not_invoke_score() -> None:
         matched = [step for step in steps if marker in step]
         assert matched
         assert all("github.event_name != 'push'" in step for step in matched)
+        assert all("steps.score_gate.outputs.skip != 'true'" in step for step in matched)
     result_steps = [step for step in steps if "endzone.site.results" in step]
     assert len(result_steps) == 1
     assert "github.event_name != 'push'" not in result_steps[0]
@@ -1043,8 +1095,13 @@ def test_pages_push_does_not_invoke_score() -> None:
     assert "--restore-published" not in score_steps[0]
     assert "replace_published:" in text
     assert "backfill_archive:" in text
-    assert "cron:" in text
-    assert text.index("endzone.site.archive restore") < text.index("endzone.modeling.score")
+    assert 'cron: "0 12 * * 2"' in text
+    assert 'cron: "17 13 * * 2"' in text
+    assert 'cron: "43 14 * * 2"' in text
+    assert "endzone.site.score_gate" in text
+    assert "steps.score_gate.outputs.skip != 'true'" in score_steps[0]
+    assert text.index("endzone.site.archive restore") < text.index("endzone.site.score_gate")
+    assert text.index("endzone.site.score_gate") < text.index("endzone.modeling.score")
     assert text.index("endzone.site.results") < text.index("latest.json")
     assert "MLFLOW_REGISTRY_URI: databricks-uc" in score_steps[0]
     assert "MLFLOW_TRACKING_URI: sqlite:///mlflow.db" in score_steps[0]

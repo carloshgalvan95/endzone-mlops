@@ -544,6 +544,11 @@ def test_results_module_does_not_score_or_drop_finished_games() -> None:
     assert "endzone.modeling.score" not in workflow
     assert "endzone.site.results" in workflow
     assert "workflow_dispatch" in workflow
+    assert 'cron: "47 9 * * 5"' in workflow
+    assert 'cron: "47 17 * * 0"' in workflow
+    assert 'cron: "47 2 * * 1"' in workflow
+    assert 'cron: "47 6 * * 2"' in workflow
+    assert 'cron: "17 10 * * 2"' in workflow
     assert "contents: read" in workflow
     assert "pages: write" in workflow
     assert "id-token: write" in workflow

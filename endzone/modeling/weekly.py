@@ -642,6 +642,66 @@ def week_prediction_path(output_dir: Path, season: int, week: int) -> Path:
     return Path(output_dir) / "predictions" / f"{int(season)}-w{int(week)}.json"
 
 
+def unplayed_games(schedule: pd.DataFrame) -> pd.DataFrame:
+    """Return games whose home and away scores are both missing.
+
+    This is the ``fct_upcoming_games`` filter. A 0-0 final is played, so it
+    stays out. ``select_slate`` is the week picker on the rows this returns.
+
+    Raises:
+        ValueError: ``home_score`` or ``away_score`` is not a column.
+    """
+    missing: list[str] = [
+        column for column in ("home_score", "away_score") if column not in schedule.columns
+    ]
+    if missing:
+        raise ValueError(f"Schedule is missing {', '.join(missing)}.")
+    if schedule.empty:
+        return schedule.copy()
+    home_missing: pd.Series = schedule["home_score"].map(_score_is_missing)
+    away_missing: pd.Series = schedule["away_score"].map(_score_is_missing)
+    return schedule.loc[home_missing & away_missing].reset_index(drop=True)
+
+
+def _score_is_missing(value: object) -> bool:
+    """True when a score cell is null. Zero is a real score."""
+    try:
+        missing: object = pd.isna(value)
+    except (TypeError, ValueError):
+        return False
+    return bool(missing) if isinstance(missing, bool) else False
+
+
+def published_week_is_present(output_dir: Path, season: int, week: int) -> bool:
+    """True when a real week file is already stored for this season and week.
+
+    An example slate is not present. The file is only read. A file that
+    names another week, or a real file with no games, raises so a later
+    score cannot replace it.
+
+    Raises:
+        ValueError: The week file exists, is not an example, and has no games
+            or names a different season or week.
+    """
+    path: Path = week_prediction_path(output_dir, season, week)
+    if not path.is_file():
+        return False
+    document: dict[str, Any] = _read_json_object(path)
+    if document.get("sample") is True:
+        return False
+    file_season: object = document.get("season")
+    file_week: object = document.get("week")
+    if file_season != int(season) or file_week != int(week):
+        raise ValueError(
+            f"{path.name} says season {file_season} week {file_week}, "
+            f"expected {int(season)} week {int(week)}."
+        )
+    games: object = document.get("games")
+    if not isinstance(games, list) or len(games) == 0:
+        raise ValueError(f"Refusing to score over {path.name}: the published file has no games.")
+    return True
+
+
 def published_game_ids(output_dir: Path, season: int, week: int) -> set[str]:
     """Game ids already stored for this season and week.
 
@@ -719,22 +779,11 @@ def kept_published_week(output_dir: Path, season: int, week: int) -> dict[str, A
         ValueError: The week file exists, is not an example, and has no games
             or names a different season or week.
     """
+    if not published_week_is_present(output_dir, season, week):
+        return None
     path: Path = week_prediction_path(output_dir, season, week)
-    if not path.is_file():
-        return None
     document: dict[str, Any] = _read_json_object(path)
-    if document.get("sample") is True:
-        return None
-    file_season: object = document.get("season")
-    file_week: object = document.get("week")
-    if file_season != int(season) or file_week != int(week):
-        raise ValueError(
-            f"{path.name} says season {file_season} week {file_week}, "
-            f"expected {int(season)} week {int(week)}."
-        )
     games: object = document.get("games")
-    if not isinstance(games, list) or len(games) == 0:
-        raise ValueError(f"Refusing to score over {path.name}: the published file has no games.")
     latest: Path = Path(output_dir) / "latest.json"
     _point_latest_at(path, latest)
     teams: Path = Path(output_dir) / "teams.json"
