@@ -32,9 +32,9 @@ function Show-Help {
     Write-Host "  check-epa-filter    - Count play types in the EPA filter, plus kneel and spike rows"
     Write-Host "  verify-reference    - Refit logistic h2_full and fail if it drifts from the reference file"
     Write-Host "  walk-forward        - Week backtest of a fresh h2_full fit against the through-2023 fit"
-    Write-Host "  verify-walk-forward - Fail unless that report beats v1 on log loss"
+    Write-Host "  verify-walk-forward - Fail unless the same-recipe refresh is inside the margin"
     Write-Host "  register-model      - Register logistic h2_full through 2023. Does not set the prod alias"
-    Write-Host "  register-recent     - Register the fresh fit when the walk-forward report beats v1"
+    Write-Host "  register-recent     - Register the same-recipe refresh when the gate passes"
     Write-Host "  promote-model       - Set alias prod on VERSION when its tags pass the gate"
     Write-Host "  score               - Score the next unpublished week. Keeps a week file already on disk"
     Write-Host "  train-s2            - Sprint 2 margin and total CV. Registers a target only if it passes"
@@ -214,7 +214,7 @@ function Invoke-WalkForward {
 }
 
 function Invoke-VerifyWalkForward {
-    Write-Host "Checking the walk-forward report beats the through-2023 fit..."
+    Write-Host "Checking the walk-forward refresh gate..."
     $report = "reports/walk_forward/walk_forward.json"
     if ($env:REPORT) { $report = $env:REPORT }
     python -m endzone.modeling.walk_forward --verify --report $report
@@ -231,7 +231,7 @@ function Invoke-RegisterModel {
 }
 
 function Invoke-RegisterRecent {
-    Write-Host "Registering the fresh h2_full fit. The prod alias is not set..."
+    Write-Host "Registering the same-recipe refresh. The prod alias is not set..."
     $report = "reports/walk_forward/walk_forward.json"
     if ($env:REPORT) { $report = $env:REPORT }
     python -m endzone.modeling.registry_command register-recent --report $report

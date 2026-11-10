@@ -86,7 +86,7 @@ def _settings(**overrides: object) -> WalkForwardSettings:
         "slate_week": 3,
         "lookback_games": 10,
         "logistic_c": 1.0,
-        "logistic_max_iter": 200,
+        "logistic_max_iter": 1000,
         "random_state": 42,
         "n_bootstrap": 20,
         "bootstrap_seed": 42,
@@ -270,8 +270,10 @@ def test_report_round_trip_keeps_the_gate(tmp_path: Path) -> None:
     loaded = json.loads(Path(paths["json"]).read_text(encoding="utf-8"))
     tags = metrics_from_walk_forward_report(loaded)
     decision = promotion_decision(tags)
-    assert decision["allowed"] is loaded["aggregate"]["beats_v1"]
-    if loaded["aggregate"]["beats_v1"]:
+    assert loaded["gate"] == "non_inferiority"
+    assert loaded["margin"] == pytest.approx(0.002)
+    assert decision["allowed"] is loaded["passes"]
+    if loaded["passes"]:
         verified = main(["--verify", "--report", paths["json"]])
         assert verified["allowed"] is True
         return
@@ -280,8 +282,88 @@ def test_report_round_trip_keeps_the_gate(tmp_path: Path) -> None:
     assert raised.value.code == 1
 
 
+def test_verify_accepts_the_warehouse_gap_without_gate_fields(tmp_path: Path) -> None:
+    """The first warehouse JSON has no gate fields. Non-inferiority still passes.
+
+    Candidate 0.6239 against v1 0.6235 is inside the 0.002 margin. The file
+    matches that run's shape: one pooled row, ``beats_v1`` false, and no
+    ``gate`` key. Verify does not need a second backtest.
+    """
+    report = _synthetic_report(beats=False)
+    report["aggregate"]["candidate_log_loss"] = 0.6239
+    report["aggregate"]["v1_log_loss"] = 0.6235
+    report["aggregate"]["log_loss_diff"] = 0.6239 - 0.6235
+    report["aggregate"]["beats_v1"] = False
+    report["aggregate"]["n"] = 706
+    report["aggregate"]["market_n"] = 706
+    report["aggregate"]["elo_log_loss"] = 0.6454
+    report["aggregate"]["baseline_home_log_loss"] = 0.6934
+    report["aggregate"]["market_log_loss"] = 0.6028
+    report["aggregate"]["log_loss_diff_ci_low"] = -0.0006
+    report["aggregate"]["log_loss_diff_ci_high"] = 0.0013
+    week = report["weeks"][0]
+    week["n"] = 706
+    week["market_n"] = 706
+    week["candidate_log_loss"] = 0.6239
+    week["v1_log_loss"] = 0.6235
+    week["elo_log_loss"] = 0.6454
+    week["baseline_home_log_loss"] = 0.6934
+    week["market_log_loss"] = 0.6028
+    report["weeks"] = [week]
+    assert "gate" not in report
+    path = tmp_path / "walk_forward.json"
+    path.write_text(json.dumps(report), encoding="utf-8")
+    verified = main(["--verify", "--report", str(path)])
+    assert verified["allowed"] is True
+    assert verified["reason"] == "walk_forward_refresh_passes"
+    assert verified["gate"] == "non_inferiority"
+
+
+def test_reported_gate_has_to_match_the_losses(tmp_path: Path) -> None:
+    """A hand-edited passes flag fails even when the other numbers are consistent."""
+    report = _synthetic_report(beats=False)
+    report["gate"] = "non_inferiority"
+    report["margin"] = 0.002
+    report["passes"] = True
+    path = tmp_path / "walk_forward.json"
+    path.write_text(json.dumps(report), encoding="utf-8")
+    with pytest.raises(SystemExit) as raised:
+        main(["--verify", "--report", str(path)])
+    assert raised.value.code == 1
+
+
+def test_register_recent_refuses_a_different_recipe_before_a_fit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A changed C is a challenger. This command does not register it."""
+
+    def refuse_load(*args: object, **kwargs: object) -> tuple[pd.DataFrame, pd.DataFrame]:
+        raise AssertionError("a different recipe must not load data")
+
+    monkeypatch.setattr("endzone.modeling.registry_command.load_data", refuse_load)
+    report = _synthetic_report(beats=True)
+    report["logistic_c"] = 0.1
+    monkeypatch.setattr(
+        "endzone.modeling.registry_command.read_walk_forward_report",
+        lambda report_path: report,
+    )
+    with pytest.raises(SystemExit) as raised:
+        registry_main(
+            [
+                "register-recent",
+                "--report",
+                "reports/walk_forward/challenger.json",
+                "--tracking-uri",
+                "sqlite:///reports/unused.db",
+                "--registry-uri",
+                "sqlite:///reports/unused.db",
+            ]
+        )
+    assert raised.value.code == 1
+
+
 def test_verify_exits_when_the_candidate_loses(tmp_path: Path) -> None:
-    """A higher candidate log loss is a result, and the gate refuses it."""
+    """A candidate outside the refresh margin is a result, and the gate refuses it."""
     report = _synthetic_report(beats=False)
     path = tmp_path / "walk_forward.json"
     path.write_text(json.dumps(report), encoding="utf-8")
@@ -360,7 +442,7 @@ def test_register_recent_writes_a_version_and_leaves_the_alias_unset(tmp_path: P
     finally:
         _release_mlflow_sqlalchemy_engines()
     assert promoted["alias"] == "prod"
-    assert promoted["reason"] == "walk_forward_beats_v1"
+    assert promoted["reason"] == "walk_forward_refresh_passes"
 
 
 def _synthetic_report(beats: bool) -> dict[str, Any]:

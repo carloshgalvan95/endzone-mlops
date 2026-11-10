@@ -19,8 +19,15 @@ from endzone.modeling.registry import (
     TAG_CV_N,
     TAG_EVALUATION,
     TAG_FEATURE_SET,
+    TAG_GATE,
+    TAG_GATE_MARGIN,
     TAG_LOG_LOSS_DIFF,
+    TAG_LOGISTIC_C,
+    TAG_LOGISTIC_MAX_ITER,
+    TAG_LOOKBACK_GAMES,
     TAG_MODEL,
+    TAG_PASSES,
+    TAG_RANDOM_STATE,
     TAG_THROUGH_SEASON,
     TAG_V1_LOG_LOSS,
     WALK_FORWARD_EVALUATION,
@@ -154,7 +161,7 @@ def test_challenger_must_beat_the_golden_row_by_the_pre_registered_margin() -> N
 
 
 def _walk_forward_tags(**overrides: str) -> dict[str, str]:
-    """Tags for a fresh-window fit that beats the through-2023 log loss."""
+    """Tags for a same-recipe refresh. The losses are better than v1."""
     tags: dict[str, str] = {
         TAG_MODEL: "logistic",
         TAG_FEATURE_SET: "h2_full",
@@ -166,6 +173,10 @@ def _walk_forward_tags(**overrides: str) -> dict[str, str]:
         TAG_CUTOFF_SEASON: "2026",
         TAG_CUTOFF_WEEK: "10",
         TAG_THROUGH_SEASON: "2026",
+        TAG_LOGISTIC_C: "1",
+        TAG_LOGISTIC_MAX_ITER: "1000",
+        TAG_LOOKBACK_GAMES: "10",
+        TAG_RANDOM_STATE: "42",
     }
     tags.update(overrides)
     return tags
@@ -181,12 +192,25 @@ def test_fresh_window_without_a_walk_forward_tag_is_refused() -> None:
     assert still_golden["reason"] == "matches_golden_reference"
 
 
-def test_walk_forward_promotion_requires_a_lower_log_loss_than_v1() -> None:
-    """The fresh window is promoted only when its own backtest beats v1."""
+def test_same_recipe_refresh_uses_non_inferiority() -> None:
+    """A weekly refit may be a little worse. A different recipe may not."""
     won = promotion_decision(_walk_forward_tags())
     assert won["allowed"] is True
-    assert won["reason"] == "walk_forward_beats_v1"
-    lost = promotion_decision(
+    assert won["reason"] == "walk_forward_refresh_passes"
+    assert won["gate"] == "non_inferiority"
+    within = promotion_decision(
+        _walk_forward_tags(
+            **{
+                TAG_CV_LOG_LOSS: "0.6239",
+                TAG_V1_LOG_LOSS: "0.6235",
+                TAG_LOG_LOSS_DIFF: "0.0004",
+            }
+        )
+    )
+    assert within["allowed"] is True
+    assert within["reason"] == "walk_forward_refresh_passes"
+    assert within["margin"] == pytest.approx(0.002)
+    outside = promotion_decision(
         _walk_forward_tags(
             **{
                 TAG_CV_LOG_LOSS: "0.70",
@@ -195,14 +219,48 @@ def test_walk_forward_promotion_requires_a_lower_log_loss_than_v1() -> None:
             }
         )
     )
-    assert lost["allowed"] is False
-    assert lost["reason"] == "walk_forward_does_not_beat_v1"
+    assert outside["allowed"] is False
+    assert outside["reason"] == "walk_forward_refresh_fails"
     inconsistent = promotion_decision(_walk_forward_tags(**{TAG_LOG_LOSS_DIFF: "0"}))
     assert inconsistent["allowed"] is False
     assert inconsistent["reason"] == "walk_forward_tags_inconsistent"
-    other = promotion_decision(_walk_forward_tags(**{TAG_FEATURE_SET: "h5_qb"}))
-    assert other["allowed"] is False
-    assert other["reason"] == "walk_forward_not_h2_full"
+    edited = promotion_decision(
+        _walk_forward_tags(
+            **{
+                TAG_CV_LOG_LOSS: "0.70",
+                TAG_V1_LOG_LOSS: "0.66",
+                TAG_LOG_LOSS_DIFF: "0.04",
+                TAG_PASSES: "true",
+                TAG_GATE: "non_inferiority",
+                TAG_GATE_MARGIN: "0.002",
+            }
+        )
+    )
+    assert edited["allowed"] is False
+    assert edited["reason"] == "walk_forward_gate_inconsistent"
+
+
+def test_challenger_recipe_requires_a_strictly_lower_log_loss() -> None:
+    """The refresh margin does not apply when the feature set or C changes."""
+    slightly_worse = promotion_decision(
+        _walk_forward_tags(
+            **{
+                TAG_FEATURE_SET: "h5_qb",
+                TAG_CV_LOG_LOSS: "0.6239",
+                TAG_V1_LOG_LOSS: "0.6235",
+                TAG_LOG_LOSS_DIFF: "0.0004",
+            }
+        )
+    )
+    assert slightly_worse["allowed"] is False
+    assert slightly_worse["gate"] == "strict_superiority"
+    assert slightly_worse["reason"] == "walk_forward_challenger_fails"
+    other_c = promotion_decision(
+        _walk_forward_tags(**{TAG_LOGISTIC_C: "0.1", TAG_LOG_LOSS_DIFF: "-0.06"})
+    )
+    assert other_c["allowed"] is True
+    assert other_c["reason"] == "walk_forward_challenger_passes"
+    assert other_c["same_recipe"] is False
 
 
 def test_unity_catalog_register_refuses_sqlite_tracking() -> None:

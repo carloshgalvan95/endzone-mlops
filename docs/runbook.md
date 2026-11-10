@@ -964,9 +964,17 @@ The same two steps are the Model registry workflow (`workflow_dispatch` only). R
 
 `make reproduce` still does not register a model.
 
-**Fresh window, before the 2026 week 10 slate.** Version 1 is the through-2023 fit. This sequence registers a new version of the same logistic `h2_full` on completed games before 2026 week 10, and it promotes that version only when the walk-forward log loss is strictly lower than version 1 on the same weeks. The protocol is `docs/experiments/walk_forward.md`. There is no warehouse table in the repo yet. Do not hand-edit `reports/walk_forward/walk_forward.json`.
+**Refresh, before the 2026 week 10 slate.** Version 1 is the through-2023 fit. This sequence registers a new version of the same logistic `h2_full` on completed games before 2026 week 10. That is a refresh, not a challenger. It promotes when the walk-forward log loss is less than or equal to the version 1 loss plus 0.002. A different model, feature set, or hyperparameter has to be strictly better, and `make register-recent` refuses that report before a fit. The protocol and the warehouse pool are in `docs/experiments/walk_forward.md`. Do not hand-edit `reports/walk_forward/walk_forward.json`. Weekly automation of this refresh is future work. No workflow runs it.
 
-Do this on the branch, with `.env` present and not committed. Pass the slate. The default is the week after the last completed week, and a later week already in the marts would move it.
+If `reports/walk_forward/walk_forward.json` is already the warehouse run, do not rerun the backtest. `make verify-walk-forward` reads that file, including one written before `gate`, `margin`, and `passes` were added. On a Mac, from the repo root, with `.env` present and not committed:
+
+```bash
+make verify-walk-forward
+```
+
+Exit 1 means stop. Do not register. Do not promote. Leave alias `prod` on version 1.
+
+The first full run, when that JSON is not already there, still passes the slate. The default is the week after the last completed week, and a later week already in the marts would move it.
 
 ```bash
 make ingest-current
@@ -986,9 +994,9 @@ $env:SLATE_WEEK = "10"
 .\scripts\dev.ps1 verify-walk-forward
 ```
 
-`make walk-forward` writes `reports/walk_forward/walk_forward.json`. That directory is local scratch. A loss to v1 still exits 0. `make verify-walk-forward` exits 1 in that case. Stop there. Do not register. Do not promote. Leave alias `prod` on version 1.
+`make walk-forward` writes `reports/walk_forward/walk_forward.json`. That directory is local scratch. A refresh outside the margin still exits 0 from the backtest. `make verify-walk-forward` exits 1 in that case. Stop there.
 
-When verify exits 0, the same `.env` as the first registration (`MLFLOW_TRACKING_URI=databricks` and `MLFLOW_REGISTRY_URI=databricks-uc`):
+When verify exits 0, the same `.env` as the first registration (`MLFLOW_TRACKING_URI=databricks` and `MLFLOW_REGISTRY_URI=databricks-uc`). On a Mac:
 
 ```bash
 make register-recent
@@ -1003,7 +1011,7 @@ $env:VERSION = "<printed version>"
 .\scripts\dev.ps1 promote-model
 ```
 
-`make register-recent` prints the new version and does not set the alias. Use that printed number. Do not assume it is 2. The fit is every completed game before 2026 week 10, including the last scored week. The walk-forward log loss is not the in-sample loss of that fit. `make promote-model` sets alias `prod` only when the version tags say the report beat v1. A refusal leaves the alias where it was.
+`make register-recent` prints the new version and does not set the alias. Use that printed number. Do not assume it is 2. The fit is every completed game before 2026 week 10, including the last scored week. The walk-forward log loss is not the in-sample loss of that fit. `make promote-model` sets alias `prod` only when the version tags pass the same gate. A refusal leaves the alias where it was.
 
 `make register-model` and the Model registry workflow stay the through-2023 path. Do not set `through_season` past 2023 on that workflow and expect a promote. The gate refuses it (`fresh_window_needs_walk_forward`).
 

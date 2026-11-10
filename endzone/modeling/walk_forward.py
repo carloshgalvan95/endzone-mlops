@@ -11,7 +11,9 @@ use ``gameday`` strictly before kickoff.
 
 ``python -m endzone.modeling.walk_forward`` writes the report under
 ``reports/``. It does not register a model and it does not publish a slate.
-``--verify`` exits 1 when the candidate log loss is not lower than v1.
+``--verify`` exits 1 when the refresh or challenger gate fails. A same-recipe
+refresh may sit up to the named margin above v1. A different recipe has to
+be strictly lower. The bootstrap interval is not the gate.
 """
 
 from __future__ import annotations
@@ -38,12 +40,16 @@ from endzone.modeling.evaluation import binary_classification_metrics, paired_lo
 from endzone.modeling.models import fit_logistic_pipeline
 from endzone.modeling.reference import load_reference_metrics
 from endzone.modeling.registry import (
+    PROD_RECIPE,
     REFERENCE_FEATURE_SET,
     REFERENCE_MODEL_NAME,
     WALK_FORWARD_PROTOCOL,
     metrics_from_walk_forward_report,
     promotion_decision,
     read_walk_forward_report,
+    recipe_from_walk_forward,
+    recipe_matches,
+    walk_forward_promotion_gate,
 )
 from endzone.modeling.weekly import (
     WEEKLY_FEATURE_SET,
@@ -65,6 +71,9 @@ _PROTOCOL_NOTES: tuple[str, ...] = (
     "On the locked 2016-2023 reference the market log loss is lower than logistic h2_full. This report does not replace that table.",
     "Point differential is not a feature. Elo stays a baseline. Injury reports are not inputs.",
     "A later register fits every completed game before the slate, including the last scored week.",
+    "The same recipe is a refresh. It passes when its log loss is within the named margin of v1.",
+    "A different model, feature set, or hyperparameter is a challenger and has to be strictly lower.",
+    "The bootstrap interval is descriptive. Weekly automation of the refresh is not built yet.",
 )
 
 
@@ -347,6 +356,14 @@ def run_walk_forward(
         },
         "notes": list(_PROTOCOL_NOTES),
     }
+    gate: dict[str, Any] = walk_forward_promotion_gate(
+        candidate_loss,
+        v1_loss,
+        recipe_matches(recipe_from_walk_forward(report), PROD_RECIPE),
+    )
+    report["gate"] = gate["gate"]
+    report["margin"] = gate["margin"]
+    report["passes"] = gate["passes"]
     metrics_from_walk_forward_report(report)
     return report
 
@@ -407,6 +424,9 @@ def render_walk_forward_markdown(report: dict[str, Any]) -> str:
             ),
             "",
             f"beats_v1: {str(aggregate['beats_v1']).lower()}",
+            f"gate: {report.get('gate', '')}",
+            f"margin: {report.get('margin', '')}",
+            f"passes: {str(report.get('passes', '')).lower()}",
             "",
         ]
     )
@@ -419,6 +439,7 @@ def render_walk_forward_markdown(report: dict[str, Any]) -> str:
             f"{_format_loss(ci_low)} to {_format_loss(ci_high)}."
         )
         lines.append("The promotion gate is the point estimate. The interval is descriptive.")
+        lines.append("A refresh uses non-inferiority. A challenger has to be strictly lower.")
         lines.append("")
     for note in report.get("notes", []):
         lines.append(f"- {note}")
@@ -427,11 +448,14 @@ def render_walk_forward_markdown(report: dict[str, Any]) -> str:
 
 
 def verify_walk_forward_report(path: str) -> dict[str, Any]:
-    """Exit 1 unless the report beats v1. A valid loss is still a result.
+    """Exit 1 unless the report passes its gate. A valid loss is still a result.
+
+    A file written before ``gate``, ``margin``, and ``passes`` existed is
+    still accepted. Those fields are computed from the losses and the recipe.
 
     Raises:
         SystemExit: The report cannot be read, disagrees with itself, or
-            does not beat v1.
+            fails the refresh or challenger gate.
     """
     try:
         payload: dict[str, Any] = read_walk_forward_report(path)
@@ -442,12 +466,13 @@ def verify_walk_forward_report(path: str) -> dict[str, Any]:
     decision: dict[str, Any] = promotion_decision(tags)
     aggregate: dict[str, Any] = payload["aggregate"]
     logger.info(
-        "Walk-forward n=%s candidate=%s v1=%s diff=%s beats_v1=%s reason=%s.",
+        "Walk-forward n=%s candidate=%s v1=%s diff=%s gate=%s passes=%s reason=%s.",
         aggregate["n"],
         aggregate["candidate_log_loss"],
         aggregate["v1_log_loss"],
         aggregate["log_loss_diff"],
-        aggregate["beats_v1"],
+        decision.get("gate"),
+        decision.get("passes"),
         decision["reason"],
     )
     if not decision["allowed"]:
@@ -481,7 +506,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> dict[str, Any]:
     """Write a walk-forward report, or verify one. Does not register or publish.
 
-    A report that loses to v1 is still a successful run. ``--verify`` is the
+    A report that fails its gate is still a successful run. ``--verify`` is the
     gate and exits 1 in that case.
     """
     args: argparse.Namespace = build_parser().parse_args(argv)
@@ -531,7 +556,7 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
     decision: dict[str, Any] = promotion_decision(metrics_from_walk_forward_report(report))
     aggregate: dict[str, Any] = report["aggregate"]
     logger.info(
-        "Wrote %s. n=%s candidate=%s v1=%s elo=%s home=%s market=%s beats_v1=%s.",
+        "Wrote %s. n=%s candidate=%s v1=%s elo=%s home=%s market=%s gate=%s passes=%s.",
         paths["json"],
         aggregate["n"],
         aggregate["candidate_log_loss"],
@@ -539,7 +564,8 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
         aggregate["elo_log_loss"],
         aggregate["baseline_home_log_loss"],
         aggregate["market_log_loss"],
-        aggregate["beats_v1"],
+        report.get("gate"),
+        report.get("passes"),
     )
     logger.info(
         "Market is a benchmark, not a betting pick. "

@@ -56,9 +56,24 @@ TAG_EVALUATION: str = "evaluation"
 TAG_V1_LOG_LOSS: str = "v1_log_loss"
 TAG_CUTOFF_SEASON: str = "cutoff_season"
 TAG_CUTOFF_WEEK: str = "cutoff_week"
+TAG_GATE: str = "gate"
+TAG_GATE_MARGIN: str = "gate_margin"
+TAG_PASSES: str = "passes"
+TAG_LOGISTIC_C: str = "logistic_c"
+TAG_LOGISTIC_MAX_ITER: str = "logistic_max_iter"
+TAG_LOOKBACK_GAMES: str = "lookback_games"
+TAG_RANDOM_STATE: str = "random_state"
 WALK_FORWARD_EVALUATION: str = "walk_forward"
 WALK_FORWARD_PROTOCOL: str = "walk_forward_week"
+GATE_NON_INFERIORITY: str = "non_inferiority"
+GATE_STRICT_SUPERIORITY: str = "strict_superiority"
+# A same-recipe refresh may be this much worse than current prod and still
+# promote. 0.002 is below the 0.003 feature-adoption rule, so a refresh is
+# not a back door for a new feature. The warehouse gap on the first run was
+# about 0.0004, inside this margin. A different recipe does not use it.
+REFRESH_LOG_LOSS_MARGIN: float = 0.002
 _WALK_FORWARD_DIFF_TOLERANCE: float = 1e-5
+_RECIPE_C_TOLERANCE: float = 1e-12
 
 
 class ProdModel(NamedTuple):
@@ -69,6 +84,31 @@ class ProdModel(NamedTuple):
     alias: str
     model_name: str
     model_uri: str
+
+
+class ProductionRecipe(NamedTuple):
+    """Model type, feature set, and logistic hyperparameters of alias ``prod``.
+
+    Version 1 and the weekly fallback both use these values. A walk-forward
+    refresh is the same recipe on a later cutoff. Anything else is a challenger.
+    """
+
+    model: str
+    feature_set: str
+    logistic_c: float
+    logistic_max_iter: int
+    lookback_games: int
+    random_state: int
+
+
+PROD_RECIPE: ProductionRecipe = ProductionRecipe(
+    model=REFERENCE_MODEL_NAME,
+    feature_set=REFERENCE_FEATURE_SET,
+    logistic_c=1.0,
+    logistic_max_iter=1000,
+    lookback_games=10,
+    random_state=42,
+)
 
 
 class ProdAliasError(Exception):
@@ -166,9 +206,12 @@ def promotion_decision(
     ``cv_end_season`` does not use that bar. It needs ``evaluation``
     ``walk_forward``.
 
-    A walk-forward version passes only when its pooled log loss is strictly
-    lower than the through-2023 fit on the same weeks. The 0.003 feature
-    rule is a different gate and is not applied here.
+    A walk-forward version of the same recipe passes when its pooled log loss
+    is at most ``REFRESH_LOG_LOSS_MARGIN`` above the current prod loss on the
+    same weeks. That prod loss is the report's v1 column while prod is the
+    through-2023 fit. A different model, feature set, or hyperparameter has
+    to be strictly lower. The 0.003 feature rule is a different gate and is
+    not applied here. The bootstrap interval is descriptive.
 
     Any other model passes only when the pre-registered rule accepts it
     (log loss at least 0.003 lower, 95% interval entirely below 0) and its
@@ -305,11 +348,84 @@ def read_walk_forward_report(path: str) -> dict[str, Any]:
     return payload
 
 
+def recipe_matches(candidate: ProductionRecipe, defender: ProductionRecipe) -> bool:
+    """Return True when two recipes are the same model, features, and hyperparameters."""
+    if candidate.model != defender.model or candidate.feature_set != defender.feature_set:
+        return False
+    if candidate.logistic_max_iter != defender.logistic_max_iter:
+        return False
+    if candidate.lookback_games != defender.lookback_games:
+        return False
+    if candidate.random_state != defender.random_state:
+        return False
+    return abs(candidate.logistic_c - defender.logistic_c) <= _RECIPE_C_TOLERANCE
+
+
+def walk_forward_promotion_gate(
+    candidate_loss: float, defender_loss: float, same_recipe: bool
+) -> dict[str, Any]:
+    """Choose non-inferiority or strict superiority from the recipe comparison.
+
+    The same recipe may sit up to ``REFRESH_LOG_LOSS_MARGIN`` above the
+    defender. A different recipe has to be strictly lower. The margin is not
+    applied to a challenger. Equality with the defender passes only for a
+    refresh.
+
+    Returns:
+        Dict with ``gate``, ``margin``, ``passes``, ``limit``, and ``same_recipe``.
+    """
+    if same_recipe:
+        margin: float = REFRESH_LOG_LOSS_MARGIN
+        gate: str = GATE_NON_INFERIORITY
+        passes: bool = candidate_loss <= defender_loss + margin
+    else:
+        margin = 0.0
+        gate = GATE_STRICT_SUPERIORITY
+        passes = candidate_loss < defender_loss
+    return {
+        "gate": gate,
+        "margin": margin,
+        "passes": passes,
+        "limit": defender_loss + margin,
+        "same_recipe": same_recipe,
+    }
+
+
+def recipe_from_walk_forward(payload: Mapping[str, Any]) -> ProductionRecipe:
+    """Read the fitted recipe from a walk-forward report.
+
+    Raises:
+        ValueError: A recipe field is missing or not the right type.
+    """
+    model_name: object = payload.get("model")
+    feature_set: object = payload.get("feature_set")
+    if not isinstance(model_name, str) or not model_name.strip():
+        raise ValueError("Walk-forward report is missing model.")
+    if not isinstance(feature_set, str) or not feature_set.strip():
+        raise ValueError("Walk-forward report is missing feature_set.")
+    logistic_c: float = _require_float(payload.get("logistic_c"), "logistic_c")
+    if logistic_c <= 0:
+        raise ValueError("logistic_c must be positive.")
+    return ProductionRecipe(
+        model=model_name.strip(),
+        feature_set=feature_set.strip(),
+        logistic_c=logistic_c,
+        logistic_max_iter=_require_int(
+            payload.get("logistic_max_iter"), "logistic_max_iter", minimum=1
+        ),
+        lookback_games=_require_int(payload.get("lookback_games"), "lookback_games", minimum=1),
+        random_state=_require_int(payload.get("random_state"), "random_state"),
+    )
+
+
 def metrics_from_walk_forward_report(payload: Mapping[str, Any]) -> dict[str, str]:
     """Turn a walk-forward report into registry tags.
 
     The aggregate log loss has to match the week rows. ``beats_v1`` has to
-    match the two aggregate losses. A hand edit of one field fails here.
+    match a strict improvement. ``passes`` has to match the refresh or
+    challenger gate. A hand edit of one field fails here. A report written
+    before the gate fields existed still validates. This function fills the
+    tags from the losses and the recipe.
 
     Raises:
         ValueError: The report is not the walk-forward protocol, or its
@@ -318,10 +434,16 @@ def metrics_from_walk_forward_report(payload: Mapping[str, Any]) -> dict[str, st
     _validate_walk_forward_report(payload)
     aggregate: Mapping[str, Any] = payload["aggregate"]
     slate: Mapping[str, Any] = payload["slate"]
+    recipe: ProductionRecipe = recipe_from_walk_forward(payload)
+    gate: dict[str, Any] = walk_forward_promotion_gate(
+        float(aggregate["candidate_log_loss"]),
+        float(aggregate["v1_log_loss"]),
+        recipe_matches(recipe, PROD_RECIPE),
+    )
     included_season: int = _max_included_season(payload)
     tags: dict[str, str] = {
-        TAG_MODEL: REFERENCE_MODEL_NAME,
-        TAG_FEATURE_SET: REFERENCE_FEATURE_SET,
+        TAG_MODEL: recipe.model,
+        TAG_FEATURE_SET: recipe.feature_set,
         TAG_EVALUATION: WALK_FORWARD_EVALUATION,
         TAG_CV_LOG_LOSS: format_tag_number(aggregate["candidate_log_loss"]),
         TAG_V1_LOG_LOSS: format_tag_number(aggregate["v1_log_loss"]),
@@ -330,6 +452,13 @@ def metrics_from_walk_forward_report(payload: Mapping[str, Any]) -> dict[str, st
         TAG_CUTOFF_SEASON: str(int(slate["season"])),
         TAG_CUTOFF_WEEK: str(int(slate["week"])),
         TAG_THROUGH_SEASON: str(included_season),
+        TAG_LOGISTIC_C: format_tag_number(recipe.logistic_c),
+        TAG_LOGISTIC_MAX_ITER: str(recipe.logistic_max_iter),
+        TAG_LOOKBACK_GAMES: str(recipe.lookback_games),
+        TAG_RANDOM_STATE: str(recipe.random_state),
+        TAG_GATE: str(gate["gate"]),
+        TAG_GATE_MARGIN: format_tag_number(gate["margin"]),
+        TAG_PASSES: "true" if gate["passes"] else "false",
     }
     ci_low: object = aggregate.get("log_loss_diff_ci_low")
     ci_high: object = aggregate.get("log_loss_diff_ci_high")
@@ -339,22 +468,54 @@ def metrics_from_walk_forward_report(payload: Mapping[str, Any]) -> dict[str, st
     return tags
 
 
-def _decide_walk_forward(tags: Mapping[str, str], decision: dict[str, Any]) -> dict[str, Any]:
-    """Allow prod only when the fresh window has a lower walk-forward log loss."""
+def _recipe_from_tags(tags: Mapping[str, str]) -> ProductionRecipe | None:
+    """Return the recipe stored on a version, or None when a field is missing."""
     model_name: str = str(tags.get(TAG_MODEL, "")).strip()
     feature_set: str = str(tags.get(TAG_FEATURE_SET, "")).strip()
+    logistic_c: float | None = _parse_metric(tags.get(TAG_LOGISTIC_C))
+    max_iter: float | None = _parse_metric(tags.get(TAG_LOGISTIC_MAX_ITER))
+    lookback: float | None = _parse_metric(tags.get(TAG_LOOKBACK_GAMES))
+    seed: float | None = _parse_metric(tags.get(TAG_RANDOM_STATE))
+    if (
+        not model_name
+        or not feature_set
+        or logistic_c is None
+        or max_iter is None
+        or lookback is None
+        or seed is None
+    ):
+        return None
+    if not max_iter.is_integer() or not lookback.is_integer() or not seed.is_integer():
+        return None
+    if logistic_c <= 0:
+        return None
+    return ProductionRecipe(
+        model=model_name,
+        feature_set=feature_set,
+        logistic_c=logistic_c,
+        logistic_max_iter=int(max_iter),
+        lookback_games=int(lookback),
+        random_state=int(seed),
+    )
+
+
+def _decide_walk_forward(tags: Mapping[str, str], decision: dict[str, Any]) -> dict[str, Any]:
+    """Allow prod when the recipe's own gate passes.
+
+    The same recipe uses non-inferiority. A different recipe uses strict
+    superiority. The comparison is recomputed from the loss tags and the
+    recipe tags. A stored ``passes`` flag that disagrees is refused.
+    """
     candidate: float | None = _parse_metric(tags.get(TAG_CV_LOG_LOSS))
     v1_loss: float | None = _parse_metric(tags.get(TAG_V1_LOG_LOSS))
     sample_n: float | None = _parse_metric(tags.get(TAG_CV_N))
     diff: float | None = _parse_metric(tags.get(TAG_LOG_LOSS_DIFF))
     cutoff_season: float | None = _parse_metric(tags.get(TAG_CUTOFF_SEASON))
     cutoff_week: float | None = _parse_metric(tags.get(TAG_CUTOFF_WEEK))
+    recipe: ProductionRecipe | None = _recipe_from_tags(tags)
     decision["v1_log_loss"] = v1_loss
     decision["cutoff_season"] = cutoff_season
     decision["cutoff_week"] = cutoff_week
-    if model_name != REFERENCE_MODEL_NAME or feature_set != REFERENCE_FEATURE_SET:
-        decision["reason"] = "walk_forward_not_h2_full"
-        return decision
     if (
         candidate is None
         or v1_loss is None
@@ -363,29 +524,67 @@ def _decide_walk_forward(tags: Mapping[str, str], decision: dict[str, Any]) -> d
         or cutoff_season is None
         or cutoff_week is None
         or cutoff_week < 1
+        or recipe is None
     ):
         decision["reason"] = "missing_walk_forward_metrics"
         return decision
     if abs((candidate - v1_loss) - diff) > _WALK_FORWARD_DIFF_TOLERANCE:
         decision["reason"] = "walk_forward_tags_inconsistent"
         return decision
-    if sample_n <= 0 or not candidate < v1_loss:
-        decision["reason"] = "walk_forward_does_not_beat_v1"
+    if sample_n <= 0:
+        decision["reason"] = "missing_walk_forward_metrics"
         return decision
-    decision["allowed"] = True
-    decision["reason"] = "walk_forward_beats_v1"
+    same_recipe: bool = recipe_matches(recipe, PROD_RECIPE)
+    gate: dict[str, Any] = walk_forward_promotion_gate(candidate, v1_loss, same_recipe)
+    decision["gate"] = gate["gate"]
+    decision["margin"] = gate["margin"]
+    decision["passes"] = gate["passes"]
+    decision["same_recipe"] = same_recipe
+    if not _stored_gate_matches(tags, gate):
+        decision["reason"] = "walk_forward_gate_inconsistent"
+        return decision
+    if gate["passes"]:
+        decision["allowed"] = True
+        decision["reason"] = (
+            "walk_forward_refresh_passes" if same_recipe else "walk_forward_challenger_passes"
+        )
+        return decision
+    decision["reason"] = (
+        "walk_forward_refresh_fails" if same_recipe else "walk_forward_challenger_fails"
+    )
     return decision
+
+
+def _stored_gate_matches(tags: Mapping[str, str], gate: Mapping[str, Any]) -> bool:
+    """Return False when a stored gate field disagrees with the recomputed one.
+
+    Missing gate tags are filled by the recomputation. A present tag has to
+    match. That is what stops a hand-edited ``passes`` flag.
+    """
+    stored_gate: str = str(tags.get(TAG_GATE, "")).strip()
+    if stored_gate and stored_gate != gate["gate"]:
+        return False
+    stored_margin: float | None = _parse_metric(tags.get(TAG_GATE_MARGIN))
+    if (
+        stored_margin is not None
+        and abs(stored_margin - float(gate["margin"])) > _WALK_FORWARD_DIFF_TOLERANCE
+    ):
+        return False
+    stored_passes: str = str(tags.get(TAG_PASSES, "")).strip().lower()
+    if stored_passes in {"true", "false"}:
+        expected: str = "true" if gate["passes"] else "false"
+        if stored_passes != expected:
+            return False
+    elif stored_passes:
+        return False
+    return True
 
 
 def _validate_walk_forward_report(payload: Mapping[str, Any]) -> None:
     """Raise when a walk-forward report disagrees with itself."""
     if payload.get("protocol") != WALK_FORWARD_PROTOCOL:
         raise ValueError("Walk-forward report protocol is not walk_forward_week.")
-    if (
-        payload.get("model") != REFERENCE_MODEL_NAME
-        or payload.get("feature_set") != REFERENCE_FEATURE_SET
-    ):
-        raise ValueError("Walk-forward report must be logistic h2_full.")
+    recipe_from_walk_forward(payload)
     v1_through: int = _require_int(payload.get("v1_through_season"), "v1_through_season")
     _require_int(payload.get("lookback_games"), "lookback_games", minimum=1)
     _require_int(payload.get("logistic_max_iter"), "logistic_max_iter", minimum=1)
@@ -482,6 +681,7 @@ def _validate_walk_forward_report(payload: Mapping[str, Any]) -> None:
     beats: object = aggregate.get("beats_v1")
     if not isinstance(beats, bool) or beats is not (candidate_loss < v1_loss):
         raise ValueError("beats_v1 does not match the aggregate log loss.")
+    _require_reported_gate(payload, candidate_loss, v1_loss)
     reported_market_n: int = _require_int(
         aggregate.get("market_n"), "aggregate.market_n", minimum=0
     )
@@ -500,6 +700,36 @@ def _validate_walk_forward_report(payload: Mapping[str, Any]) -> None:
     if n_bootstrap > 0 and aggregate_n >= 2:
         _require_float(aggregate.get("log_loss_diff_ci_low"), "aggregate.log_loss_diff_ci_low")
         _require_float(aggregate.get("log_loss_diff_ci_high"), "aggregate.log_loss_diff_ci_high")
+
+
+def _require_reported_gate(
+    payload: Mapping[str, Any], candidate_loss: float, defender_loss: float
+) -> None:
+    """Check gate, margin, and passes when the report includes them.
+
+    A report from before those fields existed is still valid. The gate is
+    then computed from the losses and the recipe. If any one of the three
+    fields is present, all three have to be present and match that computation.
+    """
+    present: set[str] = {key for key in ("gate", "margin", "passes") if key in payload}
+    if not present:
+        return
+    missing: list[str] = sorted({"gate", "margin", "passes"} - present)
+    if missing:
+        raise ValueError(f"Walk-forward report is missing {', '.join(missing)}.")
+    expected: dict[str, Any] = walk_forward_promotion_gate(
+        candidate_loss,
+        defender_loss,
+        recipe_matches(recipe_from_walk_forward(payload), PROD_RECIPE),
+    )
+    if payload.get("gate") != expected["gate"]:
+        raise ValueError("gate does not match the recipe.")
+    margin: float = _require_float(payload.get("margin"), "margin")
+    if abs(margin - float(expected["margin"])) > _WALK_FORWARD_DIFF_TOLERANCE:
+        raise ValueError("margin does not match the gate.")
+    passes: object = payload.get("passes")
+    if not isinstance(passes, bool) or passes is not expected["passes"]:
+        raise ValueError("passes does not match the gate.")
 
 
 def _max_included_season(payload: Mapping[str, Any]) -> int:

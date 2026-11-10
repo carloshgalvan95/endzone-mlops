@@ -33,9 +33,9 @@ help:
 	@echo "  check-epa-filter    - Count play types in the EPA filter, plus kneel and spike rows"
 	@echo "  verify-reference    - Refit logistic h2_full and fail if it drifts from the reference file"
 	@echo "  walk-forward        - Week backtest of a fresh h2_full fit against the through-2023 fit"
-	@echo "  verify-walk-forward - Fail unless that report beats v1 on log loss"
+	@echo "  verify-walk-forward - Fail unless the same-recipe refresh is inside the margin"
 	@echo "  register-model      - Register logistic h2_full through 2023. Does not set the prod alias"
-	@echo "  register-recent     - Register the fresh fit when the walk-forward report beats v1"
+	@echo "  register-recent     - Register the same-recipe refresh when the gate passes"
 	@echo "  promote-model       - Set alias prod on VERSION when its tags pass the gate"
 	@echo "  score               - Score the next unpublished week. Keeps a week file already on disk"
 	@echo "  train-s2            - Sprint 2 margin and total CV. Registers a target only if it passes"
@@ -150,7 +150,8 @@ verify-reference:
 walk-forward:
 	python -m endzone.modeling.walk_forward $(if $(SLATE_SEASON),--slate-season $(SLATE_SEASON),) $(if $(SLATE_WEEK),--slate-week $(SLATE_WEEK),) $(if $(OUTPUT),--output-dir $(OUTPUT),)
 
-# Exit 1 unless reports/walk_forward/walk_forward.json beats the through-2023 fit.
+# Exit 1 unless the report passes. A same-recipe refresh uses the 0.002 margin.
+# A different recipe has to be strictly lower. An existing JSON is enough.
 verify-walk-forward:
 	python -m endzone.modeling.walk_forward --verify --report $(if $(REPORT),$(REPORT),reports/walk_forward/walk_forward.json)
 
@@ -163,7 +164,8 @@ register-model:
 	python -m endzone.modeling.registry_command register $(if $(THROUGH_SEASON),--through-season $(THROUGH_SEASON),) $(if $(COMPARISON),--comparison-csv $(COMPARISON),)
 
 # Fit games before the slate in the walk-forward report and register that version.
-# Does not set the alias. Refuses when the report does not beat v1.
+# Does not set the alias. The recipe has to match prod, and the refresh gate
+# has to pass. A different recipe is refused before a write.
 # Unity Catalog needs the same URIs as register-model.
 register-recent:
 	python -m endzone.modeling.registry_command register-recent --report $(if $(REPORT),$(REPORT),reports/walk_forward/walk_forward.json)

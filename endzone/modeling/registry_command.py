@@ -6,8 +6,8 @@ that version. It does not set an alias. The default cutoff is season 2023.
 
 ``python -m endzone.modeling.registry_command register-recent`` fits every
 completed game before the slate in a walk-forward report. It registers that
-version only when the report's log loss is lower than the through-2023 fit.
-It does not set an alias.
+version only when the recipe matches prod and the refresh gate passes.
+It does not set an alias. A different recipe is a challenger and is refused.
 
 ``python -m endzone.modeling.registry_command promote --version N`` sets
 alias ``prod`` only when that version's tags pass the promotion gate.
@@ -37,6 +37,7 @@ from endzone.modeling.pipeline import run_reference_check
 from endzone.modeling.reference import format_reference_check
 from endzone.modeling.registry import (
     PROD_ALIAS,
+    PROD_RECIPE,
     REFERENCE_FEATURE_SET,
     assert_can_register,
     default_model_name,
@@ -46,6 +47,8 @@ from endzone.modeling.registry import (
     promote_registered_version,
     promotion_decision,
     read_walk_forward_report,
+    recipe_from_walk_forward,
+    recipe_matches,
     register_model_version,
 )
 from endzone.modeling.weekly import WEEKLY_FEATURE_SET, games_before_week, team_games_before_week
@@ -212,8 +215,9 @@ def register_command(args: argparse.Namespace) -> dict[str, Any]:
 def register_recent_command(args: argparse.Namespace) -> dict[str, Any]:
     """Fit logistic ``h2_full`` before the report slate and register that version.
 
-    The walk-forward report is the gate. A report that does not beat the
-    through-2023 fit raises ``SystemExit`` before a registry write. The
+    The walk-forward report is the gate. This command registers the current
+    prod recipe only, and only when that refresh passes non-inferiority.
+    A different recipe raises ``SystemExit`` before a registry write. The
     alias is not set. Hyperparameters come from the report so the fit
     matches the backtest.
 
@@ -222,7 +226,8 @@ def register_recent_command(args: argparse.Namespace) -> dict[str, Any]:
         ``through_season``, ``cutoff_season``, ``cutoff_week``, and ``allowed``.
 
     Raises:
-        SystemExit: The report is missing, inconsistent, or does not beat v1.
+        SystemExit: The report is missing, inconsistent, a different recipe,
+            or outside the refresh margin.
     """
     tracking_uri: str = args.tracking_uri or configured_tracking_uri()
     registry_uri: str = args.registry_uri or configured_registry_uri()
@@ -234,9 +239,17 @@ def register_recent_command(args: argparse.Namespace) -> dict[str, Any]:
         logger.error("%s", exc)
         raise SystemExit(1) from exc
     decision: dict[str, Any] = promotion_decision(tags)
+    if not recipe_matches(recipe_from_walk_forward(payload), PROD_RECIPE):
+        logger.error(
+            "Refusing to register. register-recent fits the current prod recipe only. "
+            "This report changes the model, the feature set, or a hyperparameter. "
+            "Gate reason: %s.",
+            decision["reason"],
+        )
+        raise SystemExit(1)
     if not decision["allowed"]:
         logger.error(
-            "Refusing to register the fresh window: %s.",
+            "Refusing to register the refresh: %s.",
             decision["reason"],
         )
         raise SystemExit(1)
@@ -271,7 +284,7 @@ def register_recent_command(args: argparse.Namespace) -> dict[str, Any]:
         "Registered %s version %s from %s training rows. "
         "Training used completed games before %s week %s. "
         "Alias %s was not set. Promote it with make promote-model VERSION=%s "
-        "only after this report beats the through-%s fit.",
+        "when this refresh stays within the margin of the through-%s fit.",
         model_name,
         logged.model_version,
         fitted["n_train"],

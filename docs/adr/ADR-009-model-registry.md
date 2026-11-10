@@ -51,9 +51,9 @@ A refusal leaves every alias as it was. Promotion does not delete a version. Not
 
 `make register-model` stays the through-2023 golden path above. A version whose `through_season` tag is past `cv_end_season`, and whose `evaluation` tag is not `walk_forward`, is refused (`fresh_window_needs_walk_forward`). The golden CV tags cannot ride onto a later fit.
 
-`make register-recent` fits logistic `h2_full` on completed games before the slate named in `reports/walk_forward/walk_forward.json`. It registers only when that report's pooled log loss is strictly lower than the through-2023 fit on the same weeks. It does not set the alias. `make promote-model` then reads those tags. The 0.003 feature rule is not this gate. The bootstrap interval is stored and is not the decision.
+`make register-recent` fits logistic `h2_full` on completed games before the slate named in `reports/walk_forward/walk_forward.json`. It registers only when that report is the same recipe as prod and the refresh gate passes. The same recipe may be up to `REFRESH_LOG_LOSS_MARGIN` (0.002) worse than the current prod loss on the same weeks. A tie passes. A different model, feature set, or hyperparameter is a challenger: this command refuses it before a fit, and promotion of such a version requires a strictly lower log loss. The margin is not applied to a challenger. The 0.003 feature rule is not this gate. The bootstrap interval is stored and is not the decision.
 
-The protocol is `docs/experiments/walk_forward.md`. The report is not in the repo until that command is run. This ADR does not record a log loss.
+The protocol and the first warehouse pool are in `docs/experiments/walk_forward.md`. Weekly automation of the refresh is future work. No workflow runs it.
 
 The feature set is unchanged. Point differential is not added. Elo stays a baseline. Injury reports are not inputs, because the slate is published on Tuesday before those reports.
 
