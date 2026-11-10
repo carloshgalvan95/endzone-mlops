@@ -5,6 +5,10 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  schedule:
+    # Weekly full suite on Windows and macOS. Pull requests run the OS subset.
+    - cron: "0 12 * * 1"
+  workflow_dispatch:
 
 jobs:
   test:
@@ -41,7 +45,7 @@ jobs:
       run: uv run vulture endzone scripts --min-confidence 80
 
     - name: Run tests with pytest
-      run: uv run pytest tests/ -v --tb=short
+      run: uv run pytest tests/ --tb=short
 
     - name: Coverage of the feature audit
       run: uv run pytest tests/test_feature_leakage.py tests/test_feature_audit.py tests/test_epa_play_filter_check.py --cov=endzone/analysis --cov-report=term-missing --cov-fail-under=100
@@ -99,7 +103,10 @@ jobs:
         uv run lint-imports
 
     - name: Run tests with pytest
-      run: uv run pytest tests/ -v --tb=short
+      # Pull requests run the OS-sensitive subset. Push, the weekly schedule,
+      # and a manual dispatch run the full suite. The job is not skipped, so
+      # the required check name still reports success.
+      run: uv run pytest tests/ --tb=short ${{ github.event_name == 'pull_request' && '-m cross_platform' || '' }}
 
   badge:
     runs-on: ubuntu-latest
