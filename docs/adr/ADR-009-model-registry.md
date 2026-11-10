@@ -47,6 +47,18 @@ Any other feature set may receive the alias only when ADR-005 accepts it and its
 
 A refusal leaves every alias as it was. Promotion does not delete a version. Nothing in weekly scoring sets the alias.
 
+### Fresh window (2026-11-10)
+
+`make register-model` stays the through-2023 golden path above. A version whose `through_season` tag is past `cv_end_season`, and whose `evaluation` tag is not `walk_forward`, is refused (`fresh_window_needs_walk_forward`). The golden CV tags cannot ride onto a later fit.
+
+`make register-recent` fits logistic `h2_full` on completed games before the slate named in `reports/walk_forward/walk_forward.json`. It registers only when that report's pooled log loss is strictly lower than the through-2023 fit on the same weeks. It does not set the alias. `make promote-model` then reads those tags. The 0.003 feature rule is not this gate. The bootstrap interval is stored and is not the decision.
+
+The protocol is `docs/experiments/walk_forward.md`. The report is not in the repo until that command is run. This ADR does not record a log loss.
+
+The feature set is unchanged. Point differential is not added. Elo stays a baseline. Injury reports are not inputs, because the slate is published on Tuesday before those reports.
+
+The Model registry workflow is still the through-2023 register. A `through_season` after 2023 on that workflow does not promote.
+
 ### What the scorer does
 
 `python -m endzone.modeling.score` loads `models:/<name>@prod`.
