@@ -6,7 +6,7 @@
     9
   ],
   "generated_at": "2026-11-09T04:28:37Z",
-  "results_updated_at": "2026-11-10T03:43:39Z",
+  "results_updated_at": "2026-11-10T14:18:06Z",
   "model_name": "endzone-winprob",
   "model_version": "1",
   "feature_set": "h2_full",
@@ -329,11 +329,14 @@
       "diff": 0.060558,
       "model_version": "1",
       "generated_at": "2026-11-09T04:28:37Z",
-      "status": "scheduled",
+      "status": "final",
       "estimated_margin": -1.31086,
       "estimated_total": 46.600332,
       "estimated_home_points": 22.644736,
-      "estimated_away_points": 23.955596
+      "estimated_away_points": 23.955596,
+      "home_score": 6,
+      "away_score": 23,
+      "result": "away"
     }
   ]
 }
