@@ -67,6 +67,7 @@ class TestResolveTrackingUri:
         assert resolve_tracking_uri(remote_uri) == remote_uri
         assert resolve_tracking_uri(sqlite_uri) == sqlite_uri
 
+    @pytest.mark.cross_platform
     def test_plain_local_path_falls_back_to_sqlite(self, caplog: pytest.LogCaptureFixture) -> None:
         """MLflow 3.16 refuses ./mlruns and mlruns, so both become sqlite."""
         with caplog.at_level("WARNING", logger="endzone.config"):
@@ -80,6 +81,7 @@ class TestResolveTrackingUri:
         assert "./mlruns" in caplog.text
         assert "mlruns" in caplog.text
 
+    @pytest.mark.cross_platform
     def test_absolute_local_path_falls_back_to_sqlite(
         self, caplog: pytest.LogCaptureFixture, tmp_path: Path
     ) -> None:
@@ -90,6 +92,7 @@ class TestResolveTrackingUri:
         assert resolved == DEFAULT_MLFLOW_TRACKING_URI
         assert "Falling back" in caplog.text
 
+    @pytest.mark.cross_platform
     def test_file_uri_passthrough(self) -> None:
         """An explicit file URI is already a scheme and is left unchanged."""
         file_uri: str = "file:///tmp/mlruns"
@@ -99,6 +102,7 @@ class TestResolveTrackingUri:
 class TestEnvFile:
     """``.env`` fills gaps and does not replace a shell export."""
 
+    @pytest.mark.cross_platform
     def test_file_fills_an_unset_key(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """A dotenv assignment is visible when the process has no value."""
         env_file: Path = tmp_path / ".env"
@@ -115,6 +119,7 @@ class TestEnvFile:
         assert os.environ["ENDZONE_CONFIG_PROBE"] == "from-file"
         assert os.environ["ENDZONE_CONFIG_OTHER"] == "exported"
 
+    @pytest.mark.cross_platform
     def test_shell_value_wins(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """An existing environment variable is left as the shell set it."""
         env_file: Path = tmp_path / ".env"
@@ -125,10 +130,12 @@ class TestEnvFile:
 
         assert os.environ["ENDZONE_CONFIG_PROBE"] == "from-shell"
 
+    @pytest.mark.cross_platform
     def test_missing_file_is_skipped(self, tmp_path: Path) -> None:
         """A path that is not a file does not raise."""
         assert load_env_file(tmp_path / "missing.env") is False
 
+    @pytest.mark.cross_platform
     def test_quotes_are_stripped(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """A quoted dotenv value is stored without the quotes."""
         env_file: Path = tmp_path / ".env"

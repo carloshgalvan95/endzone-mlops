@@ -1,31 +1,27 @@
 """Tests for utility modules."""
 
+import logging
 from pathlib import Path
+
+import pytest
 
 from endzone.utils.logging import setup_logger
 
 
 class TestLogging:
-    """Test logging setup."""
+    """Logger name, level, singleton, and file output."""
 
-    def test_logger_creation(self) -> None:
-        """Logger is created with correct name and level."""
-        logger = setup_logger("test_logger", level="DEBUG")
+    @pytest.mark.cross_platform
+    def test_logger_name_level_singleton_and_file(self, tmp_path: Path) -> None:
+        """One name is one logger, and a file handler writes the message."""
+        logger: logging.Logger = setup_logger("test_logger", level="DEBUG")
         assert logger.name == "test_logger"
-        assert logger.level == 10  # DEBUG = 10
+        assert logger.level == logging.DEBUG
 
-    def test_logger_singleton_behavior(self) -> None:
-        """Calling setup_logger twice returns same logger."""
-        logger1 = setup_logger("test_singleton")
-        logger2 = setup_logger("test_singleton")
-        assert logger1 is logger2
+        singleton: logging.Logger = setup_logger("test_singleton")
+        assert setup_logger("test_singleton") is singleton
 
-    def test_logger_with_file(self, tmp_path: Path) -> None:
-        """Logger can write to file."""
-        log_file = tmp_path / "test.log"
-        logger = setup_logger("test_file_logger", log_file=str(log_file))
-        logger.info("Test message")
-
-        assert log_file.exists()
-        content = log_file.read_text()
-        assert "Test message" in content
+        log_file: Path = tmp_path / "test.log"
+        file_logger: logging.Logger = setup_logger("test_file_logger", log_file=str(log_file))
+        file_logger.info("Test message")
+        assert "Test message" in log_file.read_text(encoding="utf-8")

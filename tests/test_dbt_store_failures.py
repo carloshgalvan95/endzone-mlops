@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import pytest
 import yaml
 
 from scripts.check_dbt_store_failures import (
@@ -10,6 +11,8 @@ from scripts.check_dbt_store_failures import (
     main,
     scan_store_failures,
 )
+
+pytestmark = pytest.mark.cross_platform
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 

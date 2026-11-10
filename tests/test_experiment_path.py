@@ -12,6 +12,8 @@ from endzone.modeling.tracking import (
     resolve_experiment_name,
 )
 
+pytestmark = pytest.mark.cross_platform
+
 _RELATIVE: str = "nfl_pregame/registry"
 
 

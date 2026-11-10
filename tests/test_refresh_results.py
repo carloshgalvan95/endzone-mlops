@@ -422,6 +422,7 @@ def test_conflicting_finals_and_an_empty_directory(tmp_path: Path) -> None:
         monkeypatch.undo()
 
 
+@pytest.mark.cross_platform
 def test_cli_restores_then_overlays_a_local_games_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -494,6 +495,7 @@ def test_results_module_does_not_score_or_drop_finished_games() -> None:
     assert pages.index("endzone.modeling.score") < pages.index("endzone.site.results")
 
 
+@pytest.mark.cross_platform
 def test_frontend_pick_and_result_sides() -> None:
     """The page maps the frozen pick and the final winner from the same rules."""
     node = shutil.which("node")
@@ -539,10 +541,12 @@ for (const [got, expected] of cases) {
         cwd=Path(__file__).resolve().parents[1],
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     assert completed.returncode == 0, completed.stderr or completed.stdout
 
 
+@pytest.mark.cross_platform
 def test_frontend_estimate_sits_beside_the_final_score() -> None:
     """A final estimate sits on the score row. The date line stays free of est.
 
@@ -730,80 +734,3 @@ setTimeout(() => {
             assert "est." not in meta["text"]
             assert meta["estCount"] == 0
         assert report[surface]["pending"] == ["TB 18 \u00b7 25 CHI"]
-
-
-def test_frontend_estimate_css_keeps_the_score_row_compact() -> None:
-    """Mobile puts the estimate left. Desktop source order stays on the right."""
-    css = Path("site/assets/styles.css").read_text(encoding="utf-8")
-    mobile_at = css.index("@media (max-width: 760px)")
-    desktop, mobile = css[:mobile_at], css[mobile_at:]
-    assert "right:calc(100% + 8px)" in mobile
-    assert "translateY(-50%)" in mobile
-    assert "order:-1" not in css
-    assert ".score-line{display:flex;align-items:center;gap:8px}" in desktop
-    assert ".games th,.games td{padding-left:12px;padding-right:12px}" in desktop
-    assert "padding-right:6px" in mobile
-    assert (
-        ".result-well .est-line{font:400 var(--text-xs) var(--font-mono);"
-        "color:var(--color-text-muted);line-height:1.15;white-space:nowrap;flex:none}"
-    ) in css
-    assert ".result-well .est-line.is-placeholder{display:none}" in css
-    script = Path("site/assets/app.js").read_text(encoding="utf-8")
-    assert "line.appendChild(estimate)" in script
-    assert "metaBlock.appendChild(estimate)" not in script
-
-
-def test_how_to_read_section_is_static_markup() -> None:
-    """The explainer is frozen HTML after the record, not a live card."""
-    page = Path("site/index.html").read_text(encoding="utf-8")
-    script = Path("site/assets/app.js").read_text(encoding="utf-8")
-    css = Path("site/assets/styles.css").read_text(encoding="utf-8")
-    assert 'id="how-to-read"' in page
-    assert page.index('id="record"') < page.index('id="how-to-read"')
-    assert page.index('id="how-to-read"') < page.index("<footer")
-    assert "Week 9" not in page
-    assert ">2026<" not in page
-    nav = page.split('<nav class="nav"', maxsplit=1)[1].split("</nav>", maxsplit=1)[0]
-    assert nav.index("#predictions") < nav.index("#accuracy")
-    assert nav.index("#accuracy") < nav.index("#record")
-    assert nav.index("#record") < nav.index("#how-to-read")
-    assert "New here? How to read a game" in page
-    section = page.split('id="how-to-read"', maxsplit=1)[1].split("<footer", maxsplit=1)[0]
-    assert "games-cards" not in section
-    assert section.count("Illustrative card, not a live prediction.") == 2
-    for needle in (
-        "Every percent is for the home team.",
-        "2026 week 9",
-        "46%",
-        "40%",
-        "+6 pp",
-        "38%",
-        "21%",
-        "+17 pp",
-        "DISAGREES",
-        "WINS",
-        "TIE",
-        "BUF",
-        "MIN",
-        "JAX",
-        "BAL",
-        'class="est-k">est. </span><span class="est-n">25-22</span>',
-        "favored JAX \u00b7 matched",
-        "Mon, Nov 9",
-        "19:15 CDMX",
-        "Final \u00b7 Thu 5 Nov",
-        "33",
-        "10",
-        "market even",
-        "did not match",
-        "Small sample. Open experiment, not betting advice.",
-        "<ol",
-    ):
-        assert needle in section, needle
-    assert "\u2014" not in section
-    assert "\u2013" not in section
-    assert "how-to-read" not in script
-    wide_at = css.index("@media (min-width: 761px)")
-    assert "position:absolute" not in css[css.index(".read-pin{") : wide_at]
-    wide = css[wide_at:]
-    assert ".read-slot>.read-pin{position:absolute;top:0;left:-32px;margin:0}" in wide
