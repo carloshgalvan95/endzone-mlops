@@ -12,6 +12,8 @@ from scripts.check_structure import (
     main,
 )
 
+pytestmark = pytest.mark.cross_platform
+
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 
 

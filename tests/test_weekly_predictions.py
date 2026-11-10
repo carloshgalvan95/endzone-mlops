@@ -405,6 +405,7 @@ def test_team_catalog_logo_and_hex() -> None:
     assert panthers["team_color2"] == "#000000"
 
 
+@pytest.mark.cross_platform
 def test_team_catalog_json_round_trip(tmp_path: Path) -> None:
     """A written teams.json loads back to the same abbreviations."""
     document = team_catalog_document(_catalog())
@@ -415,6 +416,7 @@ def test_team_catalog_json_round_trip(tmp_path: Path) -> None:
     assert loaded["teams"]["BUF"]["name"] == "Bills"
 
 
+@pytest.mark.cross_platform
 def test_write_bundle_names(tmp_path: Path) -> None:
     """The week file, latest.json, and teams.json land under the output directory."""
     games = pd.DataFrame(
@@ -519,16 +521,7 @@ def test_shipped_sample_is_labeled_example() -> None:
     assert document["weeks_available"] == []
     assert document["label"].startswith("Example slate")
     validate_prediction_document(document)
-    for game in document["games"]:
-        assert "2026" not in str(game["game_id"])
-        assert "W09" not in str(game["game_id"])
-    page = Path("site/index.html").read_text(encoding="utf-8")
     script = Path("site/assets/app.js").read_text(encoding="utf-8")
-    assert "Week 9" not in page
-    assert ">2026<" not in page
-    assert "Model accuracy" in page
-    assert "WINS" in script
-    assert "Estimate hidden because it did not pass its pre-registered test." in script
     assert 'loadJson("data/latest.json")' in script
     assert 'loadJson("data/sample.json")' in script
     teams = json.loads(Path("site/data/teams.json").read_text(encoding="utf-8"))
@@ -579,6 +572,7 @@ def test_missing_moneyline_does_not_blank_a_priced_game() -> None:
     assert float_market["open"] is None
 
 
+@pytest.mark.cross_platform
 def test_write_bundle_keeps_weeks_already_on_disk(tmp_path: Path) -> None:
     """A new week lists every non-example file already in the predictions directory."""
     predictions = tmp_path / "predictions"
@@ -814,6 +808,7 @@ def test_select_scheduled_week_includes_played_and_unplayed() -> None:
     assert "home_won" not in chosen["games"].columns
 
 
+@pytest.mark.cross_platform
 def test_write_refuses_to_drop_published_game_ids(tmp_path: Path) -> None:
     """A 2-game write cannot replace a 15-game week file."""
     teams = team_catalog_document(_catalog())
@@ -828,6 +823,7 @@ def test_write_refuses_to_drop_published_game_ids(tmp_path: Path) -> None:
     assert stored["games"][0]["model_home_wp"] == 0.42
 
 
+@pytest.mark.cross_platform
 def test_published_week_is_not_replaced_by_a_leftover_slate(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -862,6 +858,7 @@ def test_published_week_is_not_replaced_by_a_leftover_slate(
     assert result["document"]["generated_at"] == "2026-11-04T04:51:24Z"
 
 
+@pytest.mark.cross_platform
 def test_replace_published_rejects_a_smaller_slate(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

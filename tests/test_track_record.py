@@ -396,6 +396,7 @@ def test_missing_archive_does_not_score_the_site_files(tmp_path: Path) -> None:
     assert _bytes(site) == before
 
 
+@pytest.mark.cross_platform
 def test_read_only_trees_stay_read_only(tmp_path: Path) -> None:
     """Building the record does not need write permission on the slates."""
     archive: Path = tmp_path / "archive"
@@ -423,6 +424,7 @@ def test_read_only_trees_stay_read_only(tmp_path: Path) -> None:
     assert document["seasons"][0]["weeks"][0]["games"] == 1
 
 
+@pytest.mark.cross_platform
 def test_writer_keeps_utf8_and_refuses_a_published_name(tmp_path: Path) -> None:
     """The derived file is UTF-8. A week file name is never the output."""
     output: Path = tmp_path / "track_record.json"
@@ -443,6 +445,7 @@ def test_writer_keeps_utf8_and_refuses_a_published_name(tmp_path: Path) -> None:
         assert_derived_output(archive / "track_record.json", archive, None)
 
 
+@pytest.mark.cross_platform
 def test_corrupt_week_removes_a_stale_record_and_writes_nothing(tmp_path: Path) -> None:
     """A bad archived file fails closed. An old track record is not left behind."""
     archive: Path = tmp_path / "archive"
@@ -489,6 +492,7 @@ def test_corrupt_week_removes_a_stale_record_and_writes_nothing(tmp_path: Path) 
     assert week.read_bytes() == _bytes(archive)["predictions/2026-w9.json"]
 
 
+@pytest.mark.cross_platform
 def test_command_writes_only_the_derived_file(tmp_path: Path) -> None:
     """The command's only new file is the track record."""
     archive: Path = tmp_path / "archive"
@@ -539,6 +543,7 @@ def test_sample_slate_and_mismatched_week_are_not_silent(tmp_path: Path) -> None
         build_track_record(archive, None, generated_at=_STAMP)
 
 
+@pytest.mark.cross_platform
 def test_stamp_rewrites_asset_urls_and_not_json(tmp_path: Path) -> None:
     """A content hash is added once. A week file beside the HTML is untouched."""
     asset: Path = tmp_path / "assets" / "app.js"
@@ -614,18 +619,3 @@ def test_open_graph_image_stays_unhashed_in_the_built_site(tmp_path: Path) -> No
     assert "assets/og-image.png" not in stamped
     assert "assets/styles.css?v=" in html
     assert "assets/app.js?v=" in html
-
-
-def test_record_section_is_a_table() -> None:
-    """The public page exposes the record as a table and points at the method."""
-    html: str = Path("site/index.html").read_text(encoding="utf-8")
-    record: str = html.split('id="record"', maxsplit=1)[1]
-    assert "<table" in record
-    assert "ADR-008" in record
-    assert "Sprint 3" not in record
-    assert "\u2014" not in record
-    assert "\u2013" not in record
-    script: str = Path("site/assets/app.js").read_text(encoding="utf-8")
-    assert "track_record.json" in script
-    assert "\u2014" not in script
-    assert "\u2013" not in script

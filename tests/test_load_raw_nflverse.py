@@ -48,30 +48,19 @@ from endzone.ingest.volume import (
 class TestParseSeasons:
     """Test season specification parsing."""
 
-    def test_parse_range(self) -> None:
-        """Parse season range."""
-        result = parse_seasons("1999-2003")
-        assert result == [1999, 2000, 2001, 2002, 2003]
-
-    def test_parse_list(self) -> None:
-        """Parse comma-separated list."""
-        result = parse_seasons("2022,2023,2024")
-        assert result == [2022, 2023, 2024]
-
-    def test_parse_single(self) -> None:
-        """Parse single season."""
-        result = parse_seasons("2022")
-        assert result == [2022]
-
-    def test_parse_mixed(self) -> None:
-        """Parse mixed range and list."""
-        result = parse_seasons("2020-2022,2024")
-        assert result == [2020, 2021, 2022, 2024]
-
-    def test_parse_removes_duplicates(self) -> None:
-        """Parse removes duplicates and sorts."""
-        result = parse_seasons("2022,2021,2022,2023")
-        assert result == [2021, 2022, 2023]
+    @pytest.mark.parametrize(
+        ("spec", "expected"),
+        [
+            ("1999-2003", [1999, 2000, 2001, 2002, 2003]),
+            ("2022,2023,2024", [2022, 2023, 2024]),
+            ("2022", [2022]),
+            ("2020-2022,2024", [2020, 2021, 2022, 2024]),
+            ("2022,2021,2022,2023", [2021, 2022, 2023]),
+        ],
+    )
+    def test_parse_seasons(self, spec: str, expected: list[int]) -> None:
+        """A range, a list, one season, and duplicates become one sorted list."""
+        assert parse_seasons(spec) == expected
 
     def test_default_seasons_constant(self) -> None:
         """Default season start is 1999."""
@@ -545,17 +534,14 @@ class TestCreateBronzeTable:
 class TestDatasetConfig:
     """Test dataset configuration constants."""
 
-    def test_games_config_exists(self) -> None:
-        """Games dataset is configured."""
-        assert "games" in DATASET_CONFIG
-        assert DATASET_CONFIG["games"]["table_name"] == "games"
-        assert DATASET_CONFIG["games"]["supports_season_filter"] is True
-
-    def test_pbp_config_exists(self) -> None:
-        """Play-by-play dataset is configured."""
-        assert "pbp" in DATASET_CONFIG
-        assert DATASET_CONFIG["pbp"]["table_name"] == "play_by_play"
-        assert DATASET_CONFIG["pbp"]["supports_season_filter"] is True
+    @pytest.mark.parametrize(
+        ("dataset", "table_name"),
+        [("games", "games"), ("pbp", "play_by_play")],
+    )
+    def test_dataset_names_the_bronze_table(self, dataset: str, table_name: str) -> None:
+        """Games and play-by-play keep their bronze table and season filter."""
+        assert DATASET_CONFIG[dataset]["table_name"] == table_name
+        assert DATASET_CONFIG[dataset]["supports_season_filter"] is True
 
 
 class TestCurrentSeasonMode:

@@ -29,6 +29,8 @@ from endzone.site.archive import (
     stage_archive,
 )
 
+pytestmark = pytest.mark.cross_platform
+
 _STAMP: str = "20261109T042837Z"
 _STAMP_LATER: str = "20261109T120000Z"
 _AUTHOR: str = "Nia Pérez"

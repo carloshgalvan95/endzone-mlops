@@ -30,6 +30,7 @@ dependencies = [
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
+    "pytest-xdist>=3.6.0",
     "ruff==0.17.0",
     "vulture>=2.14",
     "import-linter==2.15",
@@ -73,7 +74,10 @@ ignore = [
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
-addopts = "-v --tb=short"
+addopts = "-v --tb=short --strict-markers -n auto"
+markers = [
+    "cross_platform: OS-sensitive behavior (paths, encoding, line endings, CLI, scripts, file I/O).",
+]
 
 [tool.coverage.run]
 source = ["endzone"]

@@ -827,6 +827,7 @@ class TestPackageImport:
         with pytest.raises(AttributeError, match="not_a_real_export"):
             getattr(analysis_pkg, "not_a_real_export")
 
+    @pytest.mark.cross_platform
     def test_module_entrypoint_has_no_runpy_warning(self) -> None:
         """Running the audit as a module does not double-import it."""
         repo_root: Path = Path(__file__).resolve().parents[1]
@@ -834,6 +835,7 @@ class TestPackageImport:
             [sys.executable, "-m", "endzone.analysis.feature_audit", "--help"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
             check=False,
             cwd=repo_root,
         )

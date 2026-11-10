@@ -37,7 +37,7 @@ endzone-mlops demonstrates a lakehouse architecture for NFL analytics: Databrick
 
 - **nflverse**: Public NFL data (play-by-play, games, players). CC BY 4.0 license. Historical only, not live.
 - **Databricks Free Edition**: The lakehouse. Delta tables in Unity Catalog, the serverless SQL warehouse, serverless notebook compute, and MLflow. There is no custom cluster. Snowflake is not used.
-- **GitHub Actions**: CI on push and pull request. Ubuntu runs ruff, the format check, the structure check, vulture, pytest, analysis coverage, and the local dbt compile. Windows and macOS run ruff, the format check, the structure check, and pytest. `pages.yml` and `refresh-results.yml` deploy the weekly page.
+- **GitHub Actions**: CI on push, pull request, a Monday schedule, and manual dispatch. Ubuntu runs ruff, the format check, the structure check, vulture, the full pytest suite, analysis coverage, and the local dbt compile. On a pull request, Windows and macOS run ruff, the format check, the structure check, and `pytest -m cross_platform`. Otherwise they run the full suite. `pages.yml` and `refresh-results.yml` deploy the weekly page.
 - **BALLDONTLIE**: A live NFL API is not in the repo. It is not a dependency.
 
 ### Users
@@ -174,7 +174,7 @@ A predictions table, a `dim_*` table, and an in-game state table are not in the 
 
 Workflows in the repo: `ci.yml`, `pages.yml`, `refresh-results.yml`, `model-registry.yml`, `pr-guard.yml`, `databricks-smoke.yml`.
 
-**`ci.yml`**: push and pull request to `main`. Ubuntu checks out, installs uv and Python 3.12, runs `uv sync --frozen`, `ruff check`, `ruff format --check`, `scripts/check_structure.py`, `lint-imports`, `vulture endzone scripts --min-confidence 80`, pytest, analysis coverage at 100%, then `dbt deps`, `dbt seed`, and `dbt compile` on local DuckDB. Windows and macOS run ruff, the format check, the structure check, and pytest. They do not compile dbt. The README badge is this workflow.
+**`ci.yml`**: push and pull request to `main`, a Monday 12:00 UTC schedule, and `workflow_dispatch`. Ubuntu checks out, installs uv and Python 3.12, runs `uv sync --frozen`, `ruff check`, `ruff format --check`, `scripts/check_structure.py`, `lint-imports`, `vulture endzone scripts --min-confidence 80`, the full pytest suite, analysis coverage at 100%, then `dbt deps`, `dbt seed`, and `dbt compile` on local DuckDB. Windows and macOS run ruff, the format check, the structure check, and pytest. On a pull request that pytest command is `-m cross_platform`. On push, the weekly schedule, and a manual dispatch it is the full suite. They do not compile dbt. The job is not skipped, so the check name still reports. The README badge is this workflow. Counts and timings are in `docs/testing.md`.
 
 `dbt build` on Databricks is `make dbt-build-databricks`. It is not a CI step. A CI job that builds warehouse tables with test data is not in the repo.
 
