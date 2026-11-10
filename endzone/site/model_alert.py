@@ -243,6 +243,26 @@ class GithubIssueClient:
             raise ModelAlertError("GitHub issues list was not a list.")
         return [item for item in payload if isinstance(item, dict)]
 
+    def list_all_open(self) -> list[dict[str, Any]]:
+        """Return open issues, following pages of 100.
+
+        The API includes pull requests. Callers that match titles should
+        skip items that contain ``pull_request``.
+        """
+        found: list[dict[str, Any]] = []
+        page: int = 1
+        while page <= 20:
+            path: str = f"/repos/{self._repo}/issues?state=open&per_page=100&page={page}"
+            payload: object = self._read("GET", path, None)
+            if not isinstance(payload, list):
+                raise ModelAlertError("GitHub issues list was not a list.")
+            batch: list[dict[str, Any]] = [item for item in payload if isinstance(item, dict)]
+            found.extend(batch)
+            if len(batch) < 100:
+                return found
+            page += 1
+        return found
+
     def create(self, title: str, body: str, labels: list[str]) -> dict[str, Any]:
         """Open one issue and return the API object."""
         payload: object = self._read(
