@@ -916,6 +916,43 @@ The page is an open experiment. It is not betting picks. Generated week JSON sta
 
 **Tuesday 12:00 UTC.** The same workflow refreshes the current season, builds the Databricks marts, restores the archive first, and scores the next unpublished week. The score loads alias `prod` from Unity Catalog (`MLFLOW_REGISTRY_URI=databricks-uc`). Tracking stays `sqlite:///mlflow.db`. If the alias is missing or the registry cannot be read, the log says so and the job fits logistic `h2_full` on games before that week. That fit is registered in the sqlite file and does not get the alias. If that week file is already present after the restore, it is kept. A score or an archive write that would drop a `game_id` fails the job, and the previous deployment stays up. Adding games is allowed.
 
+### Scheduled runs are best effort
+
+GitHub may skip a cron or start it hours late. On 10 Nov 2026 the Pages cron `0 12 * * 2` created no run. Pages had never had a scheduled run. Results had one scheduled run, about 4.5 hours late. Week 10 was published by a manual `workflow_dispatch`. Backup crons use odd minutes so they do not land on the same minute as the primary. America/Mexico_City is UTC-6 (no daylight saving).
+
+| Workflow | Cron (UTC) | Local time (CT) | What it does |
+| --- | --- | --- | --- |
+| Pages | `0 12 * * 2` | Tuesday 06:00 | Primary score, then deploy |
+| Pages | `17 13 * * 2` | Tuesday 07:17 | Backup score, then deploy |
+| Pages | `43 14 * * 2` | Tuesday 08:43 | Backup score, then deploy |
+| Results | `30 8 * * 5` | Friday 02:30 | After Thursday night |
+| Results | `47 9 * * 5` | Friday 03:47 | Backup |
+| Results | `15 * * * 0` | Sunday, every hour at :15 | Sunday window |
+| Results | `47 17 * * 0` | Sunday 11:47 | Backup inside that window |
+| Results | `47 21 * * 0` | Sunday 15:47 | Backup inside that window |
+| Results | `15 0-8 * * 1` | Monday 00:15 through 08:15 UTC | After the late Sunday kickoff |
+| Results | `47 2 * * 1` | Monday 02:47 UTC (Sunday 20:47 CT) | Backup |
+| Results | `47 6 * * 1` | Monday 06:47 UTC (Monday 00:47 CT) | Backup |
+| Results | `47 6 * * 2` | Tuesday 06:47 UTC (Tuesday 00:47 CT) | Before the Pages crons |
+| Results | `30 8 * * 2` | Tuesday 08:30 UTC (Tuesday 02:30 CT) | Primary Monday-night pass |
+| Results | `17 10 * * 2` | Tuesday 10:17 UTC (Tuesday 04:17 CT) | Before the Pages crons |
+| Slate check | `7 14 * * 2` | Tuesday 08:07 | Missing slate or missing finals |
+| Slate check | `13 16 * * 2` | Tuesday 10:13 | Same check, later |
+
+A Pages backup restores `published-slates` first. `python -m endzone.site.score_gate` then reads the restored `site/data`. It picks the target week with `select_slate` on unplayed games (both scores missing), the same picker as `python -m endzone.modeling.score`. If `predictions/<season>-w<week>.json` is already there, the job skips the warehouse refresh, the dbt build, and the score. It still overlays finals, writes the track record, archives, and deploys. `replace_published` is a `workflow_dispatch` input only. The gate never skips it, and a schedule has no inputs, so a backup cannot rebuild a published week. If the gate is skipped and the score still runs, `kept_published_week` leaves that week's file unread and unwritten. A second overlay does not rewrite a week file when the scores, statuses, and other slate fields are already current, including `results_updated_at`. The archive commits only when the bytes change.
+
+**Slate check.** `.github/workflows/slate-check.yml` is `workflow_dispatch` plus the two Tuesday crons above. `python -m endzone.site.slate_check` downloads the public nflverse games file. It does not use Databricks. The expected week is `select_slate` on games whose `gameday` falls in the current Tuesday-to-Tuesday window in America/Mexico_City (Tuesday inclusive, next Tuesday exclusive). A window with no games is outside the season: the job exits 0 and opens nothing. Preseason is included, because the scorer does not filter `game_type`. The check then looks for `predictions/<season>-w<week>.json` on `published-slates`. After 08:00 CT on Tuesday it also requires the previous scheduled week (the latest season and week strictly before the expected pair) to have a final for every game. A game is final when `result_side` accepts it, the same rule the track record uses for state `complete`. Before 08:00 CT on Tuesday, a missing Monday score does not alert. The 08:07 CT run can fire before the 08:43 CT Pages backup. If that backup then publishes the file, the 10:13 CT run stays quiet. Close the earlier issue once the file is present. The check does not close issues.
+
+When something is missing, the job opens one issue titled `Slate check failed: <season> week <week>` with label `area:observability`. It lists open issues and matches that title exactly, so a second run does not open another and does not edit the first. Pull requests are ignored. The job has `contents: read` and `issues: write`. It does not score, deploy, or write to a branch. If the schedule, the archive, or GitHub cannot be read, the job fails. A quiet week exits 0. This is the alert part of issue 65. The model-behind-market issue stays on the Results job.
+
+When that issue is open:
+
+1. Read the body. It says whether the current file is missing, the previous week is missing finals, or both.
+2. Missing file: Actions, Pages, Run workflow. Set season and week to the values in the title. Leave `replace_published` off. Leave `backfill_archive` off. That scores the week only when the file is not already on `published-slates`.
+3. Missing finals: Actions, Results, Run workflow. That overlays nflverse scores. It does not rescore.
+4. Do not turn `replace_published` on to answer this alert. That rebuilds every scheduled game and replaces the published file.
+5. Close the issue after the file is present and the previous week is complete.
+
 **Rebuild one week.** This is the only way to replace probabilities for a week that is already published. It predicts every scheduled game that week, played and unplayed, and trains only on completed games before that week. Same-week finals are not labels and are not features. The results overlay then sets `status` to `final` only when nflverse has both scores. A 0-0 final is a tie. A missing score stays `scheduled`. The archive is updated before the deploy, and it still refuses a dropped `game_id`.
 
 Local:
@@ -934,7 +971,7 @@ $env:WEEK = "9"
 
 GitHub Actions: run Pages with `workflow_dispatch`, set `replace_published` to true, and set both season and week. Leaving the flag off scores the next unpublished week, or keeps it when the file is already there. The archive is updated before the deploy.
 
-**Results.** `make score` is the unpublished-week command. `make refresh-results` overlays finals and does not refit. `.github/workflows/refresh-results.yml` restores the archive first, overlays, writes the track record, runs the model alert, archives, and deploys on game-day windows. It has no warehouse credentials. A pass that does not change the JSON does not add a commit. A new `results_updated_at` does.
+**Results.** `make score` is the unpublished-week command. `make refresh-results` overlays finals and does not refit. `.github/workflows/refresh-results.yml` restores the archive first, overlays, writes the track record, runs the model alert, archives, and deploys on game-day windows. It has no warehouse credentials. A pass that does not change a score, status, or other slate field does not rewrite the file, including `results_updated_at`, and does not add a commit. A real score change updates `results_updated_at` and is archived. The cron list, including the odd-minute backups, is in [Scheduled runs are best effort](#scheduled-runs-are-best-effort).
 
 The alert compares published log loss with the no-vig market on the last 64 decided games that have a price, and only after 48 of them. The reference gap is logistic `h2_full` minus the market row in `docs/experiments/reference_metrics.json` (0.6377 minus 0.6120 today). It trips when the window gap exceeds that reference gap by the margin, default 0.02, so the bar is about 0.046. A window that matches the reference table stays quiet. Trailing the market by the reference gap is the known state. The issue is not a betting signal. Override the margin with `ENDZONE_ALERT_GAP_MARGIN`. The other overrides are `ENDZONE_ALERT_WINDOW_GAMES` and `ENDZONE_ALERT_MIN_GAMES`. A trip opens or updates one issue labeled `model-behind-market`. A 403 or any other GitHub error is logged. The step does not fail the deploy. See ADR-009.
 
@@ -1058,7 +1095,7 @@ Do not set `replace_published`. That flag rebuilds a week that is already on dis
 
 Merging this work to `main` does not publish week 10. `.github/workflows/pages.yml` skips the score step when `github.event_name` is `push`. A push restores `published-slates`, overlays finals, writes the track record, archives, and deploys the site that is already there. It does not fit a model and it does not create a week file.
 
-The Tuesday cron (`0 12 * * 2`) and a manual dispatch do score. They load whatever alias `prod` is at that moment. If either one runs before the promote, week 10 is published with version 1. That file is then frozen. Do not dispatch `replace_published` to swap it. Sequence the promote before that cron, or before a manual score.
+The Tuesday crons (`0 12 * * 2`, `17 13 * * 2`, `43 14 * * 2`) and a manual dispatch do score when that week's file is not already published. They load whatever alias `prod` is at that moment. If one of them runs before the promote, week 10 is published with version 1. That file is then frozen. Do not dispatch `replace_published` to swap it. Sequence the promote before the 12:00 cron, or before a manual score.
 
 ---
 
