@@ -10,4 +10,7 @@ writes ``site/data/track_record.json``. It does not edit a week file.
 file is already present so a Pages run can skip the fit.
 ``python -m endzone.site.slate_check`` opens one issue when that file
 or the previous week's finals are missing. It does not write a branch.
+``python -m endzone.site.run_summary`` writes the Pages and Results job
+summary from the slate, the track record, and those step status files.
+It does not fit a model.
 """

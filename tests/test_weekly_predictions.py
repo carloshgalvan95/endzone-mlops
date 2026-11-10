@@ -1152,6 +1152,9 @@ def test_score_uses_the_prod_alias_and_does_not_register_again(
     assert calls["fit"] == 1
     assert second["model_source"] == "registry"
     assert second["model_alias"] == "prod"
+    assert second["fallback_reason"] is None
+    assert second["data_digest"] is not None
+    assert len(second["data_digest"]) == 64
     assert second["model_version"] == f"{version}@prod"
     assert second["document"]["model_alias"] == "prod"
     assert second["document"]["model_name"] == "endzone-winprob"
@@ -1187,6 +1190,7 @@ def test_missing_prod_alias_registers_only_on_the_tracking_store(tmp_path: Path)
 
     assert result["model_source"] == "refit"
     assert result["model_alias"] is None
+    assert result["fallback_reason"] == "alias_missing"
     assert result["model_version"].isdigit()
     tracking = mlflow.MlflowClient(tracking_uri=tracking_uri, registry_uri=tracking_uri)
     assert len(tracking.search_model_versions("name='endzone-winprob'")) == 1
@@ -1234,6 +1238,7 @@ def test_a_loaded_model_that_cannot_score_falls_back_to_a_fit(
         _reset_mlflow_tracking()
 
     assert result["model_source"] == "refit"
+    assert result["fallback_reason"] == "loaded_model_could_not_score"
     assert result["model_version"].isdigit()
     assert result["model_version"] != "9@prod"
     assert result["document"]["model_alias"] is None

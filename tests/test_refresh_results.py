@@ -450,6 +450,8 @@ def test_cli_restores_then_overlays_a_local_games_file(
         "endzone.site.results.download_parquet_with_validation",
         lambda _url: (_ for _ in ()).throw(AssertionError("download")),
     )
+    status_dir = tmp_path / "run-status"
+    monkeypatch.setenv("ENDZONE_RUN_STATUS_DIR", str(status_dir))
     result = main(
         [
             "--output-dir",
@@ -463,6 +465,9 @@ def test_cli_restores_then_overlays_a_local_games_file(
         ]
     )
     assert result["updated"] == 2
+    saved = (status_dir / "results.txt").read_text(encoding="utf-8")
+    assert "outcome=finals applied\n" in saved
+    assert "updated=2\n" in saved
     stored = json.loads((output / "predictions" / "2026-w9.json").read_text(encoding="utf-8"))
     assert stored["games"][0]["status"] == "final"
     assert stored["games"][0]["result"] == "home"
