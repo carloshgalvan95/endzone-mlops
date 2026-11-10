@@ -115,43 +115,43 @@ In GitHub repository settings:
 ### Spike Checklist
 
 #### 1. Account Creation
-- [ ] Navigate to [Databricks Free Edition signup](https://www.databricks.com/try-databricks/signup-form)
-- [ ] Sign up with email (no credit card required)
-- [ ] Verify email and complete onboarding
-- [ ] Note workspace URL (assigned automatically)
+- [x] Navigate to [Databricks Free Edition signup](https://www.databricks.com/try-databricks/signup-form)
+- [x] Sign up with email (no credit card required)
+- [x] Verify email and complete onboarding
+- [x] Note workspace URL (assigned automatically)
 
 #### 2. SQL Warehouse Setup (Critical for dbt)
 
 Free Edition includes a pre-created serverless SQL warehouse. No cluster creation is needed or available.
 
-- [ ] Click "SQL Warehouses" in left sidebar
-- [ ] Locate "Serverless Starter Warehouse" (automatically provided)
-- [ ] Click on the warehouse to open details
-- [ ] Click "Start" if warehouse is stopped
-- [ ] Click "Connection details" tab
-- [ ] Copy the following values:
+- [x] Click "SQL Warehouses" in left sidebar
+- [x] Locate "Serverless Starter Warehouse" (automatically provided)
+- [x] Click on the warehouse to open details
+- [x] Click "Start" if warehouse is stopped
+- [x] Click "Connection details" tab
+- [x] Copy the following values:
   - **Server hostname** (e.g., `adb-xxxxx.xx.azuredatabricks.net`)
   - **HTTP path** (e.g., `/sql/1.0/warehouses/xxxxx`)
 
 **Expected**: Serverless Starter Warehouse starts successfully. This is the only SQL warehouse in Free Edition (2X-Small, serverless).
 
-**Failure mode**: If warehouse fails to start or connection details are unavailable, proceed to Plan B.
+**Failure mode**: If the warehouse does not start, stop and retry it. The 2026-10-06 spike passed on this warehouse. Snowflake is not used.
 
 **Note**: Free Edition does NOT allow creating compute clusters. All compute is serverless.
 
 #### 3. Personal Access Token Creation
 
-- [ ] Click on your profile icon (initials) in top-right corner
-- [ ] Select "Settings"
-- [ ] Click "Developer" in left sidebar
-- [ ] Click "Access tokens" tab
-- [ ] Click "Manage" (if available) or "Generate new token"
-- [ ] Set:
+- [x] Click on your profile icon (initials) in top-right corner
+- [x] Select "Settings"
+- [x] Click "Developer" in left sidebar
+- [x] Click "Access tokens" tab
+- [x] Click "Manage" (if available) or "Generate new token"
+- [x] Set:
   - Comment: "dbt development"
   - Lifetime: 90 days
-- [ ] Click "Generate"
-- [ ] Copy the token immediately (shown only once)
-- [ ] Store token securely (NEVER commit to git)
+- [x] Click "Generate"
+- [x] Copy the token immediately (shown only once)
+- [x] Store token securely (NEVER commit to git)
 
 **Expected**: Token generation succeeds.
 
@@ -218,30 +218,30 @@ dbt debug --profiles-dir .
 **Tip**: Use `make dbt-compile` or `.\scripts\dev.ps1 dbt-compile` which load `.env` automatically.
 
 dbt validation:
-- [ ] Run `dbt debug --profiles-dir .` (should show "All checks passed!")
-- [ ] Run `dbt deps --profiles-dir .` (installs dbt_utils package)
-- [ ] Run `dbt compile --profiles-dir . --target databricks` (compiles SQL, no data needed)
+- [x] Run `dbt debug --profiles-dir .` (should show "All checks passed!")
+- [x] Run `dbt deps --profiles-dir .` (installs dbt_utils package)
+- [x] Run `dbt compile --profiles-dir . --target databricks` (compiles SQL, no data needed)
 
 **Expected**: `dbt compile` succeeds, confirming dbt can talk to Databricks Free Edition.
 
-**Failure mode**: Connection errors, auth failures, or Unity Catalog permission issues → Plan B.
+**Failure mode**: Connection errors, auth failures, or Unity Catalog permission issues. Fix the host, HTTP path, token, and warehouse state. Snowflake is not used.
 
 #### 5. Serverless Compute for Notebooks
 
 Free Edition uses serverless compute for notebooks (no cluster creation needed).
 
-- [ ] Click "Workspace" in left sidebar
-- [ ] Create a new notebook: Click "Create" → "Notebook"
-- [ ] Name: "nfl_spike_test"
-- [ ] Language: Python
-- [ ] Click "Create"
-- [ ] In top-right corner, click "Connect" dropdown
-- [ ] Select "Serverless" (should be only option)
-- [ ] Wait for serverless compute to start (first time may take 1-2 minutes)
+- [x] Click "Workspace" in left sidebar
+- [x] Create a new notebook: Click "Create" → "Notebook"
+- [x] Name: "nfl_spike_test"
+- [x] Language: Python
+- [x] Click "Create"
+- [x] In top-right corner, click "Connect" dropdown
+- [x] Select "Serverless" (should be only option)
+- [x] Wait for serverless compute to start (first time may take 1-2 minutes)
 
 **Expected**: Serverless compute connects successfully.
 
-**Failure mode**: If serverless compute fails to start, wait and retry once. If persistent, proceed to Plan B.
+**Failure mode**: If serverless compute fails to start, wait and retry once. Snowflake is not used.
 
 #### 6. MLflow Tracking Test
 
@@ -265,10 +265,10 @@ with mlflow.start_run():
 ```
 
 Verify:
-- [ ] Run the notebook cell
-- [ ] Click "Experiments" in left sidebar (or top-right experiment icon)
-- [ ] Confirm run appears with params/metrics
-- [ ] Note experiment path format: `/Users/<your-email>/...`
+- [x] Run the notebook cell
+- [x] Click "Experiments" in left sidebar (or top-right experiment icon)
+- [x] Confirm run appears with params/metrics
+- [x] Note experiment path format: `/Users/<your-email>/...`
 
 **Expected**: MLflow tracking works with serverless compute.
 
@@ -276,71 +276,39 @@ Verify:
 
 #### 7. GitHub Actions Integration
 
-- [ ] In Databricks: Use access token from step 3 (or generate new one for CI)
-- [ ] In GitHub: Repository → Settings → Secrets → Actions
-- [ ] Add secrets:
+- [x] In Databricks: Use access token from step 3 (or generate new one for CI)
+- [x] In GitHub: Repository → Settings → Secrets → Actions
+- [x] Add secrets:
   - `DATABRICKS_HOST`: Server hostname from step 2
   - `DATABRICKS_HTTP_PATH`: HTTP path from step 2
   - `DATABRICKS_TOKEN`: Access token from step 3
 
 **Verify connection from GitHub Actions**:
-- [ ] Go to repository Actions tab
-- [ ] Select "Databricks Smoke Test" workflow (left sidebar)
-- [ ] Click "Run workflow" dropdown → "Run workflow" button
-- [ ] Wait for workflow to complete (~1-2 minutes)
-- [ ] Expect green checkmark with "Connection test: OK" in dbt debug output
-- [ ] If red X: Check job logs for connection errors, verify secrets are correct
+- [x] Go to repository Actions tab
+- [x] Select "Databricks Smoke Test" workflow (left sidebar)
+- [x] Click "Run workflow" dropdown → "Run workflow" button
+- [x] Wait for workflow to complete (~1-2 minutes)
+- [x] Expect a green run. The job runs `dbt debug` and `dbt compile` on the Databricks target.
 
-**Expected**: Secrets stored securely; CI can authenticate. Smoke test workflow succeeds.
+If the run fails, read the job logs and check the three secrets.
+
+**Expected**: The secrets stay in GitHub Actions. The smoke test succeeds.
 
 **Failure mode**: Token permission issues, incorrect secrets, or network errors → check workflow logs and troubleshoot.
 
-### Spike Outcome
+### Spike outcome
 
-Record result in ADR-001:
+**PASS** on 2026-10-06. ADR-001 records the same result. All 7 groups above were completed.
 
-**PASS**: All 7 items validated → Continue with Databricks Free Edition
-- [ ] Update ADR-001 status to "PASS"
-- [ ] Update this runbook with actual workspace URL
-- [ ] Add credentials to local `.env` file (never commit)
-- [ ] Continue Day 1 work
+The workspace host, HTTP path, and token stay in `.env` and in GitHub Actions secrets. This file does not store them.
 
-**FAIL**: Any blocking issue → Activate Plan B
-- [ ] Create `docs/adr/ADR-001b-snowflake.md` documenting failure reason
-- [ ] Switch to Snowflake trial (see below)
-- [ ] Update `dbt/profiles.yml.example` to use snowflake target
-- [ ] Same Day 1 DoD, different adapter
-
-### Plan B: Snowflake Activation
-
-If Databricks spike fails:
-
-1. Sign up at [signup.snowflake.com](https://signup.snowflake.com/) (30-day trial, no card upfront)
-2. Select cloud provider and region
-3. Note account identifier (e.g., `xy12345.us-east-1`)
-4. Install `dbt-snowflake`: `pip install dbt-snowflake`
-5. Configure `profiles.yml`:
-   ```yaml
-   endzone_mlops:
-     target: snowflake
-     outputs:
-       snowflake:
-         type: snowflake
-         account: <account-id>
-         user: <username>
-         password: <password>
-         database: NFL_DEV
-         warehouse: COMPUTE_WH
-         schema: PUBLIC
-   ```
-6. Run `dbt compile` to verify
-7. For MLflow: Use local tracking (`sqlite:///mlflow.db`) or deploy separate tracking server
+Snowflake was not activated. `dbt-snowflake` is not a dependency. There is no ADR-001b. `dbt/profiles.yml.example` still has an unused `snowflake` output. Do not select it. The warehouse target is `databricks`.
 
 ---
 
 ## Local Development Setup
 
-For Day 1 work without Databricks/Snowflake:
+For work that does not need the warehouse:
 
 ### Python 3.12 lock
 
@@ -412,20 +380,9 @@ ruff format endzone/ tests/
 make lint-structure
 ```
 
-### Data Loading (Future Step)
+### Data loading
 
-For actual data ingestion (post-Day 1):
-
-```python
-# Example: Download nflverse games
-import pandas as pd
-
-url = "https://github.com/nflverse/nflverse-data/releases/download/schedules/games.parquet"
-df = pd.read_parquet(url)
-
-# Load to Databricks Delta table or DuckDB
-# (Ingestion pipeline to be implemented)
-```
+Ingest is `python -m endzone.ingest.load_raw_nflverse`. The commands are in [D2: Data Ingestion to Databricks Free Edition](#d2-data-ingestion-to-databricks-free-edition). A second loader is not in the repo.
 
 ---
 
@@ -742,19 +699,26 @@ Workflow: `.github/workflows/ci.yml`
 
 CI runs on a push to `main` and on a pull request into `main`.
 
-### Required Secrets (Databricks Path)
+### Secrets
 
-If using Databricks in CI:
-- `DATABRICKS_HOST`
-- `DATABRICKS_TOKEN`
+`ci.yml` does not read Databricks secrets. It compiles with DuckDB.
+
+The manual workflow `.github/workflows/databricks-smoke.yml` uses `DATABRICKS_HOST`, `DATABRICKS_HTTP_PATH`, and `DATABRICKS_TOKEN`.
 
 ### Workflow Steps
 
-1. **Lint**: `ruff check` (fails on errors)
+Ubuntu, in `.github/workflows/ci.yml`:
+
+1. **Lint**: `ruff check` and `ruff format --check`
 2. **Structure**: `scripts/check_structure.py` and `lint-imports`
-3. **Test**: `pytest` (fails if any test fails)
-4. **dbt compile**: Validates SQL syntax
-5. **(Future) dbt build**: Runs models and tests with data
+3. **Unused code**: `vulture endzone scripts --min-confidence 80`
+4. **Test**: `pytest`
+5. **Analysis coverage**: 100% on `endzone/analysis`
+6. **dbt compile**: `dbt deps`, `dbt seed`, and `dbt compile` on local DuckDB
+
+Windows and macOS run the lint, format, structure, and pytest steps. They do not compile dbt.
+
+`dbt build` on Databricks is `make dbt-build-databricks`. It is not a CI step. A CI job that builds warehouse tables is not in the repo.
 
 ### Local CI Simulation
 
@@ -775,25 +739,19 @@ The suite before any push is `ruff check endzone/ tests/`, `ruff format --check 
 
 ```python
 import mlflow
-import os
 
 # Authenticate (uses DATABRICKS_TOKEN env var)
 mlflow.set_tracking_uri("databricks")
 
-# Set experiment. The library resolves a relative name for you.
-# nfl_pregame becomes /Shared/endzone-mlops/nfl_pregame unless
-# ENDZONE_MLFLOW_EXPERIMENT_ROOT is set. This notebook spike still
-# passes an absolute path because it does not call the library.
+# The Day 1 notebook spike passed an absolute path.
+# Training code calls activate_tracking_experiment instead.
+# A relative name such as nfl_pregame becomes
+# /Shared/endzone-mlops/nfl_pregame unless
+# ENDZONE_MLFLOW_EXPERIMENT_ROOT is set.
 mlflow.set_experiment("/Users/<your-email>/nfl_pregame")
-
-# Training script usage
-with mlflow.start_run():
-    mlflow.log_param("model_type", "logistic")
-    mlflow.log_param("C", 1.0)
-    mlflow.log_metric("accuracy", 0.72)
-    mlflow.log_artifact("plots/confusion_matrix.png")
-    mlflow.sklearn.log_model(model, name="model")
 ```
+
+`endzone/modeling/tracking.py` logs params, `cv_*` metrics, `comparison.md`, `comparison.csv`, out-of-fold files, and the sklearn model inside `mlflow.start_run()`. It does not log a confusion-matrix plot.
 
 ### Local Path
 
@@ -868,7 +826,7 @@ Windows: `.\scripts\dev.ps1 verify-reference`.
 ### dbt
 
 **Problem**: `dbt compile` fails with "relation not found"
-- **Solution**: Day 1 models are schema-only. Data load comes later. Use `--select` to compile specific models.
+- **Solution**: The local compile uses DuckDB after `dbt seed`. `make dbt-compile` does that. A missing seed or a profile whose target is not `local` is the usual cause. Warehouse rows are not required for the compile. The Databricks build is `make dbt-build-databricks` after ingest.
 
 **Problem**: dbt_utils package missing
 - **Solution**: Run `dbt deps --profiles-dir .`
@@ -903,15 +861,11 @@ Windows: `.\scripts\dev.ps1 verify-reference`.
 
 ---
 
-## Next Steps After Spike
+## After the spike
 
-Once spike is PASS:
+The spike passed on 2026-10-06. Ingest, the staging views, the marts, `endzone/modeling/train.py`, and the weekly page are in the repo. The public week file is frozen once it is published. See [Weekly page](#weekly-page). `make train-s2` writes the Sprint 2 CV report under `reports/sprint2/`. The frozen copy is `docs/experiments/reports/sprint2_cv_report.json`.
 
-1. Load actual nflverse data (1-3 seasons for Day 1)
-2. Run `dbt run` to materialize staging models
-3. Create marts models (Day 7)
-4. Implement `train.py` with MLflow (Day 7)
-5. The public week file is frozen once it is published. See [Weekly page](#weekly-page). `make train-s2` writes the Sprint 2 CV report under `reports/sprint2/`. The frozen copy is `docs/experiments/reports/sprint2_cv_report.json`.
+Still not in the repo: README screenshots, a short demo video, and a `v0.1.0` tag.
 
 ---
 

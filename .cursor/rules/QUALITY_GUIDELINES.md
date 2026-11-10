@@ -2,7 +2,7 @@
 
 **Project:** Portfolio endzone-mlops (MLOps / DevOps) for Carlos Galvan  
 **Stack primario:** Databricks Free Edition + dbt-databricks + MLflow + GitHub Actions + Python modular  
-**Plan B:** Snowflake trial + dbt Core + MLflow sidecar, solo si el spike D1 de CE falla  
+**Plan B:** El spike de Databricks Free Edition pasó el 2026-10-06. Snowflake no se activó. `dbt-snowflake` no es una dependencia. El output `snowflake` en `dbt/profiles.yml.example` queda sin usar.  
 **Outline ancla:** the 14-day outline is not in this repo. Do not look for `outline_14d_2026-10-06.md` here.  
 **Idioma de trabajo:** español (términos técnicos en inglés cuando el dominio los usa: dbt, MLflow, DoD, ADR, MoSCoW, CI, ASR, etc.)  
 **Regla tipográfica permanente:** nunca usar el carácter em dash (U+2014). Usar coma, punto, dos puntos o guion corto (-).
@@ -171,7 +171,7 @@ Una historia/PR está Done solo si cumple todos los puntos aplicables:
 - [x] Skeleton + Makefile + CI smoke (lint/pytest)
 - [x] Spike CE documentado en runbook (pass/fail): cluster, dbt, MLflow, GH secrets
 - [x] Si pass: 1 raw + 1 stg_* + 1 test dbt
-- [x] Si fail: Plan B Snowflake mismo día; ADR-001b
+- [x] Si fail: Plan B Snowflake mismo día; ADR-001b. No se activó: el spike pasó y no hay ADR-001b.
 - [x] Actions verde
 
 ### DoD Día 7 - Pipeline + MLOps mínimo

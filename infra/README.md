@@ -1,76 +1,31 @@
-# Infrastructure Setup
+# Infrastructure
 
-This directory contains infrastructure configuration and setup instructions for Databricks Free Edition.
+Databricks Free Edition is the warehouse. The Day 1 spike passed on 2026-10-06. ADR-001 records the result. The procedure is `docs/runbook.md`.
 
-## Databricks Free Edition Setup
+## What is running
 
-### Prerequisites
+- Serverless SQL warehouse (pre-created). Free Edition does not create a custom cluster.
+- Unity Catalog catalog `workspace`.
+- Bronze schema `nfl_raw`: `games`, `play_by_play`, `depth_charts`.
+- dbt target schema `nfl_dev`. Staging is `nfl_dev_staging`. Marts are `nfl_dev_marts`. Seeds stay in `nfl_dev`.
+- MLflow on serverless compute, and locally at `sqlite:///mlflow.db`.
 
-1. Create account at [community.cloud.databricks.com](https://community.cloud.databricks.com/)
-2. Note workspace URL (e.g., `https://community.cloud.databricks.com/`)
+The host, HTTP path, and token stay in `.env` and in GitHub Actions secrets. This file does not store them.
 
-### Cluster Configuration
+## dbt
 
-Day 1 spike checklist (see `../docs/runbook.md` for detailed status):
+`dbt-databricks` is in `uv.lock`. Install with `uv sync --frozen` from the repo root.
 
-- [ ] Create compute cluster
-  - Runtime: DBR 13.3 LTS or later
-  - Compute: Serverless (Free Edition is serverless-only, no cluster creation)
-  - Terminate after: 120 minutes of inactivity
+Copy `dbt/profiles.yml.example` to `dbt/profiles.yml` and do not commit the copy. The example default target is `local` (DuckDB). The warehouse output is `databricks`, catalog `workspace`, schema `nfl_dev`. `make dbt-build-databricks` passes `--target databricks`.
 
-- [ ] SQL Warehouse (if available in CE)
-  - Warehouse size: 2X-Small
-  - Auto-stop: 10 minutes
+The example file still has an unused `snowflake` output. `dbt-snowflake` is not installed. Do not select that target.
 
-### dbt Setup
+## GitHub Actions
 
-Install dbt-databricks adapter:
+`ci.yml` compiles dbt on DuckDB and does not use Databricks secrets.
 
-```bash
-pip install dbt-databricks
-```
+`.github/workflows/databricks-smoke.yml` is manual. It uses `DATABRICKS_HOST`, `DATABRICKS_HTTP_PATH`, and `DATABRICKS_TOKEN`.
 
-Configure `dbt/profiles.yml` (copy from `dbt/profiles.yml.example`):
+## Snowflake
 
-```yaml
-endzone_mlops:
-  target: dev
-  outputs:
-    dev:
-      type: databricks
-      host: <your-workspace-url>
-      http_path: <sql-warehouse-http-path>
-      token: <personal-access-token>
-      schema: nfl_dev
-```
-
-`schema: nfl_dev` is the dbt target schema, not the schema that holds staging views. This repo has no `generate_schema_name` macro, so dbt appends custom schemas: `nfl_dev_staging` and `nfl_dev_marts`. `nfl_dev_test_results` is created only by an explicit `dbt test --store-failures` run. Bronze tables stay in `nfl_raw`.
-
-### MLflow Setup
-
-Databricks Free Edition includes MLflow tracking with serverless compute. No additional setup required.
-
-To log experiments:
-
-```python
-import mlflow
-
-mlflow.set_tracking_uri("databricks")
-mlflow.set_experiment("/Users/<your-email>/nfl_pregame")
-```
-
-### GitHub Actions Secrets
-
-For CI/CD, add these secrets to your repository:
-
-- `DATABRICKS_HOST`: Your workspace URL
-- `DATABRICKS_TOKEN`: Personal access token with cluster access
-
-### Plan B: Snowflake
-
-If Databricks Free Edition spike fails, switch to Snowflake trial:
-- 30-day trial at [signup.snowflake.com](https://signup.snowflake.com/)
-- Same repository layout
-- Use dbt-snowflake adapter instead
-
-See ADR-001 for decision rationale.
+Not used. The spike passed, so the fallback was not activated. Do not add a second warehouse.
