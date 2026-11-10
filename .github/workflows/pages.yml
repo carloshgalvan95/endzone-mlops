@@ -51,6 +51,8 @@ jobs:
     permissions:
       contents: read
       actions: write
+    env:
+      ENDZONE_RUN_STATUS_DIR: run-status
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -66,6 +68,9 @@ jobs:
 
       - name: Install the locked environment
         run: uv sync --frozen
+
+      - name: Prepare run status
+        run: mkdir -p run-status
 
       # A push restores published files and overlays finals. It does not
       # refresh the warehouse or fit a model. A scheduled backup restores
@@ -198,6 +203,16 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+      - name: Upload run status
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: run-status
+          path: run-status
+          if-no-files-found: ignore
+          retention-days: 1
+
   archive:
     needs: build
     if: >-
@@ -210,6 +225,9 @@ jobs:
     permissions:
       contents: write
       actions: read
+    outputs:
+      committed: ${{ steps.publish.outputs.committed || steps.backfill.outputs.committed }}
+      status: ${{ steps.publish.outputs.status || steps.backfill.outputs.status }}
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -234,6 +252,7 @@ jobs:
           path: site
 
       - name: Archive published slates
+        id: publish
         if: github.event_name != 'workflow_dispatch' || github.event.inputs.backfill_archive != 'true'
         run: |
           uv run python -m endzone.site.archive publish \
@@ -243,6 +262,7 @@ jobs:
             --branch published-slates
 
       - name: Backfill published slates
+        id: backfill
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.backfill_archive == 'true'
         run: |
           repo_name="${GITHUB_REPOSITORY#*/}"
@@ -278,3 +298,59 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
+
+  summary:
+    needs: [build, archive]
+    if: always()
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Install uv and Python 3.12
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install the locked environment
+        run: uv sync --frozen
+
+      - name: Download the built site
+        if: always()
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: site
+          path: site
+
+      - name: Download run status
+        if: always()
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: run-status
+          path: run-status
+
+      - name: Write the job summary
+        if: always()
+        continue-on-error: true
+        env:
+          ARCHIVE_COMMITTED: ${{ needs.archive.outputs.committed }}
+          ARCHIVE_STATUS: ${{ needs.archive.outputs.status }}
+        run: |
+          mkdir -p archive-status
+          if [ -n "${ARCHIVE_COMMITTED}" ] || [ -n "${ARCHIVE_STATUS}" ]; then
+            printf 'committed=%s\nstatus=%s\n' "${ARCHIVE_COMMITTED}" "${ARCHIVE_STATUS}" > archive-status/archive.txt
+          fi
+          uv run python -m endzone.site.run_summary \
+            --site-data site/data \
+            --status-dir run-status \
+            --status-dir archive-status

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -249,3 +250,40 @@ def test_cli_appends_the_summary_file(tmp_path: Path, monkeypatch: pytest.Monkey
     assert "| Season | 2026 |" in text
 
 
+def test_pages_and_results_summarize_without_blocking_deploy() -> None:
+    """Both workflows write the summary after archive, and a failure there cannot deploy-block."""
+    for name in ("pages.yml", "refresh-results.yml"):
+        text = Path(".github/workflows", name).read_text(encoding="utf-8")
+        summary = _job(text, "summary")
+        deploy = _job(text, "deploy")
+        assert "needs: [build, archive]" in summary
+        assert "if: always()" in summary
+        assert "continue-on-error: true" in summary
+        step = _step(summary, "endzone.site.run_summary")
+        assert "if: always()" in step
+        assert "continue-on-error: true" in step
+        assert "secrets." not in summary
+        assert "DATABRICKS_" not in summary
+        head = deploy.split("\n    steps:", 1)[0]
+        assert "summary" not in head
+    results = Path(".github/workflows/refresh-results.yml").read_text(encoding="utf-8")
+    assert "databricks" not in results.lower()
+
+
+def _job(text: str, name: str) -> str:
+    """Return one workflow job, from its key through the next job."""
+    marker: str = f"\n  {name}:"
+    start: int = text.index(marker)
+    rest: str = text[start + 1 :]
+    found: re.Match[str] | None = re.search(r"\n  [A-Za-z0-9_-]+:\n", rest)
+    if found is None:
+        return text[start:]
+    return text[start : start + 1 + found.start()]
+
+
+def _step(job: str, needle: str) -> str:
+    """Return the step whose body contains ``needle``."""
+    parts: list[str] = job.split("\n      - name:")
+    matched: list[str] = [part for part in parts if needle in part]
+    assert len(matched) == 1
+    return matched[0]
