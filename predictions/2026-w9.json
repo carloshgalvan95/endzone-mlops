@@ -3,10 +3,11 @@
   "season": 2026,
   "week": 9,
   "weeks_available": [
-    9
+    9,
+    10
   ],
   "generated_at": "2026-11-09T04:28:37Z",
-  "results_updated_at": "2026-11-10T15:38:54Z",
+  "results_updated_at": "2026-11-10T15:44:50Z",
   "model_name": "endzone-winprob",
   "model_version": "1",
   "feature_set": "h2_full",
