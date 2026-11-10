@@ -3,7 +3,9 @@
 Predictions stay frozen. This command does not fit a model, does not run
 dbt, and does not read the warehouse. It starts from week files already on
 disk (optionally restored from the live site) and attaches scores only when
-nflverse has both of them.
+nflverse has both of them. A second pass that does not change a score, a
+status, or any other slate field leaves the file bytes alone, including
+``results_updated_at``.
 
 ``select_slate`` and ``load_upcoming_games`` drop finished games, so this
 job never uses them.
@@ -148,8 +150,9 @@ def refresh_results(
     the nflverse schedules file and keeps the seasons those week files name.
 
     Returns:
-        ``updated``, ``skipped_examples``, ``seasons``, ``final_games``, and
-        ``matched_games``.
+        ``updated``, ``unchanged``, ``skipped_examples``, ``seasons``,
+        ``final_games``, and ``matched_games``. ``unchanged`` counts files
+        whose slate was already current, so they were not rewritten.
 
     Raises:
         ValueError: There is no real week to update, the games file is
@@ -169,6 +172,7 @@ def refresh_results(
     finals: dict[str, dict[str, Any]] = final_scores_by_game_id(games)
     planned: list[tuple[Path, dict[str, Any]]] = []
     skipped_examples: int = 0
+    unchanged: int = 0
     matched_games: int = 0
     for path in _prediction_files(root):
         document: dict[str, Any] = _read_document(path)
@@ -178,17 +182,23 @@ def refresh_results(
         updated: dict[str, Any] = apply_final_scores(document, finals, results_updated_at)
         validate_prediction_document(updated)
         matched_games += _matched_game_count(updated, finals)
+        if _slate_body_unchanged(document, updated):
+            unchanged += 1
+            continue
         planned.append((path, updated))
     for path, updated in planned:
         path.write_text(_dumps(updated), encoding="utf-8")
     logger.info(
-        "Overlaid final scores on %s file(s). %s finished nflverse game(s), %s matched.",
+        "Overlaid final scores on %s file(s). %s file(s) were already current. "
+        "%s finished nflverse game(s), %s matched.",
         len(planned),
+        unchanged,
         len(finals),
         matched_games,
     )
     return {
         "updated": len(planned),
+        "unchanged": unchanged,
         "skipped_examples": skipped_examples,
         "seasons": seasons,
         "final_games": len(finals),
@@ -317,6 +327,21 @@ def _overlay_game(game: dict[str, Any], finals: dict[str, dict[str, Any]]) -> di
     return merged
 
 
+def _slate_body_unchanged(original: dict[str, Any], updated: dict[str, Any]) -> bool:
+    """True when two documents match apart from ``results_updated_at``.
+
+    A new stamp alone is not a new final. The caller leaves the file bytes,
+    including the previous stamp, so a second pass does not archive a rewrite.
+    """
+    left: dict[str, Any] = {
+        key: value for key, value in original.items() if key != "results_updated_at"
+    }
+    right: dict[str, Any] = {
+        key: value for key, value in updated.items() if key != "results_updated_at"
+    }
+    return left == right
+
+
 def _assert_frozen_game(original: dict[str, Any], merged: dict[str, Any]) -> None:
     """Raise when an overlay changes a published prediction field."""
     for key in _FROZEN_GAME_FIELDS:
@@ -373,15 +398,19 @@ def _load_games(games_path: Path | None, seasons: list[int]) -> pd.DataFrame:
     if games_path is None:
         frame: pd.DataFrame = download_parquet_with_validation(NFLVERSE_GAMES_URL)
     else:
-        frame = _read_games_file(Path(games_path))
+        frame = read_games_file(Path(games_path))
     if "season" not in frame.columns:
         raise ValueError("Games file is missing season.")
     numeric_season: pd.Series = pd.to_numeric(frame["season"], errors="coerce")
     return frame.loc[numeric_season.isin(seasons)].reset_index(drop=True)
 
 
-def _read_games_file(path: Path) -> pd.DataFrame:
-    """Read a local games parquet or CSV."""
+def read_games_file(path: Path) -> pd.DataFrame:
+    """Read a local games parquet or CSV.
+
+    Raises:
+        ValueError: The suffix is not ``.parquet`` or ``.csv``.
+    """
     suffix: str = path.suffix.lower()
     if suffix == ".csv":
         return pd.read_csv(path)
