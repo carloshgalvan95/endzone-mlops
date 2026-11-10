@@ -6,17 +6,30 @@ on:
     # GitHub cron is UTC. nflverse posts final scores after the game, with a
     # short delay. This is not a live play-by-play feed.
     #
+    # GitHub cron is best effort. Each window has a backup on an odd minute.
+    # A second pass does not rewrite a slate when the finals are unchanged.
+    #
     # Thursday Night Football ends late Thursday in the US, which is early
-    # Friday UTC. One pass after that window is enough.
+    # Friday UTC. 08:30 is the primary. 09:47 is the backup.
     - cron: "30 8 * * 5"
+    - cron: "47 9 * * 5"
     # Hourly through Sunday UTC, covering the afternoon and evening slate.
+    # 17:47 and 21:47 UTC are extra passes in that window.
     - cron: "15 * * * 0"
+    - cron: "47 17 * * 0"
+    - cron: "47 21 * * 0"
     # Hourly from Sunday evening into Monday morning UTC, so Sunday Night
-    # Football is picked up after the late kickoff.
+    # Football is picked up after the late kickoff. 02:47 and 06:47 UTC
+    # are backups inside that range.
     - cron: "15 0-8 * * 1"
+    - cron: "47 2 * * 1"
+    - cron: "47 6 * * 1"
     # Monday Night Football ends late Monday in the US, which is early
-    # Tuesday UTC. This stays ahead of the Tuesday scoring deploy at 12:00 UTC.
+    # Tuesday UTC. 08:30 is the primary. 06:47 and 10:17 are earlier and
+    # later Tuesday backups, both before the 12:00 scoring deploy.
+    - cron: "47 6 * * 2"
     - cron: "30 8 * * 2"
+    - cron: "17 10 * * 2"
 
 # Jobs narrow this. contents: write is only on the archive job.
 # issues: write is only on the build job, for the model alert.

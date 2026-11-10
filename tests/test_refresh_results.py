@@ -471,6 +471,66 @@ def test_cli_restores_then_overlays_a_local_games_file(
     )
 
 
+@pytest.mark.cross_platform
+def test_second_refresh_does_not_change_an_unchanged_slate(tmp_path: Path) -> None:
+    """A rerun with the same finals leaves every slate byte in place.
+
+    The current week is not the one that receives a final. Its probabilities,
+    model_version, and generated_at stay. The week that does receive a final
+    changes only on the first pass.
+    """
+    predictions = tmp_path / "predictions"
+    predictions.mkdir()
+    current = _document(
+        [{"game_id": "G_NOW", "home": "BUF", "away": "MIA", "model": 0.64, "market": 0.6}],
+        week=10,
+        weeks=[9, 10],
+    )
+    current["model_version"] = "7@prod"
+    current["generated_at"] = "2026-11-10T12:05:00Z"
+    for game in current["games"]:
+        game["model_version"] = "7@prod"
+        game["generated_at"] = "2026-11-10T12:05:00Z"
+    previous = _document(
+        [{"game_id": "G_OLD", "home": "KC", "away": "DEN", "model": 0.52, "market": 0.51}],
+        week=9,
+        weeks=[9, 10],
+    )
+    previous["model_version"] = "6@prod"
+    (predictions / "2026-w10.json").write_text(json.dumps(current), encoding="utf-8")
+    (predictions / "2026-w9.json").write_text(json.dumps(previous), encoding="utf-8")
+    games_path = tmp_path / "games.parquet"
+    _write_games(
+        games_path,
+        [
+            {"game_id": "G_NOW", "season": 2026, "home_score": None, "away_score": None},
+            {"game_id": "G_OLD", "season": 2026, "home_score": 21, "away_score": 17},
+        ],
+    )
+    first = refresh_results(tmp_path, games_path=games_path, results_updated_at=_STAMP)
+    assert first["updated"] >= 1
+    after_first_current = (predictions / "2026-w10.json").read_bytes()
+    after_first_previous = (predictions / "2026-w9.json").read_bytes()
+    stored_current = json.loads(after_first_current)
+    stored_previous = json.loads(after_first_previous)
+    assert stored_current["model_version"] == "7@prod"
+    assert stored_current["generated_at"] == "2026-11-10T12:05:00Z"
+    assert stored_current["games"][0]["model_home_wp"] == current["games"][0]["model_home_wp"]
+    assert stored_current["games"][0]["status"] == "scheduled"
+    assert stored_previous["games"][0]["status"] == "final"
+    assert stored_previous["games"][0]["model_home_wp"] == previous["games"][0]["model_home_wp"]
+    assert stored_previous["model_version"] == "6@prod"
+    second = refresh_results(
+        tmp_path,
+        games_path=games_path,
+        results_updated_at="2026-11-10T14:43:00Z",
+    )
+    assert second["updated"] == 0
+    assert second["unchanged"] >= 2
+    assert (predictions / "2026-w10.json").read_bytes() == after_first_current
+    assert (predictions / "2026-w9.json").read_bytes() == after_first_previous
+
+
 def test_results_module_does_not_score_or_drop_finished_games() -> None:
     """The refresh path never selects an unplayed slate or fits the model."""
     source = Path("endzone/site/results.py").read_text(encoding="utf-8")
@@ -484,6 +544,11 @@ def test_results_module_does_not_score_or_drop_finished_games() -> None:
     assert "endzone.modeling.score" not in workflow
     assert "endzone.site.results" in workflow
     assert "workflow_dispatch" in workflow
+    assert 'cron: "47 9 * * 5"' in workflow
+    assert 'cron: "47 17 * * 0"' in workflow
+    assert 'cron: "47 2 * * 1"' in workflow
+    assert 'cron: "47 6 * * 2"' in workflow
+    assert 'cron: "17 10 * * 2"' in workflow
     assert "contents: read" in workflow
     assert "pages: write" in workflow
     assert "id-token: write" in workflow
