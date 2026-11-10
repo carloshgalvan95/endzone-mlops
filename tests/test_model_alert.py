@@ -353,6 +353,8 @@ def test_cli_does_not_fail_when_the_window_is_short_or_github_is_unconfigured(
     """Dry-run, a missing token, and a missing archive all return 0."""
     path = tmp_path / "games.json"
     path.write_text(json.dumps([_row(1, 0.2, 0.9)]), encoding="utf-8", newline="\n")
+    status_dir = tmp_path / "run-status"
+    monkeypatch.setenv("ENDZONE_RUN_STATUS_DIR", str(status_dir))
     assert (
         main(
             [
@@ -369,6 +371,9 @@ def test_cli_does_not_fail_when_the_window_is_short_or_github_is_unconfigured(
         )
         == 0
     )
+    saved = (status_dir / "model_alert.txt").read_text(encoding="utf-8")
+    assert "status=log_loss_gap\n" in saved
+    assert "action=dry_run\n" in saved
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
     assert (

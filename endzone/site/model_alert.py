@@ -35,6 +35,7 @@ from endzone.site.track_record import (
     finished_market_games,
 )
 from endzone.utils.logging import setup_logger
+from endzone.utils.step_status import status_directory, write_step_status
 
 logger = setup_logger(__name__)
 
@@ -381,14 +382,24 @@ def main(argv: list[str] | None = None) -> int:
     """
     args: argparse.Namespace = build_parser().parse_args(argv)
     try:
-        _run(args)
+        status: dict[str, Any] = _run(args)
     except (TrackRecordError, ArchiveError, ModelAlertError, OSError, ValueError) as exc:
         logger.warning("Model alert did not update an issue: %s", exc)
+        status = {"status": "failed", "action": "none"}
+    try:
+        _emit_alert_status(status)
+    except OSError as exc:
+        logger.warning("Model alert status was not written: %s", type(exc).__name__)
     return 0
 
 
-def _run(args: argparse.Namespace) -> None:
-    """Load games, evaluate, and sync. Raises on a bad archive or a bad API call."""
+def _run(args: argparse.Namespace) -> dict[str, Any]:
+    """Load games, evaluate, and sync. Raises on a bad archive or a bad API call.
+
+    Returns:
+        ``status`` and ``action``. The action is ``none`` when no issue
+        was touched. A dry run that would open an issue says ``dry_run``.
+    """
     window_games: int = _setting_int(args.window_games, _ENV_WINDOW, DEFAULT_WINDOW_GAMES)
     min_games: int = _setting_int(args.min_games, _ENV_MIN, DEFAULT_MIN_GAMES)
     gap_margin: float = _setting_float(args.margin, _ENV_MARGIN, DEFAULT_GAP_MARGIN)
@@ -408,8 +419,10 @@ def _run(args: argparse.Namespace) -> None:
         f"{float(decision['gap_margin']):.6f}",
         f"{float(decision['gap_threshold']):.6f}",
     )
-    if not decision["tripped"] or args.dry_run:
-        return
+    if not decision["tripped"]:
+        return {"status": str(decision["reason"]), "action": "none"}
+    if args.dry_run:
+        return {"status": str(decision["reason"]), "action": "dry_run"}
     repo: str = args.repo or os.environ.get("GITHUB_REPOSITORY") or ""
     token: str = os.environ.get("GITHUB_TOKEN") or ""
     if repo.strip() == "" or token.strip() == "":
@@ -417,9 +430,22 @@ def _run(args: argparse.Namespace) -> None:
             "Model alert tripped and GITHUB_REPOSITORY or GITHUB_TOKEN is unset. "
             "No issue was opened."
         )
-        return
+        return {"status": str(decision["reason"]), "action": "not_opened"}
     result: dict[str, Any] = sync_alert_issue(decision, GithubIssueClient(repo, token))
     logger.info("Model alert issue action=%s number=%s.", result["action"], result["number"])
+    return {"status": str(decision["reason"]), "action": str(result["action"])}
+
+
+def _emit_alert_status(status: Mapping[str, Any]) -> None:
+    """Record the alert status. The issue body and the token stay out of the file."""
+    directory: Path | None = status_directory()
+    if directory is None:
+        return
+    write_step_status(
+        directory,
+        "model_alert",
+        {"status": status.get("status"), "action": status.get("action")},
+    )
 
 
 def _load_games(args: argparse.Namespace) -> list[Mapping[str, Any]]:

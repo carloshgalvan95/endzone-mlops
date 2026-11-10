@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -34,6 +35,7 @@ from endzone.modeling.weekly import (
     validate_prediction_document,
 )
 from endzone.utils.logging import setup_logger
+from endzone.utils.step_status import status_directory, write_step_status
 
 logger = setup_logger(__name__)
 
@@ -246,6 +248,17 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> dict[str, Any]:
     """Restore published weeks when asked, then overlay final scores."""
     args: argparse.Namespace = build_parser().parse_args(argv)
+    try:
+        result: dict[str, Any] = _refresh_from_args(args)
+    except (OSError, ValueError):
+        _emit_results_status({"updated": 0, "unchanged": 0, "outcome": "failed"})
+        raise
+    _emit_results_status(result)
+    return result
+
+
+def _refresh_from_args(args: argparse.Namespace) -> dict[str, Any]:
+    """Overlay finals for one parsed command."""
     output_dir: Path = Path(args.output_dir)
     if args.restore_published:
         restore_published_predictions(output_dir, args.restore_published)
@@ -256,6 +269,33 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
         games_path=games_path,
         results_updated_at=stamp,
     )
+
+
+def _emit_results_status(result: Mapping[str, Any]) -> None:
+    """Record whether finals were applied or the slate was already current.
+
+    A status-file error is logged and does not fail the overlay.
+    """
+    directory: Path | None = status_directory()
+    if directory is None:
+        return
+    outcome: object = result.get("outcome")
+    if not isinstance(outcome, str) or outcome.strip() == "":
+        updated: object = result.get("updated")
+        changed: int = updated if isinstance(updated, int) and not isinstance(updated, bool) else 0
+        outcome = "finals applied" if changed > 0 else "unchanged"
+    try:
+        write_step_status(
+            directory,
+            "results",
+            {
+                "updated": result.get("updated"),
+                "unchanged": result.get("unchanged"),
+                "outcome": outcome,
+            },
+        )
+    except OSError as exc:
+        logger.warning("Results status was not written: %s", type(exc).__name__)
 
 
 def _utc_now_text(clock: datetime | None = None) -> str:

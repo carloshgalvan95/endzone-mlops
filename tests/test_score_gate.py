@@ -103,6 +103,8 @@ def test_gate_cli_writes_skip_and_does_not_download(
         refuse_download,
     )
     monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+    status_dir = tmp_path / "run-status"
+    monkeypatch.setenv("ENDZONE_RUN_STATUS_DIR", str(status_dir))
     _write_week(tmp_path / "site", 2026, 10)
     destination = tmp_path / "github_output.txt"
     status = main(
@@ -124,3 +126,7 @@ def test_gate_cli_writes_skip_and_does_not_download(
     assert "reason=replace_published\n" in text
     assert "season=2026\n" in text
     assert "week=10\n" in text
+    saved = (status_dir / "score_gate.txt").read_text(encoding="utf-8")
+    assert "skip=false\n" in saved
+    assert "reason=replace_published\n" in saved
+    assert "season=2026\n" in saved

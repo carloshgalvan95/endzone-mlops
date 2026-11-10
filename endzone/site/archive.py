@@ -35,6 +35,11 @@ from endzone.modeling.weekly import (
     validate_prediction_document,
 )
 from endzone.utils.logging import setup_logger
+from endzone.utils.step_status import (
+    append_github_output,
+    status_directory,
+    write_step_status,
+)
 
 logger = setup_logger(__name__)
 
@@ -450,9 +455,19 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
     try:
         result: dict[str, Any] = _run(args)
     except ArchiveError as exc:
+        if args.command != "restore":
+            _emit_archive_status({"committed": False, "status": "failed"})
         print(str(exc), file=sys.stderr)
         raise SystemExit(1) from exc
     _print_result(args.command, result)
+    if args.command != "restore":
+        committed: bool = bool(result.get("committed"))
+        _emit_archive_status(
+            {
+                "committed": committed,
+                "status": "committed" if committed else "nothing to commit",
+            }
+        )
     return result
 
 
@@ -493,6 +508,21 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
         author_name=author["author_name"],
         author_email=author["author_email"],
     )
+
+
+def _emit_archive_status(fields: Mapping[str, object]) -> None:
+    """Record committed or nothing to commit. The remote URL stays out.
+
+    A status-file error is logged and does not change the archive result.
+    """
+    try:
+        append_github_output(fields)
+        directory: Path | None = status_directory()
+        if directory is None:
+            return
+        write_step_status(directory, "archive", fields)
+    except OSError as exc:
+        logger.warning("Archive status was not written: %s", type(exc).__name__)
 
 
 def _print_result(command: str, result: Mapping[str, Any]) -> None:

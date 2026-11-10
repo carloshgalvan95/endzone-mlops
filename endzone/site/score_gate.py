@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +32,7 @@ from endzone.modeling.weekly import (
 )
 from endzone.site.results import read_games_file
 from endzone.utils.logging import setup_logger
+from endzone.utils.step_status import status_directory, write_step_status
 
 logger = setup_logger(__name__)
 
@@ -173,7 +175,29 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     destination: str | None = args.github_output or os.environ.get("GITHUB_OUTPUT")
     write_gate_output(decision, Path(destination) if destination else None)
+    _emit_gate_status(decision)
     return 0
+
+
+def _emit_gate_status(decision: Mapping[str, Any]) -> None:
+    """Copy the gate decision into the run-status directory when one is set."""
+    directory: Path | None = status_directory()
+    if directory is None:
+        return
+    fields: dict[str, object] = {
+        "skip": bool(decision.get("skip")),
+        "reason": decision.get("reason"),
+    }
+    season: object = decision.get("season")
+    week: object = decision.get("week")
+    if isinstance(season, int) and not isinstance(season, bool):
+        fields["season"] = season
+    if isinstance(week, int) and not isinstance(week, bool):
+        fields["week"] = week
+    try:
+        write_step_status(directory, "score_gate", fields)
+    except OSError as exc:
+        logger.warning("Score gate status was not written: %s", type(exc).__name__)
 
 
 def _decision(args: argparse.Namespace) -> dict[str, Any]:

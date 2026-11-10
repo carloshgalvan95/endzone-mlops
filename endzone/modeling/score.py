@@ -14,7 +14,9 @@ pass ADR-007.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import math
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -70,6 +72,7 @@ from endzone.modeling.weekly import (
     write_prediction_bundle,
 )
 from endzone.utils.logging import setup_logger
+from endzone.utils.step_status import status_directory, write_step_status
 
 logger = setup_logger(__name__)
 
@@ -117,7 +120,9 @@ def score_upcoming_week(
 
     Returns:
         Dict with ``document``, ``paths``, ``model_version``, ``model_alias``,
-        ``model_source``, ``run_id``, and ``kept_published``.
+        ``model_source``, ``run_id``, ``kept_published``, ``fallback_reason``,
+        and ``data_digest``. ``fallback_reason`` is None when alias ``prod``
+        scored the week. It is a short code, never a host or a token.
 
     Raises:
         ValueError: The slate is empty, the fit has one class, or the new
@@ -142,6 +147,12 @@ def score_upcoming_week(
             int(chosen["week"]),
         )
         if kept is not None:
+            kept["model_source"] = "kept_published"
+            kept["fallback_reason"] = None
+            document_kept: dict[str, Any] = kept["document"]
+            kept["model_alias"] = document_kept.get("model_alias")
+            kept["data_digest"] = _text_or_none(document_kept.get("data_digest"))
+            _emit_score_status(kept)
             return kept
     target_season: int = int(chosen["season"])
     target_week: int = int(chosen["week"])
@@ -172,7 +183,9 @@ def score_upcoming_week(
     score_frame[columns] = score_frame[columns].astype(float)
     tracking_uri: str = settings.tracking_uri or configured_tracking_uri()
     registry_uri: str = _registry_uri_for_score(settings)
-    loaded: ProdModel | None = _try_load_prod(registry_uri)
+    loaded_attempt: dict[str, Any] = _try_load_prod(registry_uri)
+    loaded: ProdModel | None = loaded_attempt["model"]
+    fallback_reason: str | None = loaded_attempt["fallback_reason"]
     probabilities: pd.Series | None = None
     if loaded is not None:
         try:
@@ -188,6 +201,7 @@ def score_upcoming_week(
             )
             loaded = None
             probabilities = None
+            fallback_reason = "loaded_model_could_not_score"
     train_x: pd.DataFrame | None = None
     example: pd.DataFrame | None = None
     signature: Any = None
@@ -250,6 +264,7 @@ def score_upcoming_week(
                 mlflow.log_param("model_version", version_label)
             else:
                 source = "registry"
+                fallback_reason = None
                 assert loaded is not None
                 model_name = loaded.model_name
                 model_alias = loaded.alias
@@ -306,7 +321,9 @@ def score_upcoming_week(
             chosen["week"],
             len(document["games"]),
         )
-    return {
+    if source == "refit" and fallback_reason is None:
+        fallback_reason = "weekly_fit"
+    scored: dict[str, Any] = {
         "document": document,
         "paths": paths,
         "model_version": version_label,
@@ -314,7 +331,11 @@ def score_upcoming_week(
         "model_source": source,
         "run_id": run_id,
         "kept_published": False,
+        "fallback_reason": fallback_reason,
+        "data_digest": _feature_digest(score_frame),
     }
+    _emit_score_status(scored)
+    return scored
 
 
 def _fit_week_model(
@@ -399,11 +420,17 @@ def _registry_uri_for_score(settings: WeeklyScoreSettings) -> str:
     return configured_registry_uri()
 
 
-def _try_load_prod(registry_uri: str) -> ProdModel | None:
-    """Load alias ``prod``, or return None and log the reason.
+def _try_load_prod(registry_uri: str) -> dict[str, Any]:
+    """Load alias ``prod``, or a fallback code that names no host.
 
     Any failure is a fallback, including a missing alias and a registry that
-    cannot be reached. The week file is still written.
+    cannot be reached. The week file is still written. The returned reason
+    is a short code. The exception text stays in the log and is not stored,
+    because it can carry a registry address.
+
+    Returns:
+        ``model`` (a ``ProdModel`` or None) and ``fallback_reason``
+        (None, ``alias_missing``, or ``registry_unreadable``).
     """
     model_name: str = default_model_name(registry_uri)
     try:
@@ -415,7 +442,7 @@ def _try_load_prod(registry_uri: str) -> ProdModel | None:
             model_name,
             exc,
         )
-        return None
+        return {"model": None, "fallback_reason": "alias_missing"}
     except Exception as exc:
         logger.warning(
             "Could not load %s@%s from registry %s (%s: %s). "
@@ -426,14 +453,14 @@ def _try_load_prod(registry_uri: str) -> ProdModel | None:
             type(exc).__name__,
             exc,
         )
-        return None
+        return {"model": None, "fallback_reason": "registry_unreadable"}
     logger.info(
         "Loaded %s version %s alias %s.",
         loaded.model_name,
         loaded.version,
         loaded.alias,
     )
-    return loaded
+    return {"model": loaded, "fallback_reason": None}
 
 
 def _score_frame(
@@ -674,6 +701,18 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> dict[str, Any]:
     """Score one week and return the written document summary."""
     args: argparse.Namespace = build_parser().parse_args(argv)
+    try:
+        return _score_from_args(args)
+    except Exception:
+        try:
+            _emit_score_status({"model_source": "failed", "fallback_reason": "score_failed"})
+        except OSError as emit_error:
+            logger.warning("Score status was not written: %s", type(emit_error).__name__)
+        raise
+
+
+def _score_from_args(args: argparse.Namespace) -> dict[str, Any]:
+    """Load inputs and score one week. The caller records a failed status."""
     if args.replace_published and (
         parse_optional_int(args.season) is None or parse_optional_int(args.week) is None
     ):
@@ -700,6 +739,72 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
         replace_published=bool(args.replace_published),
     )
     return score_upcoming_week(games, team_games, upcoming, catalog, settings)
+
+
+def _emit_score_status(result: Mapping[str, Any]) -> None:
+    """Write the score step file when the workflow asked for one.
+
+    The file carries the version, the alias, the fallback code, and the
+    feature digest. It does not carry a registry address.
+    """
+    directory: Path | None = status_directory()
+    if directory is None:
+        return
+    try:
+        _write_score_status(directory, result)
+    except OSError as exc:
+        logger.warning("Score status was not written: %s", type(exc).__name__)
+
+
+def _write_score_status(directory: Path, result: Mapping[str, Any]) -> None:
+    """Write score.txt. The caller handles a file error."""
+    document: object = result.get("document")
+    season: object = ""
+    week: object = ""
+    games: object = ""
+    if isinstance(document, dict):
+        season = document.get("season", "")
+        week = document.get("week", "")
+        game_rows: object = document.get("games")
+        if isinstance(game_rows, list):
+            games = len(game_rows)
+    write_step_status(
+        directory,
+        "score",
+        {
+            "season": season,
+            "week": week,
+            "games": games,
+            "model_version": result.get("model_version"),
+            "model_alias": result.get("model_alias"),
+            "model_source": result.get("model_source"),
+            "fallback_reason": result.get("fallback_reason"),
+            "data_digest": result.get("data_digest"),
+            "kept_published": bool(result.get("kept_published")),
+        },
+    )
+
+
+def _feature_digest(frame: pd.DataFrame) -> str:
+    """Sha256 of the scored feature rows, in game id order."""
+    ordered: pd.DataFrame = frame.sort_values("game_id").reset_index(drop=True)
+    columns: list[str] = [str(column) for column in ordered.columns]
+    lines: list[str] = ["|".join(columns)]
+    for row in ordered.itertuples(index=False, name=None):
+        cells: list[str] = ["" if value is None else str(value) for value in row]
+        lines.append("|".join(cells))
+    payload: str = "\n".join(lines)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _text_or_none(value: object) -> str | None:
+    """Return stripped text, or None when the cell is not text."""
+    if not isinstance(value, str):
+        return None
+    text: str = value.strip()
+    if text == "":
+        return None
+    return text
 
 
 if __name__ == "__main__":

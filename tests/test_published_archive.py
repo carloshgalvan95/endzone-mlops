@@ -578,6 +578,11 @@ def test_publish_cli_uses_the_author_env(tmp_path: Path, monkeypatch: pytest.Mon
     _site(site, {9: ["G1"]})
     monkeypatch.setenv("ARCHIVE_GIT_NAME", _AUTHOR)
     monkeypatch.setenv("ARCHIVE_GIT_EMAIL", _EMAIL)
+    github_output = tmp_path / "github_output.txt"
+    github_output.write_text("", encoding="utf-8")
+    monkeypatch.setenv("GITHUB_OUTPUT", str(github_output))
+    status_dir = tmp_path / "archive-status"
+    monkeypatch.setenv("ENDZONE_RUN_STATUS_DIR", str(status_dir))
     result: dict[str, Any] = main(
         [
             "publish",
@@ -591,6 +596,10 @@ def test_publish_cli_uses_the_author_env(tmp_path: Path, monkeypatch: pytest.Mon
     )
     assert result["message"] == "chore(data): archive 2026 week 9"
     assert _identity(work) == [_AUTHOR, _EMAIL, _AUTHOR, _EMAIL]
+    recorded = github_output.read_text(encoding="utf-8")
+    assert "committed=true\n" in recorded
+    assert "status=committed\n" in recorded
+    assert (status_dir / "archive.txt").read_text(encoding="utf-8") == recorded
 
 
 def _job(text: str, name: str) -> str:
