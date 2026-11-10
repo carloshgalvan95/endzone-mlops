@@ -720,6 +720,43 @@ Windows and macOS run the lint, format, structure, and pytest steps. They do not
 
 `dbt build` on Databricks is `make dbt-build-databricks`. It is not a CI step. A CI job that builds warehouse tables is not in the repo.
 
+### Action pins
+
+Every `uses:` in `.github/workflows/` and in a composite `action.yml` is a 40-character commit SHA from the official action repository. The same line carries the version tag as a trailing comment, for example `actions/checkout@<sha> # v4.4.0`. A local action whose ref starts with `./` is exempt. Pages (`.github/workflows/pages.yml`) and Results (`.github/workflows/refresh-results.yml`) keep the same inputs, permissions, triggers, cron schedules, and job logic. A pin bump changes the SHA and the comment only.
+
+Dependabot alerts are a repository setting, not a file in this repo. Enable them under Settings, Security and quality, Advanced Security, Dependabot alerts. Alerts report a vulnerable dependency. They do not open a pull request. Do not add `.github/dependabot.yml`. Do not enable Dependabot security updates. Both of those open version-update pull requests, and the PR guard requires Carlos to open every pull request. There is no alert-only form of `dependabot.yml`.
+
+GitHub does not raise a Dependabot alert for an action pinned to a commit SHA. Alerts for GitHub Actions cover semantic version tags, not SHAs. The monthly bump below is how these pins move. Alerts still cover other manifests, such as `uv.lock`, when the setting is on. This change does not flip the repository setting.
+
+### Monthly pin bump
+
+Bump the pins once a month on a `ci/` branch. Stay on the same major version. Do not use a fork.
+
+1. Find the new tag on the official repository. `actions/checkout` stays on `v4`, so the next pin is the newest `v4.Y.Z`, not `v5`. The official repositories in use are `actions/checkout`, `actions/setup-python`, `actions/upload-artifact`, `actions/download-artifact`, `actions/upload-pages-artifact`, `actions/deploy-pages`, and `astral-sh/setup-uv`.
+2. Resolve that tag to a commit SHA. For checkout tag `v4.Y.Z`:
+
+```bash
+gh api repos/actions/checkout/git/ref/tags/v4.Y.Z
+```
+
+When `object.type` is `commit`, pin `object.sha`. When `object.type` is `tag`, the tag is annotated. Follow it and pin the commit:
+
+```bash
+gh api repos/actions/checkout/git/tags/<object.sha>
+```
+
+Use the `object.sha` whose `object.type` is `commit`. Repeat the same two calls on each official repository. Do not copy a SHA from a fork.
+3. Set `uses:` to `owner/name@<40-hex-sha>` and update the trailing comment to the new tag (`# vX.Y.Z`).
+4. Do not change inputs, permissions, triggers, cron schedules, or job logic.
+5. Check the pins, then lint every workflow:
+
+```bash
+python scripts/check_action_pins.py
+actionlint .github/workflows/*.yml
+```
+
+`scripts/check_action_pins.py` reads the workflow files and any composite action. It fails when a `uses:` value is not a 40-hex commit SHA with a `# vX.Y.Z` comment. A ref that starts with `./` is exempt. `tests/test_action_pins.py` covers that check. The module is marked `cross_platform`, so the pull-request subset on Windows and macOS runs it. The check only reads local files.
+
 ### Local CI Simulation
 
 ```bash
