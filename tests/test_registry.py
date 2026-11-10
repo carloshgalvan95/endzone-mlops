@@ -13,11 +13,17 @@ from endzone.modeling.models import fit_logistic_pipeline
 from endzone.modeling.registry import (
     TAG_CI_HIGH,
     TAG_CI_LOW,
+    TAG_CUTOFF_SEASON,
+    TAG_CUTOFF_WEEK,
     TAG_CV_LOG_LOSS,
     TAG_CV_N,
+    TAG_EVALUATION,
     TAG_FEATURE_SET,
     TAG_LOG_LOSS_DIFF,
     TAG_MODEL,
+    TAG_THROUGH_SEASON,
+    TAG_V1_LOG_LOSS,
+    WALK_FORWARD_EVALUATION,
     ProdAliasError,
     assert_can_register,
     format_scored_version,
@@ -145,6 +151,58 @@ def test_challenger_must_beat_the_golden_row_by_the_pre_registered_margin() -> N
     )
     assert rejected["allowed"] is False
     assert rejected["reason"] == "rejected"
+
+
+def _walk_forward_tags(**overrides: str) -> dict[str, str]:
+    """Tags for a fresh-window fit that beats the through-2023 log loss."""
+    tags: dict[str, str] = {
+        TAG_MODEL: "logistic",
+        TAG_FEATURE_SET: "h2_full",
+        TAG_EVALUATION: WALK_FORWARD_EVALUATION,
+        TAG_CV_LOG_LOSS: "0.60",
+        TAG_V1_LOG_LOSS: "0.66",
+        TAG_CV_N: "100",
+        TAG_LOG_LOSS_DIFF: "-0.06",
+        TAG_CUTOFF_SEASON: "2026",
+        TAG_CUTOFF_WEEK: "10",
+        TAG_THROUGH_SEASON: "2026",
+    }
+    tags.update(overrides)
+    return tags
+
+
+def test_fresh_window_without_a_walk_forward_tag_is_refused() -> None:
+    """A through-2026 fit cannot ride the golden 2016-2023 tags onto prod."""
+    fresh = promotion_decision(_golden_tags(**{TAG_THROUGH_SEASON: "2026"}))
+    assert fresh["allowed"] is False
+    assert fresh["reason"] == "fresh_window_needs_walk_forward"
+    still_golden = promotion_decision(_golden_tags(**{TAG_THROUGH_SEASON: "2023"}))
+    assert still_golden["allowed"] is True
+    assert still_golden["reason"] == "matches_golden_reference"
+
+
+def test_walk_forward_promotion_requires_a_lower_log_loss_than_v1() -> None:
+    """The fresh window is promoted only when its own backtest beats v1."""
+    won = promotion_decision(_walk_forward_tags())
+    assert won["allowed"] is True
+    assert won["reason"] == "walk_forward_beats_v1"
+    lost = promotion_decision(
+        _walk_forward_tags(
+            **{
+                TAG_CV_LOG_LOSS: "0.70",
+                TAG_V1_LOG_LOSS: "0.66",
+                TAG_LOG_LOSS_DIFF: "0.04",
+            }
+        )
+    )
+    assert lost["allowed"] is False
+    assert lost["reason"] == "walk_forward_does_not_beat_v1"
+    inconsistent = promotion_decision(_walk_forward_tags(**{TAG_LOG_LOSS_DIFF: "0"}))
+    assert inconsistent["allowed"] is False
+    assert inconsistent["reason"] == "walk_forward_tags_inconsistent"
+    other = promotion_decision(_walk_forward_tags(**{TAG_FEATURE_SET: "h5_qb"}))
+    assert other["allowed"] is False
+    assert other["reason"] == "walk_forward_not_h2_full"
 
 
 def test_unity_catalog_register_refuses_sqlite_tracking() -> None:

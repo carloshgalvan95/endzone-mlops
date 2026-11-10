@@ -10,10 +10,12 @@ levels). A sqlite registry, including tests, uses ``endzone-winprob``.
 
 from __future__ import annotations
 
+import json
 import math
 import os
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Any, NamedTuple
 
 import mlflow
@@ -50,6 +52,13 @@ TAG_CI_LOW: str = "log_loss_diff_ci_low"
 TAG_CI_HIGH: str = "log_loss_diff_ci_high"
 TAG_THROUGH_SEASON: str = "through_season"
 TAG_GIT_COMMIT: str = "git_commit"
+TAG_EVALUATION: str = "evaluation"
+TAG_V1_LOG_LOSS: str = "v1_log_loss"
+TAG_CUTOFF_SEASON: str = "cutoff_season"
+TAG_CUTOFF_WEEK: str = "cutoff_week"
+WALK_FORWARD_EVALUATION: str = "walk_forward"
+WALK_FORWARD_PROTOCOL: str = "walk_forward_week"
+_WALK_FORWARD_DIFF_TOLERANCE: float = 1e-5
 
 
 class ProdModel(NamedTuple):
@@ -153,7 +162,13 @@ def promotion_decision(
     Logistic ``h2_full`` passes when its logged rolling-origin log loss and
     ``n`` match ``docs/experiments/reference_metrics.json`` within that file's
     tolerance. That is the golden bar. It does not have to beat itself, and
-    it does not have to beat the market.
+    it does not have to beat the market. A ``through_season`` past
+    ``cv_end_season`` does not use that bar. It needs ``evaluation``
+    ``walk_forward``.
+
+    A walk-forward version passes only when its pooled log loss is strictly
+    lower than the through-2023 fit on the same weeks. The 0.003 feature
+    rule is a different gate and is not applied here.
 
     Any other model passes only when the pre-registered rule accepts it
     (log loss at least 0.003 lower, 95% interval entirely below 0) and its
@@ -188,6 +203,14 @@ def promotion_decision(
         "log_loss_diff_ci_low": ci_low,
         "log_loss_diff_ci_high": ci_high,
     }
+    if str(tags.get(TAG_EVALUATION, "")).strip() == WALK_FORWARD_EVALUATION:
+        return _decide_walk_forward(tags, decision)
+    through_season_value: float | None = _parse_metric(tags.get(TAG_THROUGH_SEASON))
+    cv_end_season: float = float(locked["cv_end_season"])
+    if through_season_value is not None and through_season_value > cv_end_season:
+        decision["reason"] = "fresh_window_needs_walk_forward"
+        decision["through_season"] = through_season_value
+        return decision
     if cv_log_loss is None or cv_n is None:
         return decision
     if model_name == REFERENCE_MODEL_NAME and feature_set == REFERENCE_FEATURE_SET:
@@ -265,6 +288,259 @@ def metrics_from_comparison_csv(path: str) -> dict[str, str]:
         TAG_CV_LOG_LOSS: format_tag_number(row["log_loss"]),
         TAG_CV_N: format_tag_number(row["n"]),
     }
+
+
+def read_walk_forward_report(path: str) -> dict[str, Any]:
+    """Load a walk-forward JSON report.
+
+    Raises:
+        ValueError: The path is missing, or the file is not a JSON object.
+    """
+    report_path: Path = Path(path)
+    if not report_path.is_file():
+        raise ValueError(f"Walk-forward report not found: {report_path}")
+    payload: object = json.loads(report_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("Walk-forward report must be a JSON object.")
+    return payload
+
+
+def metrics_from_walk_forward_report(payload: Mapping[str, Any]) -> dict[str, str]:
+    """Turn a walk-forward report into registry tags.
+
+    The aggregate log loss has to match the week rows. ``beats_v1`` has to
+    match the two aggregate losses. A hand edit of one field fails here.
+
+    Raises:
+        ValueError: The report is not the walk-forward protocol, or its
+            numbers disagree.
+    """
+    _validate_walk_forward_report(payload)
+    aggregate: Mapping[str, Any] = payload["aggregate"]
+    slate: Mapping[str, Any] = payload["slate"]
+    included_season: int = _max_included_season(payload)
+    tags: dict[str, str] = {
+        TAG_MODEL: REFERENCE_MODEL_NAME,
+        TAG_FEATURE_SET: REFERENCE_FEATURE_SET,
+        TAG_EVALUATION: WALK_FORWARD_EVALUATION,
+        TAG_CV_LOG_LOSS: format_tag_number(aggregate["candidate_log_loss"]),
+        TAG_V1_LOG_LOSS: format_tag_number(aggregate["v1_log_loss"]),
+        TAG_CV_N: format_tag_number(aggregate["n"]),
+        TAG_LOG_LOSS_DIFF: format_tag_number(aggregate["log_loss_diff"]),
+        TAG_CUTOFF_SEASON: str(int(slate["season"])),
+        TAG_CUTOFF_WEEK: str(int(slate["week"])),
+        TAG_THROUGH_SEASON: str(included_season),
+    }
+    ci_low: object = aggregate.get("log_loss_diff_ci_low")
+    ci_high: object = aggregate.get("log_loss_diff_ci_high")
+    if ci_low is not None and ci_high is not None:
+        tags[TAG_CI_LOW] = format_tag_number(ci_low)
+        tags[TAG_CI_HIGH] = format_tag_number(ci_high)
+    return tags
+
+
+def _decide_walk_forward(tags: Mapping[str, str], decision: dict[str, Any]) -> dict[str, Any]:
+    """Allow prod only when the fresh window has a lower walk-forward log loss."""
+    model_name: str = str(tags.get(TAG_MODEL, "")).strip()
+    feature_set: str = str(tags.get(TAG_FEATURE_SET, "")).strip()
+    candidate: float | None = _parse_metric(tags.get(TAG_CV_LOG_LOSS))
+    v1_loss: float | None = _parse_metric(tags.get(TAG_V1_LOG_LOSS))
+    sample_n: float | None = _parse_metric(tags.get(TAG_CV_N))
+    diff: float | None = _parse_metric(tags.get(TAG_LOG_LOSS_DIFF))
+    cutoff_season: float | None = _parse_metric(tags.get(TAG_CUTOFF_SEASON))
+    cutoff_week: float | None = _parse_metric(tags.get(TAG_CUTOFF_WEEK))
+    decision["v1_log_loss"] = v1_loss
+    decision["cutoff_season"] = cutoff_season
+    decision["cutoff_week"] = cutoff_week
+    if model_name != REFERENCE_MODEL_NAME or feature_set != REFERENCE_FEATURE_SET:
+        decision["reason"] = "walk_forward_not_h2_full"
+        return decision
+    if (
+        candidate is None
+        or v1_loss is None
+        or sample_n is None
+        or diff is None
+        or cutoff_season is None
+        or cutoff_week is None
+        or cutoff_week < 1
+    ):
+        decision["reason"] = "missing_walk_forward_metrics"
+        return decision
+    if abs((candidate - v1_loss) - diff) > _WALK_FORWARD_DIFF_TOLERANCE:
+        decision["reason"] = "walk_forward_tags_inconsistent"
+        return decision
+    if sample_n <= 0 or not candidate < v1_loss:
+        decision["reason"] = "walk_forward_does_not_beat_v1"
+        return decision
+    decision["allowed"] = True
+    decision["reason"] = "walk_forward_beats_v1"
+    return decision
+
+
+def _validate_walk_forward_report(payload: Mapping[str, Any]) -> None:
+    """Raise when a walk-forward report disagrees with itself."""
+    if payload.get("protocol") != WALK_FORWARD_PROTOCOL:
+        raise ValueError("Walk-forward report protocol is not walk_forward_week.")
+    if (
+        payload.get("model") != REFERENCE_MODEL_NAME
+        or payload.get("feature_set") != REFERENCE_FEATURE_SET
+    ):
+        raise ValueError("Walk-forward report must be logistic h2_full.")
+    v1_through: int = _require_int(payload.get("v1_through_season"), "v1_through_season")
+    _require_int(payload.get("lookback_games"), "lookback_games", minimum=1)
+    _require_int(payload.get("logistic_max_iter"), "logistic_max_iter", minimum=1)
+    _require_int(payload.get("random_state"), "random_state")
+    n_bootstrap: int = _require_int(payload.get("n_bootstrap"), "n_bootstrap", minimum=0)
+    _require_int(payload.get("bootstrap_seed"), "bootstrap_seed")
+    logistic_c: float = _require_float(payload.get("logistic_c"), "logistic_c")
+    if logistic_c <= 0:
+        raise ValueError("logistic_c must be positive.")
+    slate: object = payload.get("slate")
+    if not isinstance(slate, Mapping):
+        raise ValueError("Walk-forward report is missing slate.")
+    slate_season: int = _require_int(slate.get("season"), "slate.season")
+    slate_week: int = _require_int(slate.get("week"), "slate.week", minimum=1)
+    weeks: object = payload.get("weeks")
+    if not isinstance(weeks, list) or len(weeks) == 0:
+        raise ValueError("Walk-forward report has no scored weeks.")
+    aggregate: object = payload.get("aggregate")
+    if not isinstance(aggregate, Mapping):
+        raise ValueError("Walk-forward report is missing aggregate.")
+    ordered: list[Mapping[str, Any]] = []
+    for index, week in enumerate(weeks):
+        if not isinstance(week, Mapping):
+            raise ValueError(f"Week row {index} is not an object.")
+        ordered.append(week)
+    ordered.sort(
+        key=lambda row: (
+            _require_int(row.get("season"), "season"),
+            _require_int(row.get("week"), "week"),
+        )
+    )
+    previous_train: int = -1
+    v1_train_counts: set[int] = set()
+    total_n: int = 0
+    weighted: dict[str, float] = {
+        "candidate_log_loss": 0.0,
+        "v1_log_loss": 0.0,
+        "elo_log_loss": 0.0,
+        "baseline_home_log_loss": 0.0,
+    }
+    market_n: int = 0
+    market_weighted: float = 0.0
+    slate_key: tuple[int, int] = (slate_season, slate_week)
+    for week in ordered:
+        season: int = _require_int(week.get("season"), "season")
+        week_number: int = _require_int(week.get("week"), "week", minimum=1)
+        if season <= v1_through:
+            raise ValueError(f"{season} week {week_number} is inside the v1 window.")
+        if (season, week_number) >= slate_key:
+            raise ValueError(f"{season} week {week_number} is not before the slate.")
+        row_n: int = _require_int(week.get("n"), "n", minimum=1)
+        train_candidate: int = _require_int(
+            week.get("n_train_candidate"), "n_train_candidate", minimum=1
+        )
+        train_v1: int = _require_int(week.get("n_train_v1"), "n_train_v1", minimum=1)
+        if train_candidate < train_v1:
+            raise ValueError(
+                f"{season} week {week_number} trains the candidate on fewer games than v1."
+            )
+        if train_candidate < previous_train:
+            raise ValueError(
+                "Candidate training count goes backwards. Later weeks must not drop games."
+            )
+        previous_train = train_candidate
+        v1_train_counts.add(train_v1)
+        total_n += row_n
+        for key in weighted:
+            weighted[key] += _require_float(week.get(key), key) * row_n
+        row_market_n: int = _require_int(week.get("market_n"), "market_n", minimum=0)
+        if row_market_n > row_n:
+            raise ValueError(f"{season} week {week_number} has more market rows than games.")
+        if row_market_n > 0:
+            market_n += row_market_n
+            market_weighted += (
+                _require_float(week.get("market_log_loss"), "market_log_loss") * row_market_n
+            )
+    if len(v1_train_counts) != 1:
+        raise ValueError("v1 training count changes across weeks.")
+    aggregate_n: int = _require_int(aggregate.get("n"), "aggregate.n", minimum=1)
+    if aggregate_n != total_n:
+        raise ValueError("Aggregate n does not match the week rows.")
+    for key, total in weighted.items():
+        pooled: float = total / float(total_n)
+        reported: float = _require_float(aggregate.get(key), f"aggregate.{key}")
+        if abs(pooled - reported) > _WALK_FORWARD_DIFF_TOLERANCE:
+            raise ValueError(f"Aggregate {key} does not match the week rows.")
+    candidate_loss: float = _require_float(
+        aggregate.get("candidate_log_loss"), "aggregate.candidate_log_loss"
+    )
+    v1_loss: float = _require_float(aggregate.get("v1_log_loss"), "aggregate.v1_log_loss")
+    diff: float = _require_float(aggregate.get("log_loss_diff"), "aggregate.log_loss_diff")
+    if abs((candidate_loss - v1_loss) - diff) > _WALK_FORWARD_DIFF_TOLERANCE:
+        raise ValueError("log_loss_diff is not candidate minus v1.")
+    beats: object = aggregate.get("beats_v1")
+    if not isinstance(beats, bool) or beats is not (candidate_loss < v1_loss):
+        raise ValueError("beats_v1 does not match the aggregate log loss.")
+    reported_market_n: int = _require_int(
+        aggregate.get("market_n"), "aggregate.market_n", minimum=0
+    )
+    if reported_market_n != market_n:
+        raise ValueError("Aggregate market_n does not match the week rows.")
+    if market_n == 0:
+        if aggregate.get("market_log_loss") is not None:
+            raise ValueError("market_log_loss must be null when market_n is 0.")
+    else:
+        pooled_market: float = market_weighted / float(market_n)
+        reported_market: float = _require_float(
+            aggregate.get("market_log_loss"), "aggregate.market_log_loss"
+        )
+        if abs(pooled_market - reported_market) > _WALK_FORWARD_DIFF_TOLERANCE:
+            raise ValueError("Aggregate market_log_loss does not match the week rows.")
+    if n_bootstrap > 0 and aggregate_n >= 2:
+        _require_float(aggregate.get("log_loss_diff_ci_low"), "aggregate.log_loss_diff_ci_low")
+        _require_float(aggregate.get("log_loss_diff_ci_high"), "aggregate.log_loss_diff_ci_high")
+
+
+def _max_included_season(payload: Mapping[str, Any]) -> int:
+    """Last season that still has a completed game before the slate."""
+    slate: Mapping[str, Any] = payload["slate"]
+    slate_season: int = int(slate["season"])
+    slate_week: int = int(slate["week"])
+    weeks: list[Mapping[str, Any]] = list(payload["weeks"])
+    seasons: list[int] = [int(payload["v1_through_season"])]
+    for week in weeks:
+        season: int = int(week["season"])
+        week_number: int = int(week["week"])
+        if (season, week_number) < (slate_season, slate_week):
+            seasons.append(season)
+    return max(seasons)
+
+
+def _require_int(value: object, label: str, minimum: int | None = None) -> int:
+    """Return an integer, accepting an integral float from JSON."""
+    if isinstance(value, bool):
+        raise ValueError(f"{label} must be an integer.")
+    number: int
+    if isinstance(value, int):
+        number = value
+    elif isinstance(value, float) and value.is_integer():
+        number = int(value)
+    else:
+        raise ValueError(f"{label} must be an integer.")
+    if minimum is not None and number < minimum:
+        raise ValueError(f"{label} must be >= {minimum}.")
+    return number
+
+
+def _require_float(value: object, label: str) -> float:
+    """Return a finite float."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError(f"{label} must be a number.")
+    number: float = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"{label} must be finite.")
+    return number
 
 
 def register_model_version(

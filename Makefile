@@ -1,4 +1,4 @@
-.PHONY: help setup install lint lint-structure test vulture dbt-compile dbt-run dbt-test clean reproduce data ingest ingest-current marts dbt-build-databricks train train-sweep train-cv train-s2 mlflow-ui audit-features check-epa-filter verify-reference score rebuild-week refresh-results track-record backfill-archive register-model promote-model
+.PHONY: help setup install lint lint-structure test vulture dbt-compile dbt-run dbt-test clean reproduce data ingest ingest-current marts dbt-build-databricks train train-sweep train-cv train-s2 mlflow-ui audit-features check-epa-filter verify-reference walk-forward verify-walk-forward score rebuild-week refresh-results track-record backfill-archive register-model register-recent promote-model
 
 # Finished bronze and mart steps. Gitignored. A second train-cv does not
 # reload bronze when these stamps are current.
@@ -32,8 +32,11 @@ help:
 	@echo "  audit-features      - Profile current pregame inputs (no feature changes)"
 	@echo "  check-epa-filter    - Count play types in the EPA filter, plus kneel and spike rows"
 	@echo "  verify-reference    - Refit logistic h2_full and fail if it drifts from the reference file"
-	@echo "  register-model      - Register logistic h2_full. Does not set the prod alias"
-	@echo "  promote-model       - Set alias prod on VERSION when its CV tags pass the gate"
+	@echo "  walk-forward        - Week backtest of a fresh h2_full fit against the through-2023 fit"
+	@echo "  verify-walk-forward - Fail unless that report beats v1 on log loss"
+	@echo "  register-model      - Register logistic h2_full through 2023. Does not set the prod alias"
+	@echo "  register-recent     - Register the fresh fit when the walk-forward report beats v1"
+	@echo "  promote-model       - Set alias prod on VERSION when its tags pass the gate"
 	@echo "  score               - Score the next unpublished week. Keeps a week file already on disk"
 	@echo "  train-s2            - Sprint 2 margin and total CV. Registers a target only if it passes"
 	@echo "  rebuild-week        - Rebuild one full week (SEASON and WEEK required), then overlay finals"
@@ -141,6 +144,16 @@ check-epa-filter:
 verify-reference:
 	python -m endzone.train.train --verify-reference
 
+# Week walk-forward. Default slate is the week after the last completed week.
+# Set both for a publish, for example SLATE_SEASON=2026 SLATE_WEEK=10.
+# Writes reports/walk_forward/. That directory is local scratch.
+walk-forward:
+	python -m endzone.modeling.walk_forward $(if $(SLATE_SEASON),--slate-season $(SLATE_SEASON),) $(if $(SLATE_WEEK),--slate-week $(SLATE_WEEK),) $(if $(OUTPUT),--output-dir $(OUTPUT),)
+
+# Exit 1 unless reports/walk_forward/walk_forward.json beats the through-2023 fit.
+verify-walk-forward:
+	python -m endzone.modeling.walk_forward --verify --report $(if $(REPORT),$(REPORT),reports/walk_forward/walk_forward.json)
+
 # Register logistic h2_full through THROUGH_SEASON (default 2023).
 # Does not set the prod alias. COMPARISON points at a comparison CSV and
 # skips the reference check. The gate still applies.
@@ -148,6 +161,12 @@ verify-reference:
 # MLFLOW_REGISTRY_URI=databricks-uc. See the runbook.
 register-model:
 	python -m endzone.modeling.registry_command register $(if $(THROUGH_SEASON),--through-season $(THROUGH_SEASON),) $(if $(COMPARISON),--comparison-csv $(COMPARISON),)
+
+# Fit games before the slate in the walk-forward report and register that version.
+# Does not set the alias. Refuses when the report does not beat v1.
+# Unity Catalog needs the same URIs as register-model.
+register-recent:
+	python -m endzone.modeling.registry_command register-recent --report $(if $(REPORT),$(REPORT),reports/walk_forward/walk_forward.json)
 
 # Set alias prod on one existing version. Example: make promote-model VERSION=1
 promote-model:
