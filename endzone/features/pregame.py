@@ -1231,6 +1231,7 @@ def build_pregame_features(
     blend_k: float = SEASON_BLEND_K,
     expected_starters: pd.DataFrame | None = None,
     qb_dropbacks: pd.DataFrame | None = None,
+    game_ids: set[str] | None = None,
 ) -> pd.DataFrame:
     """
     Build pre-game features for each game using only prior game data.
@@ -1247,6 +1248,8 @@ def build_pregame_features(
         expected_starters: Depth-chart QB1 ids, one row per game. Omit together
             with ``qb_dropbacks`` to leave the QB columns missing.
         qb_dropbacks: Passer dropbacks. This is who played, not the starter.
+        game_ids: When set, only these games are returned. Prior rows still
+            come from the full frame. None returns every game.
 
     Returns:
         DataFrame with game_id and feature columns
@@ -1325,6 +1328,11 @@ def build_pregame_features(
     with ``gameday`` strictly before the game. See ``attach_qb_features``.
     """
     _validate_regression_settings(shrink_factor, blend_k)
+    wanted: set[str] | None = None
+    if game_ids is not None:
+        if len(game_ids) == 0:
+            raise ValueError("game_ids is empty.")
+        wanted = {str(game_id) for game_id in game_ids}
     # Validate required columns
     required_games_cols = [
         "game_id",
@@ -1366,9 +1374,12 @@ def build_pregame_features(
     _refuse_partial_source(fct_team_game_epa, CLEAN_SUCCESS_SOURCE_COLUMNS, "clean success")
 
     features_list = []
+    emitted: list[str] = []
 
     for _, game in fct_games.iterrows():
         game_id = game["game_id"]
+        if wanted is not None and str(game_id) not in wanted:
+            continue
         game_date = game["gameday"]
         home_team = game["home_team_franchise"]
         away_team = game["away_team_franchise"]
@@ -1537,6 +1548,13 @@ def build_pregame_features(
                 **away_pass_rush_season,
             }
         )
+        emitted.append(str(game_id))
+
+    if wanted is not None:
+        missing_ids: list[str] = sorted(wanted - set(emitted))
+        if missing_ids:
+            preview: str = ", ".join(missing_ids[:8])
+            raise ValueError(f"game_ids not found in fct_games: {preview}")
 
     frame: pd.DataFrame = add_home_minus_away_features(pd.DataFrame(features_list))
     ordered_columns: list[str] = [

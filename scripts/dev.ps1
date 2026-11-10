@@ -31,8 +31,11 @@ function Show-Help {
     Write-Host "  audit-features      - Profile current pregame inputs (no feature changes)"
     Write-Host "  check-epa-filter    - Count play types in the EPA filter, plus kneel and spike rows"
     Write-Host "  verify-reference    - Refit logistic h2_full and fail if it drifts from the reference file"
-    Write-Host "  register-model      - Register logistic h2_full. Does not set the prod alias"
-    Write-Host "  promote-model       - Set alias prod on VERSION when its CV tags pass the gate"
+    Write-Host "  walk-forward        - Week backtest of a fresh h2_full fit against the through-2023 fit"
+    Write-Host "  verify-walk-forward - Fail unless the same-recipe refresh is inside the margin"
+    Write-Host "  register-model      - Register logistic h2_full through 2023. Does not set the prod alias"
+    Write-Host "  register-recent     - Register the same-recipe refresh when the gate passes"
+    Write-Host "  promote-model       - Set alias prod on VERSION when its tags pass the gate"
     Write-Host "  score               - Score the next unpublished week. Keeps a week file already on disk"
     Write-Host "  train-s2            - Sprint 2 margin and total CV. Registers a target only if it passes"
     Write-Host "  rebuild-week        - Rebuild one full week (SEASON and WEEK required), then overlay finals"
@@ -200,12 +203,38 @@ function Invoke-VerifyReference {
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
+function Invoke-WalkForward {
+    Write-Host "Walking forward logistic h2_full against the through-2023 fit..."
+    $walkArgs = @("-m", "endzone.modeling.walk_forward")
+    if ($env:SLATE_SEASON) { $walkArgs += @("--slate-season", $env:SLATE_SEASON) }
+    if ($env:SLATE_WEEK) { $walkArgs += @("--slate-week", $env:SLATE_WEEK) }
+    if ($env:OUTPUT) { $walkArgs += @("--output-dir", $env:OUTPUT) }
+    python @walkArgs
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
+function Invoke-VerifyWalkForward {
+    Write-Host "Checking the walk-forward refresh gate..."
+    $report = "reports/walk_forward/walk_forward.json"
+    if ($env:REPORT) { $report = $env:REPORT }
+    python -m endzone.modeling.walk_forward --verify --report $report
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
 function Invoke-RegisterModel {
     Write-Host "Registering logistic h2_full. The prod alias is not set..."
     $registerArgs = @("-m", "endzone.modeling.registry_command", "register")
     if ($env:THROUGH_SEASON) { $registerArgs += @("--through-season", $env:THROUGH_SEASON) }
     if ($env:COMPARISON) { $registerArgs += @("--comparison-csv", $env:COMPARISON) }
     python @registerArgs
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
+function Invoke-RegisterRecent {
+    Write-Host "Registering the same-recipe refresh. The prod alias is not set..."
+    $report = "reports/walk_forward/walk_forward.json"
+    if ($env:REPORT) { $report = $env:REPORT }
+    python -m endzone.modeling.registry_command register-recent --report $report
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
@@ -351,7 +380,10 @@ switch ($Target.ToLower()) {
     "audit-features" { Invoke-AuditFeatures }
     "check-epa-filter" { Invoke-CheckEpaFilter }
     "verify-reference" { Invoke-VerifyReference }
+    "walk-forward" { Invoke-WalkForward }
+    "verify-walk-forward" { Invoke-VerifyWalkForward }
     "register-model" { Invoke-RegisterModel }
+    "register-recent" { Invoke-RegisterRecent }
     "promote-model" { Invoke-PromoteModel }
     "train-s2" { Invoke-TrainS2 }
     "score" { Invoke-Score }

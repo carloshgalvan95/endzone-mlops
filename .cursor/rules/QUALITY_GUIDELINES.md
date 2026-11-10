@@ -137,7 +137,7 @@ If PR Guard fails, close the pull request, fix the reported issues, push the bra
 
 - Combatir glue code, pipeline jungles, config debt
 - MLflow: train dentro de start_run(); log params/metrics/artifacts/model; seed fijo
-- Registro: `make register-model` no pone el alias. `make promote-model VERSION=n` lo pone solo si las tags pasan el golden. El score semanal carga `@prod` y, si falta, ajusta la semana. ADR-009.
+- Registro: `make register-model` no pone el alias. `make promote-model VERSION=n` lo pone si las tags pasan el golden, si un refresh de la misma receta queda dentro del margen, o si un challenger es estrictamente mejor. `make register-recent` es solo el refresh y no pone el alias. Un `through_season` posterior a 2023 sin walk-forward no se promueve. El score semanal carga `@prod` y, si falta, ajusta la semana. ADR-009.
 - Alerta: el hueco publicado (modelo menos mercado) supera el hueco de la referencia más un margen. Un issue, no tumba el deploy. ADR-009.
 - Reproducibilidad: deps pinneadas, make reproduce (no registra un modelo)
 

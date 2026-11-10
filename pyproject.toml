@@ -89,7 +89,7 @@ layers = [
     "endzone.analysis",
     "endzone.train",
     "endzone.site",
-    "endzone.modeling.train | endzone.modeling.score | endzone.modeling.registry_command | endzone.ingest",
+    "endzone.modeling.train | endzone.modeling.score | endzone.modeling.registry_command | endzone.modeling.walk_forward | endzone.ingest",
     "endzone.modeling.pipeline | endzone.modeling.holdout | endzone.modeling.points",
     "endzone.modeling.scoring | endzone.modeling.weekly",
     "endzone.modeling.registry",

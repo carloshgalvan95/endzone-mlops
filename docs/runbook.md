@@ -964,7 +964,66 @@ The same two steps are the Model registry workflow (`workflow_dispatch` only). R
 
 `make reproduce` still does not register a model.
 
+**Refresh, before the 2026 week 10 slate.** Version 1 is the through-2023 fit. This sequence registers a new version of the same logistic `h2_full` on completed games before 2026 week 10. That is a refresh, not a challenger. It promotes when the walk-forward log loss is less than or equal to the version 1 loss plus 0.002. A different model, feature set, or hyperparameter has to be strictly better, and `make register-recent` refuses that report before a fit. The protocol and the warehouse pool are in `docs/experiments/walk_forward.md`. Do not hand-edit `reports/walk_forward/walk_forward.json`. Weekly automation of this refresh is future work. No workflow runs it.
+
+If `reports/walk_forward/walk_forward.json` is already the warehouse run, do not rerun the backtest. `make verify-walk-forward` reads that file, including one written before `gate`, `margin`, and `passes` were added. On a Mac, from the repo root, with `.env` present and not committed:
+
+```bash
+make verify-walk-forward
+```
+
+Exit 1 means stop. Do not register. Do not promote. Leave alias `prod` on version 1.
+
+The first full run, when that JSON is not already there, still passes the slate. The default is the week after the last completed week, and a later week already in the marts would move it.
+
+```bash
+make ingest-current
+make dbt-build-databricks
+make walk-forward SLATE_SEASON=2026 SLATE_WEEK=10
+make verify-walk-forward
+```
+
+Windows, from the repo root:
+
+```powershell
+.\scripts\dev.ps1 ingest-current
+.\scripts\dev.ps1 dbt-build-databricks
+$env:SLATE_SEASON = "2026"
+$env:SLATE_WEEK = "10"
+.\scripts\dev.ps1 walk-forward
+.\scripts\dev.ps1 verify-walk-forward
+```
+
+`make walk-forward` writes `reports/walk_forward/walk_forward.json`. That directory is local scratch. A refresh outside the margin still exits 0 from the backtest. `make verify-walk-forward` exits 1 in that case. Stop there.
+
+When verify exits 0, the same `.env` as the first registration (`MLFLOW_TRACKING_URI=databricks` and `MLFLOW_REGISTRY_URI=databricks-uc`). On a Mac:
+
+```bash
+make register-recent
+make promote-model VERSION=<printed version>
+```
+
+Windows:
+
+```powershell
+.\scripts\dev.ps1 register-recent
+$env:VERSION = "<printed version>"
+.\scripts\dev.ps1 promote-model
+```
+
+`make register-recent` prints the new version and does not set the alias. Use that printed number. Do not assume it is 2. The fit is every completed game before 2026 week 10, including the last scored week. The walk-forward log loss is not the in-sample loss of that fit. `make promote-model` sets alias `prod` only when the version tags pass the same gate. A refusal leaves the alias where it was.
+
+`make register-model` and the Model registry workflow stay the through-2023 path. Do not set `through_season` past 2023 on that workflow and expect a promote. The gate refuses it (`fresh_window_needs_walk_forward`).
+
+Publish week 10 only after the promote, and only when `predictions/2026-w10.json` is not already on `published-slates`. In Actions, open Pages, Run workflow, set season `2026` and week `10`, and leave `replace_published` off. That scores the next unpublished week, which is week 10 when week 9 is the latest archived file. It loads alias `prod`. It does not replace week 9.
+
+Do not set `replace_published`. That flag rebuilds a week that is already on disk. Week 9 stays as published. If week 10 is already archived, leave that file alone too. A published slate is not replaced because a later model exists.
+
+Merging this work to `main` does not publish week 10. `.github/workflows/pages.yml` skips the score step when `github.event_name` is `push`. A push restores `published-slates`, overlays finals, writes the track record, archives, and deploys the site that is already there. It does not fit a model and it does not create a week file.
+
+The Tuesday cron (`0 12 * * 2`) and a manual dispatch do score. They load whatever alias `prod` is at that moment. If either one runs before the promote, week 10 is published with version 1. That file is then frozen. Do not dispatch `replace_published` to swap it. Sequence the promote before that cron, or before a manual score.
+
 ---
 
-**Last updated**: 2026-11-09  
+**Last updated**: 2026-11-10  
 **Status**: Spike COMPLETED (PASS)

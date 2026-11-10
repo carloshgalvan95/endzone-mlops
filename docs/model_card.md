@@ -11,7 +11,8 @@ I copy every number from `docs/experiments/reference_metrics.json` or from a fro
 - **Name.** Unity Catalog model `workspace.nfl_dev.endzone_winprob`. Catalog `workspace`, schema `nfl_dev`, model `endzone_winprob`. Unity Catalog does not allow a hyphen in the model name. A sqlite registry uses `endzone-winprob`. ADR-009.
 - **Version and alias.** `prod` is an alias, not a version. The one-time promote in `docs/runbook.md` sets that alias on version 1: `make promote-model VERSION=1`. The Model registry workflow does the same step with action `promote` and version 1. I have not stored a live registry query in this repo, so this card does not confirm the warehouse alias by calling Databricks. A later register creates the next version and does not move the alias. Weekly scoring loads `models:/<name>@prod` and does not set the alias.
 - **Registration.** `make register-model` fits logistic `h2_full` on completed games through season 2023 and writes one version. The version tags are the rolling-origin CV in `docs/experiments/reference_metrics.json`. They are not the in-sample loss of that fit. The command does not set an alias. It writes nothing when the reference check fails. `make reproduce` does not call it. Unity Catalog registration needs `MLFLOW_TRACKING_URI=databricks` and `MLFLOW_REGISTRY_URI=databricks-uc`. A sqlite tracking URI with `databricks-uc` is refused before a write. ADR-009.
-- **Promotion.** `make promote-model` sets alias `prod` only when the version tags match the golden logistic `h2_full` row within the tolerance in the reference file. Logistic `h2_full` does not have to beat the market to receive the alias. A refusal leaves every alias as it was.
+- **Fresh window.** `make register-recent` fits the same logistic `h2_full` on completed games before the slate in a walk-forward report. The report is `docs/experiments/walk_forward.md`. That command is a refresh of the current recipe, not a new feature. It writes a version only when the recipe matches prod and the refresh gate passes. It does not set an alias. A different model, feature set, or hyperparameter is a challenger and is refused by this command. A `through_season` past 2023 without a walk-forward report is refused, so the golden CV tags cannot ride onto a later fit. Weekly automation of the refresh is future work.
+- **Promotion.** `make promote-model` sets alias `prod` when the version tags match the golden logistic `h2_full` row within the tolerance in the reference file, or when a same-recipe walk-forward refresh passes its margin, or when a different recipe is strictly better on that backtest. Logistic `h2_full` does not have to beat the market to receive the alias. The 0.003 feature rule is a different gate. A refusal leaves every alias as it was.
 - **Experiment path.** The logical name is `nfl_pregame/registry`. SQLite tracking, including the weekly page job and the tests, keeps that relative name. Databricks tracking stores `/Shared/endzone-mlops/nfl_pregame/registry` unless `ENDZONE_MLFLOW_EXPERIMENT_ROOT` is set. `databricks-uc` is a registry URI and does not rewrite the experiment name. ADR-009.
 - **Type.** Logistic regression on feature set `h2_full`: imputation, standard scaling, then an L2 logistic classifier (`endzone/modeling/models.py`, called from `endzone/modeling/registry_command.py`). The penalty and the iteration cap are the command defaults. Those two defaults are not fields in the reference file or a frozen report, so I do not restate them.
 - **Who and when.** I maintain this as a personal learning project. ADR-009 is the registry decision. A registration timestamp is not in the reference file or a frozen report.
@@ -131,7 +132,8 @@ The published sample is small. ADR-008 says the sample is small, and the page la
 
 ## Caveats and recommendations
 
-- Version 1 is one fit on games through 2023. It is not refit on 2024 or 2025. I do not have those holdout log losses in the reference file or a frozen report.
+- Version 1 is one fit on games through 2023. A later refresh uses the same recipe on completed games before the slate. The warehouse pool from that backtest is in `docs/experiments/walk_forward.md`. It is not in the reference file. The bootstrap interval there is descriptive.
+- I did not add a feature for this window. `h2_full` already has rolling EPA, win rate, rest, season EPA, and regressed EPA. Point differential stays out. Elo stays a baseline. Injury reports stay out because the slate is published before them.
 - The slate is published on Tuesday, before injury reports. `h2_full` has no injury column and no inactive column. The injury-report calendar is not written down in this repo, so I do not state a clock time for those reports.
 - If alias `prod` is missing, the Tuesday job fits that week in the tracking store. That fit is not version 1, and it is not written to Unity Catalog. ADR-009.
 - The market row has n=2190. The other locked rows have n=2191. The frozen H5 report skips the market when the moneyline columns are absent. The identity of any omitted game is not in the reference file, so I do not name one.
@@ -159,7 +161,7 @@ MLFLOW_TRACKING_URI=databricks
 MLFLOW_REGISTRY_URI=databricks-uc
 ```
 
-Then, as the runbook records:
+Then, as the runbook records, the through-2023 path is:
 
 ```bash
 make verify-reference
@@ -167,4 +169,17 @@ make register-model
 make promote-model VERSION=1
 ```
 
-`make reproduce` installs the lock, builds the Databricks marts, and runs the reference check. It does not download nflverse. It does not register a model, and it does not set an alias.
+A later prod candidate, still the same feature set, is a different sequence. I run it myself. The exact order, including the week 10 publish, is in `docs/runbook.md`. Short form:
+
+```bash
+make ingest-current
+make dbt-build-databricks
+make walk-forward SLATE_SEASON=<slate season> SLATE_WEEK=<slate week>
+make verify-walk-forward
+make register-recent
+make promote-model VERSION=<printed version>
+```
+
+The runbook has the season and week for the next slate. I set both flags. I do not use the default slate.
+
+`make verify-walk-forward` has to exit 0 before `make register-recent`. I use the version the register command prints. I do not assume it is 2. `make reproduce` installs the lock, builds the Databricks marts, and runs the reference check. It does not download nflverse. It does not register a model, and it does not set an alias. A push to `main` does not score the next week.

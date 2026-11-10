@@ -2,7 +2,12 @@
 
 ``python -m endzone.modeling.registry_command register`` runs the reference
 check, fits one model on completed games through the cutoff, and registers
-that version. It does not set an alias.
+that version. It does not set an alias. The default cutoff is season 2023.
+
+``python -m endzone.modeling.registry_command register-recent`` fits every
+completed game before the slate in a walk-forward report. It registers that
+version only when the recipe matches prod and the refresh gate passes.
+It does not set an alias. A different recipe is a challenger and is refused.
 
 ``python -m endzone.modeling.registry_command promote --version N`` sets
 alias ``prod`` only when that version's tags pass the promotion gate.
@@ -32,13 +37,18 @@ from endzone.modeling.pipeline import run_reference_check
 from endzone.modeling.reference import format_reference_check
 from endzone.modeling.registry import (
     PROD_ALIAS,
+    PROD_RECIPE,
     REFERENCE_FEATURE_SET,
     assert_can_register,
     default_model_name,
     metrics_from_comparison_csv,
     metrics_from_reference_check,
+    metrics_from_walk_forward_report,
     promote_registered_version,
     promotion_decision,
+    read_walk_forward_report,
+    recipe_from_walk_forward,
+    recipe_matches,
     register_model_version,
 )
 from endzone.modeling.weekly import WEEKLY_FEATURE_SET, games_before_week, team_games_before_week
@@ -58,25 +68,40 @@ def fit_reference_pipeline(
     logistic_c: float = 1.0,
     logistic_max_iter: int = 1000,
     random_state: int = 42,
+    before_season: int | None = None,
+    before_week: int | None = None,
 ) -> dict[str, Any]:
-    """Fit logistic ``h2_full`` on completed games through ``through_season``.
+    """Fit logistic ``h2_full`` on completed games before a cutoff.
 
-    The cutoff is every completed game before season ``through_season + 1``,
-    week 1. Same-season weeks after that season stay out. Features for a
-    game still use only earlier games.
+    The default cutoff is season ``through_season + 1``, week 1. Pass
+    ``before_season`` and ``before_week`` together to stop at a slate week.
+    Games from that week stay out. Features for a game still use only
+    earlier games.
 
     Returns:
-        Dict with ``pipeline``, ``example``, ``n_train``, and ``through_season``.
+        Dict with ``pipeline``, ``example``, ``n_train``, ``through_season``,
+        ``cutoff_season``, and ``cutoff_week``.
 
     Raises:
-        ValueError: There are no completed games, one class, or a bad column.
+        ValueError: The cutoff arguments disagree, there are no completed
+            games, one class, or a bad column.
     """
-    history: pd.DataFrame = games_before_week(games, int(through_season) + 1, 1)
+    if before_season is None and before_week is None:
+        cutoff_season: int = int(through_season) + 1
+        cutoff_week: int = 1
+    elif before_season is not None and before_week is not None:
+        if before_week < 1:
+            raise ValueError("before_week must be >= 1.")
+        cutoff_season = int(before_season)
+        cutoff_week = int(before_week)
+    else:
+        raise ValueError("before_season and before_week must be set together.")
+    history: pd.DataFrame = games_before_week(games, cutoff_season, cutoff_week)
     history_ids: set[str] = set(history["game_id"].astype(str))
     prior_team_games: pd.DataFrame = team_games_before_week(
         team_games,
-        int(through_season) + 1,
-        1,
+        cutoff_season,
+        cutoff_week,
         history_ids,
     )
     features: pd.DataFrame = build_pregame_features(
@@ -110,6 +135,8 @@ def fit_reference_pipeline(
         "example": example,
         "n_train": int(len(train_y)),
         "through_season": int(through_season),
+        "cutoff_season": cutoff_season,
+        "cutoff_week": cutoff_week,
     }
 
 
@@ -185,6 +212,100 @@ def register_command(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+def register_recent_command(args: argparse.Namespace) -> dict[str, Any]:
+    """Fit logistic ``h2_full`` before the report slate and register that version.
+
+    The walk-forward report is the gate. This command registers the current
+    prod recipe only, and only when that refresh passes non-inferiority.
+    A different recipe raises ``SystemExit`` before a registry write. The
+    alias is not set. Hyperparameters come from the report so the fit
+    matches the backtest.
+
+    Returns:
+        Dict with ``model_name``, ``model_version``, ``alias`` (None),
+        ``through_season``, ``cutoff_season``, ``cutoff_week``, and ``allowed``.
+
+    Raises:
+        SystemExit: The report is missing, inconsistent, a different recipe,
+            or outside the refresh margin.
+    """
+    tracking_uri: str = args.tracking_uri or configured_tracking_uri()
+    registry_uri: str = args.registry_uri or configured_registry_uri()
+    assert_can_register(tracking_uri, registry_uri)
+    try:
+        payload: dict[str, Any] = read_walk_forward_report(args.report)
+        tags: dict[str, str] = metrics_from_walk_forward_report(payload)
+    except ValueError as exc:
+        logger.error("%s", exc)
+        raise SystemExit(1) from exc
+    decision: dict[str, Any] = promotion_decision(tags)
+    if not recipe_matches(recipe_from_walk_forward(payload), PROD_RECIPE):
+        logger.error(
+            "Refusing to register. register-recent fits the current prod recipe only. "
+            "This report changes the model, the feature set, or a hyperparameter. "
+            "Gate reason: %s.",
+            decision["reason"],
+        )
+        raise SystemExit(1)
+    if not decision["allowed"]:
+        logger.error(
+            "Refusing to register the refresh: %s.",
+            decision["reason"],
+        )
+        raise SystemExit(1)
+    slate: dict[str, Any] = payload["slate"]
+    slate_season: int = int(slate["season"])
+    slate_week: int = int(slate["week"])
+    games, team_games = load_data(args.fixture_path if args.fixture_path else None)
+    fitted: dict[str, Any] = fit_reference_pipeline(
+        games,
+        team_games,
+        through_season=slate_season,
+        before_season=slate_season,
+        before_week=slate_week,
+        lookback_games=int(payload["lookback_games"]),
+        logistic_c=float(payload["logistic_c"]),
+        logistic_max_iter=int(payload["logistic_max_iter"]),
+        random_state=int(payload["random_state"]),
+    )
+    model_name: str = default_model_name(registry_uri)
+    stamp: str = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    logged = register_model_version(
+        fitted["pipeline"],
+        example=fitted["example"],
+        model_name=model_name,
+        tags=tags,
+        tracking_uri=tracking_uri,
+        registry_uri=registry_uri,
+        run_name=f"register-h2-full-recent-{slate_season}w{slate_week}-{stamp}",
+        through_season=int(tags["through_season"]),
+    )
+    logger.info(
+        "Registered %s version %s from %s training rows. "
+        "Training used completed games before %s week %s. "
+        "Alias %s was not set. Promote it with make promote-model VERSION=%s "
+        "when this refresh stays within the margin of the through-%s fit.",
+        model_name,
+        logged.model_version,
+        fitted["n_train"],
+        slate_season,
+        slate_week,
+        PROD_ALIAS,
+        logged.model_version,
+        int(payload["v1_through_season"]),
+    )
+    return {
+        "model_name": model_name,
+        "model_version": logged.model_version,
+        "alias": None,
+        "through_season": int(tags["through_season"]),
+        "cutoff_season": slate_season,
+        "cutoff_week": slate_week,
+        "allowed": True,
+        "reason": decision["reason"],
+    }
+
+
 def promote_command(args: argparse.Namespace) -> dict[str, Any]:
     """Set alias ``prod`` on one existing version when the gate passes.
 
@@ -225,6 +346,17 @@ def build_parser() -> argparse.ArgumentParser:
     register.add_argument("--fixture-path", type=str, default=None)
     register.add_argument("--tracking-uri", type=str, default=None)
     register.add_argument("--registry-uri", type=str, default=None)
+    recent = subparsers.add_parser(
+        "register-recent",
+        help=(
+            "Fit h2_full on games before the walk-forward slate and register it. "
+            "Does not set an alias. Refuses when the report does not beat v1."
+        ),
+    )
+    recent.add_argument("--report", type=str, required=True)
+    recent.add_argument("--fixture-path", type=str, default=None)
+    recent.add_argument("--tracking-uri", type=str, default=None)
+    recent.add_argument("--registry-uri", type=str, default=None)
     promote = subparsers.add_parser(
         "promote",
         help="Set the prod alias on one version when its CV tags pass the gate.",
@@ -239,6 +371,8 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
     args: argparse.Namespace = build_parser().parse_args(argv)
     if args.command == "register":
         return register_command(args)
+    if args.command == "register-recent":
+        return register_recent_command(args)
     if args.command == "promote":
         return promote_command(args)
     raise SystemExit(2)

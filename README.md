@@ -32,7 +32,7 @@ nflverse, CC BY 4.0. Games, play-by-play, and depth charts. Credits: [docs/ATTRI
 
 Bronze is `workspace.nfl_raw` (`games`, `play_by_play`, `depth_charts`). dbt staging views are `workspace.nfl_dev_staging`. Marts are `workspace.nfl_dev_marts`: `fct_games`, `fct_team_game_epa`, `fct_upcoming_games`, `fct_expected_starter`, `fct_qb_dropbacks`. The target schema is `nfl_dev`, and dbt appends the custom schema, so do not query staging or marts from unsuffixed `nfl_dev`.
 
-Train through 2023, validation 2024, test 2025. A feature for a game uses only rows with `gameday` strictly before that game. Rolling-origin CV scores seasons 2016-2023. 2024 is not a fold. 2025 is not scored.
+Train through 2023, validation 2024, test 2025. A feature for a game uses only rows with `gameday` strictly before that game. Rolling-origin CV scores seasons 2016-2023. 2024 is not a fold. 2025 is not scored. The golden register stays that window. A later prod candidate of the same logistic `h2_full` is a refresh: it is fit on completed games before the slate and promoted when the walk-forward log loss stays within the refresh margin of the through-2023 fit. A different recipe has to be strictly better. The commands are in `docs/runbook.md`. The protocol and the warehouse pool are in `docs/experiments/walk_forward.md`.
 
 ## Architecture
 
