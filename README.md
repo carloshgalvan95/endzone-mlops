@@ -8,7 +8,7 @@ This is a learning project with production-shaped patterns. Batch only. It is no
 
 The weekly page is [https://carloshgalvan95.github.io/endzone-mlops/](https://carloshgalvan95.github.io/endzone-mlops/). It shows one slate: the model's home win probability next to the market, an estimated score, and the final score once nflverse has it. The Track record on that page is the public count ([ADR-008](docs/adr/ADR-008-weekly-track-record.md)). Week-by-week rates change. They are not copied here.
 
-Estimated points are shown because both margin and total passed the pre-registered test ([ADR-007](docs/adr/ADR-007-score-regression.md)). On the reference table below, market log loss is 0.6120 and the model is 0.6377. The market is closer. This does not beat the market.
+Estimated points are shown because both margin and total passed the pre-registered test ([ADR-007](docs/adr/ADR-007-score-regression.md)). On the reference table below, market log loss is 0.6120 and the model is 0.6377. The market is closer. This does not beat the market. The model card is [docs/model_card.md](docs/model_card.md).
 
 Published week files are not on `main`. The durable copy is the orphan branch `published-slates` ([ADR-006](docs/adr/ADR-006-weekly-predictions.md)). `predictions/` at the tip is the current slate, and `history/` keeps every earlier file. A published slate is frozen. A later deploy restores that branch and does not rescore it.
 
@@ -43,7 +43,7 @@ endzone-mlops/
   configs/experiments/ one YAML per hypothesis, plus s2.yaml for margin and total
   data/{raw,interim,processed,external}/   local cache, git keeps .gitkeep
   dbt/                 staging views, marts, seeds
-  docs/                ADRs, experiments, runbook
+  docs/                ADRs, model card, experiments, runbook
   endzone/             ingest, data, features, analysis, modeling, site, train, utils
   models/              gitignored serialized artifacts
   notebooks/           exploration only
@@ -70,7 +70,7 @@ Rolling-origin CV, seasons 2016-2023. Source: [docs/experiments/reference_metric
 | market | market | 2190 | 0.6120 |
 | baseline-home | none | 2191 | 0.6888 |
 
-The market is a baseline. It is not the model under test, and it has the lower log loss. The model does not beat the market. `make verify-reference` refits these rows and fails when log loss or n moves by more than 1e-4.
+The market is a baseline. It is not the model under test, and it has the lower log loss. The model does not beat the market. `make verify-reference` refits these rows and fails when log loss or n moves by more than 1e-4. Intended use, the registry name, and these limits are in the [model card](docs/model_card.md).
 
 ## Hypothesis log
 
@@ -157,6 +157,7 @@ Listed in [docs/definition_of_done.md](docs/definition_of_done.md): ruff, `make 
 
 ## Docs
 
+- [Model card](docs/model_card.md)
 - [Architecture](docs/architecture.md)
 - [ADR-001 Databricks](docs/adr/ADR-001-databricks.md), [ADR-002 CCDS](docs/adr/ADR-002-ccds-layout.md), [ADR-003 config and warehouse](docs/adr/ADR-003-config-and-warehouse.md), [ADR-004 modeling](docs/adr/ADR-004-modeling-and-hypotheses.md), [ADR-005 acceptance rule](docs/adr/ADR-005-acceptance-rule.md), [ADR-006 weekly predictions](docs/adr/ADR-006-weekly-predictions.md), [ADR-007 margin and total](docs/adr/ADR-007-score-regression.md), [ADR-008 track record](docs/adr/ADR-008-weekly-track-record.md), [ADR-009 model registry](docs/adr/ADR-009-model-registry.md)
 - [Experiments](docs/experiments/reports/README.md)
