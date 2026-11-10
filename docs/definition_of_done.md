@@ -8,6 +8,7 @@ A change is done when the gates below are green. Modules group one responsibilit
 - `make lint-structure` (`scripts/check_structure.py` and `lint-imports`)
 - `vulture endzone scripts --min-confidence 80`
 - `pytest tests/ -v`
+- A new test earns its place when it would fail if leakage, a published slate, the promotion or refresh gate, log loss, the golden CV file, a data contract, the PR guard, or `store_failures` broke. Path, encoding, line-ending, CLI, script, and file I/O tests use the `cross_platform` marker. A test that only checks that a document contains a sentence, or that prose contains no year, does not. See `docs/testing.md`.
 - Analysis coverage stays at 100% when `endzone/analysis` changes: `pytest tests/test_feature_leakage.py tests/test_feature_audit.py tests/test_epa_play_filter_check.py --cov=endzone/analysis --cov-report=term-missing --cov-fail-under=100`
 - Golden test: `pytest tests/test_golden_cv.py`. Metrics match `tests/golden/cv_report.json`. Do not edit that file to make a refactor pass.
 - `make dbt-compile` (local DuckDB). The test workflow does not run warehouse `dbt build`. `pages.yml` builds marts and scores only on the Tuesday cron or a manual dispatch. A push restores `published-slates` first, overlays finals, archives the files it will deploy, and does not fit a model. A failed archive does not deploy. See ADR-006.

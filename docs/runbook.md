@@ -697,7 +697,7 @@ When using this data in presentations or publications, credit the nflverse proje
 
 Workflow: `.github/workflows/ci.yml`
 
-CI runs on a push to `main` and on a pull request into `main`.
+CI runs on a push to `main`, on a pull request into `main`, every Monday at 12:00 UTC, and on `workflow_dispatch`.
 
 ### Secrets
 
@@ -712,11 +712,11 @@ Ubuntu, in `.github/workflows/ci.yml`:
 1. **Lint**: `ruff check` and `ruff format --check`
 2. **Structure**: `scripts/check_structure.py` and `lint-imports`
 3. **Unused code**: `vulture endzone scripts --min-confidence 80`
-4. **Test**: `pytest`
+4. **Test**: full `pytest` (`-n auto` comes from `pyproject.toml`)
 5. **Analysis coverage**: 100% on `endzone/analysis`
 6. **dbt compile**: `dbt deps`, `dbt seed`, and `dbt compile` on local DuckDB
 
-Windows and macOS run the lint, format, structure, and pytest steps. They do not compile dbt.
+Windows and macOS run the lint, format, structure, and pytest steps. They do not compile dbt. On a pull request, pytest is `-m cross_platform` (paths, encoding, line endings, CLI and scripts, file I/O). On push to `main`, the Monday schedule, and a manual dispatch, pytest is the full suite. The job is not skipped. Counts and the last measured times are in `docs/testing.md`.
 
 `dbt build` on Databricks is `make dbt-build-databricks`. It is not a CI step. A CI job that builds warehouse tables is not in the repo.
 

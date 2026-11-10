@@ -153,6 +153,7 @@ Una historia/PR está Done solo si cumple todos los puntos aplicables:
 
 ### Pruebas
 - [ ] Evidencia de AC (pytest, dbt test, o guion + captura)
+- [ ] Un test nuevo protege un fallo real (fuga, slate publicado, gate de promoción o refresh, log loss, golden CV, contrato de datos, PR guard, `store_failures`). No se agrega un test que solo exige que un documento contenga una frase o que la prosa no lleve un año. Los casos de ruta, encoding, saltos de línea, CLI y file I/O llevan el marker `cross_platform`. Ver `docs/testing.md`.
 - [ ] CI verde
 - [ ] Refactors: el golden CV (`tests/test_golden_cv.py`) pasa, y Carlos corre `make verify-reference`
 
