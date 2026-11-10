@@ -2,11 +2,11 @@
 
 **Project**: endzone-mlops  
 **Version**: 0.1.0  
-**Last Updated**: 2026-11-09
+**Last Updated**: 2026-11-10
 
 ## Overview
 
-endzone-mlops demonstrates a modern lakehouse architecture for NFL analytics, combining Databricks (or Snowflake), dbt transformations, MLflow experiment tracking, and CI/CD automation.
+endzone-mlops demonstrates a lakehouse architecture for NFL analytics: Databricks Free Edition, dbt transformations, MLflow experiment tracking, and GitHub Actions. The Day 1 spike passed on 2026-10-06 (ADR-001). Snowflake was not activated.
 
 **North Star**: Learning portfolio with production-shaped patterns. Batch-first analytics, not real-time streaming.
 
@@ -27,7 +27,7 @@ endzone-mlops demonstrates a modern lakehouse architecture for NFL analytics, co
                           v                   v                   v
                  +-------------+     +---------------+    +--------------+
                  | nflverse    |     | Databricks    |    | GitHub       |
-                 | (CC BY 4.0) |     | (or Snowflake)|    | Actions CI   |
+                 | (CC BY 4.0) |     | Free Edition  |    | Actions CI   |
                  +-------------+     +---------------+    +--------------+
                   Historical NFL           Compute              Automation
                   Play-by-Play           + Storage              + Testing
@@ -36,9 +36,9 @@ endzone-mlops demonstrates a modern lakehouse architecture for NFL analytics, co
 ### External Systems
 
 - **nflverse**: Public NFL data (play-by-play, games, players). CC BY 4.0 license. Historical only, not live.
-- **Databricks Free Edition**: Primary lakehouse platform (or Snowflake trial as Plan B). Provides Delta Lake storage, serverless Spark compute, and MLflow tracking.
-- **GitHub Actions**: CI on push and pull request. Ubuntu runs ruff, the structure check, vulture, pytest, analysis coverage, and the local dbt compile. Windows and macOS run ruff, the structure check, and pytest. `pages.yml` and `refresh-results.yml` deploy the weekly page.
-- **BALLDONTLIE** (future): Live NFL API for v0.2+. Documented but not active in v0.1.
+- **Databricks Free Edition**: The lakehouse. Delta tables in Unity Catalog, the serverless SQL warehouse, serverless notebook compute, and MLflow. There is no custom cluster. Snowflake is not used.
+- **GitHub Actions**: CI on push and pull request. Ubuntu runs ruff, the format check, the structure check, vulture, pytest, analysis coverage, and the local dbt compile. Windows and macOS run ruff, the format check, the structure check, and pytest. `pages.yml` and `refresh-results.yml` deploy the weekly page.
+- **BALLDONTLIE**: A live NFL API is not in the repo. It is not a dependency.
 
 ### Users
 
@@ -60,9 +60,9 @@ endzone-mlops demonstrates a modern lakehouse architecture for NFL analytics, co
 |        | writes                 | reads/writes           | logs         |
 |        v                        v                        v              |
 |  +------------------------------------------------------------------+  |
-|  |                    Databricks / Snowflake                        |  |
+|  |                    Databricks Free Edition                      |  |
 |  |  +-------------+  +-------------+  +-------------+  +---------+  |  |
-|  |  | Bronze      |  | Silver      |  | Gold        |  | MLflow  |  |  |
+|  |  | Bronze      |  | Staging     |  | Marts       |  | MLflow  |  |  |
 |  |  | (raw data)  |->| (staging)   |->| (marts)     |  | Runs    |  |  |
 |  |  +-------------+  +-------------+  +-------------+  +---------+  |  |
 |  +------------------------------------------------------------------+  |
@@ -102,10 +102,15 @@ endzone-mlops demonstrates a modern lakehouse architecture for NFL analytics, co
 - `stg_nflverse__games`: Game-level data (schedule, scores, lines)
 - `stg_nflverse__pbp`: Play-by-play, including passer id, dropback, and CPOE
 - `stg_nflverse__depth_charts`: Depth charts from 2001. From 2025 the release is a timestamped snapshot, and ingest assigns each team-game the latest snapshot strictly before kickoff.
-- `fct_games`, `fct_team_game_epa`, `fct_upcoming_games`: Schedule and team EPA marts
-- `fct_expected_starter`: Offense QB1 for each completed game. It does not read play-by-play.
-- `fct_qb_dropbacks`: Passer dropbacks and EPA by game. This is history, not the starter.
-- `fct_ingame_states`: Play-level states for an in-game model (future)
+- `fct_games`: one row per completed game (both scores present)
+- `fct_team_game_epa`: one row per team per completed game
+- `fct_upcoming_games`: one row per game with both scores null
+- `fct_expected_starter`: offense QB1 for each completed game. It does not read play-by-play.
+- `fct_qb_dropbacks`: one row per completed game and passer. This is who played, not the starter.
+
+Seeds, in `nfl_dev` because they have no custom schema: `team_franchise_map`, `depth_chart_club_map`, `known_pbp_gaps`.
+
+An in-game state table is not in the repo. Weekly predictions are JSON files, not a warehouse table (ADR-006).
 
 #### 3. ML Pipeline (`endzone/modeling/`, `endzone/features/`)
 
@@ -121,49 +126,67 @@ endzone-mlops demonstrates a modern lakehouse architecture for NFL analytics, co
 
 **v0.1 Scope**: Pregame win probability (logistic `h2_full`) plus margin and total. Both score targets passed ADR-007, so weekly scoring writes the estimate.
 
-**Future**: In-game model, ensemble methods, and a feature-distribution drift monitor. None of those are in the repo. The published log-loss alert is ADR-009.
+**Not in the repo**: an in-game model, ensemble methods, and a feature-distribution drift monitor. The published log-loss alert is ADR-009.
 
-#### 4. Delta Lake / Storage (Databricks/Snowflake)
+#### 4. Delta storage (Databricks Free Edition)
 
-**Technology**: Delta Lake (Databricks) or Snowflake tables
+**Technology**: Delta tables on Unity Catalog. `create_bronze_table` in `endzone/ingest/volume.py` runs `CREATE OR REPLACE TABLE ... USING DELTA AS SELECT * FROM read_files(...)`. The Python upload does not append a column. The `SELECT` list is `*`.
 
-**Schema Layers**:
-- **Bronze** (`bronze_*`): Raw data, immutable, with hash and ingestion timestamp
-- **Silver** (`stg_*`, `silver_*`): Cleaned, standardized, type-safe
-- **Gold** (`fct_*`, `dim_*`, `mart_*`): Aggregated features, predictions
+Catalog `workspace`. dbt's target schema is `nfl_dev`. This repo has no `generate_schema_name` macro, so dbt appends each custom schema: staging views land in `nfl_dev_staging` and marts land in `nfl_dev_marts`. Seeds stay in `nfl_dev`. `nfl_dev_test_results` exists only after one explicit `dbt test --store-failures`. `dbt build` does not create it, and `store_failures` stays off.
 
-**Benefits**:
-- ACID transactions
-- Time travel (Delta Lake)
-- Schema evolution
-- Efficient Parquet/columnar storage
+**Bronze** (`nfl_raw`), written by `python -m endzone.ingest.load_raw_nflverse`:
+
+- `games`. `download_nflverse_games` keeps every column of the nflverse schedules parquet and filters rows by season. Staging reads `game_id`, `season`, `week`, `game_type`, `away_team`, `home_team`, `away_score`, `home_score`, `gameday`, `weekday`, `gametime`, `spread_line`, `total_line`, `away_moneyline`, `home_moneyline`, `location`, `roof`, `surface`, `temp`, `wind`, `away_rest`, `home_rest`, `gsis`, `pfr`, `pff`, `espn`, and `old_game_id`. Staging renames `gsis`, `pfr`, `pff`, and `espn` to `*_id`.
+- `play_by_play`. Each season file is conformed to `endzone/ingest/schemas/pbp_schema.json` (372 columns) before upload. Those keys are the bronze columns. `wp` is one of them. Staging exposes it as `win_probability`.
+- `depth_charts`. The uploaded parquet has only `DEPTH_CHART_COLUMNS` from `endzone/ingest/depth_charts.py`, in this order: `season`, `club_code`, `week`, `game_type`, `depth_team`, `last_name`, `first_name`, `football_name`, `formation`, `gsis_id`, `jersey_number`, `position`, `elias_id`, `depth_position`, `full_name`. From 2025 the release uses `dt` (a UTC scrape time) instead of `week`. Ingest uses `dt` to pick the latest scrape strictly before kickoff, then writes `week` and `game_type`. The bronze table does not include `dt`.
+
+None of the three bronze tables has a row-hash column or an ingestion-timestamp column. `endzone/ingest/schemas/pbp_schema.json` has neither name. `DEPTH_CHART_COLUMNS` has neither name. The games upload writes the downloaded frame with `index=False` and adds no column (`endzone/ingest/nflverse.py`).
+
+**Staging** views: `stg_nflverse__games`, `stg_nflverse__pbp`, `stg_nflverse__depth_charts`. Column lists are the `select` in each SQL file.
+
+**Marts**:
+
+| Table | Grain | Columns |
+| --- | --- | --- |
+| `fct_games` | one completed game | `game_id`, `season`, `week`, `game_type`, `away_team`, `home_team`, `away_score`, `home_score`, `away_team_franchise`, `home_team_franchise`, `home_won`, `home_margin`, `total_points`, `home_covered_spread`, `total_over`, `spread_line`, `total_line`, `away_moneyline`, `home_moneyline`, `gameday`, `weekday`, `gametime`, `location`, `roof`, `surface`, `temp`, `wind`, `away_rest`, `home_rest` |
+| `fct_team_game_epa` | one team in one completed game | `game_id`, `season`, `week`, `game_type`, `team`, `opponent`, `is_home`, `team_score`, `opponent_score`, `spread_line`, `total_line`, `gameday`, `team_franchise`, `opponent_franchise`, `offensive_plays`, `pass_plays`, `rush_plays`, `offensive_epa`, `avg_offensive_epa`, `pass_epa`, `rush_epa`, `successful_plays`, `success_rate`, `defensive_epa_allowed`, `avg_defensive_epa_allowed`, `clean_offensive_plays`, `avg_clean_offensive_epa`, `clean_success_rate`, `clean_defensive_plays`, `avg_clean_defensive_epa_allowed`, `clean_defensive_success_rate` |
+| `fct_upcoming_games` | one game with both scores null | `game_id`, `season`, `week`, `game_type`, `away_team`, `home_team`, `away_team_franchise`, `home_team_franchise`, `gameday`, `weekday`, `gametime`, `spread_line`, `total_line`, `away_moneyline`, `home_moneyline`, `location`, `roof`, `surface`, `temp`, `wind`, `away_rest`, `home_rest` |
+| `fct_expected_starter` | one completed game | `game_id`, `season`, `week`, `game_type`, `gameday`, `home_team`, `away_team`, `home_team_franchise`, `away_team_franchise`, `home_starter_player_id`, `away_starter_player_id` |
+| `fct_qb_dropbacks` | one passer in one completed game | `game_id`, `season`, `week`, `gameday`, `team`, `team_franchise`, `passer_player_id`, `dropbacks`, `dropback_epa`, `cpoe_sum`, `cpoe_dropbacks` |
+
+Those column lists are the final `select` of each mart. `dbt/models/marts/schema.yml` documents a subset and the tests. It does not add columns.
+
+A predictions table, a `dim_*` table, and an in-game state table are not in the repo.
 
 #### 5. MLflow Tracking (Databricks/Local)
 
 **Functionality**:
 - **Experiments**: `nfl_pregame`, `nfl_pregame/phase0_audit`, `nfl_pregame/phase1_baselines`, `nfl_pregame/phase2_h1` through `phase2_h5b` and `phase2_ridge`, `nfl_pregame/sprint2_score`, `nfl_pregame/weekly`, and `nfl_pregame/registry`. Those are the sqlite names. A Databricks tracking URI stores a relative name under `/Shared/endzone-mlops` (`ENDZONE_MLFLOW_EXPERIMENT_ROOT`). There is no in-game experiment in the repo.
-- **Runs**: Each training iteration with params, metrics, artifacts
-- **Model Registry**: Versioned models with lineage
-- **Artifacts**: Plots, feature importance, confusion matrices
+- **Runs**: CV logs one parent run and one nested child per scored model. The single split, Sprint 2, the registry command, and weekly scoring each open their own run.
+- **Model registry**: `make register-model` writes logistic `h2_full` to Unity Catalog as `workspace.nfl_dev.endzone_winprob`. `make promote-model` sets alias `prod` when the tags match the reference row. Sprint 2 registers `endzone-margin` and `endzone-total` only when that target passes ADR-007. Weekly scoring loads alias `prod`.
+- **Artifacts**: A CV run logs `comparison.md`, `comparison.csv`, and out-of-fold prediction files. It does not log the sklearn model (`endzone/modeling/tracking.py`). The single-split command logs the sklearn model (`endzone/modeling/holdout.py`). The phase 0 audit logs a markdown note and a csv that includes `permutation_importance_mean` (`endzone/analysis/feature_audit.py`). Sprint 2 logs a json report and a markdown report (`endzone/modeling/points.py`). A confusion-matrix plot is not in the repo.
 
 **Access**:
 - Databricks: Built-in UI
 - Local: `mlflow ui --backend-store-uri sqlite:///mlflow.db`
 
-#### 6. GitHub Actions (`.github/workflows/ci.yml`)
+#### 6. GitHub Actions (`.github/workflows/`)
 
-**Triggers**: Push, pull request. `pages.yml` deploys `site/` to GitHub Pages on push to `main`, on a manual dispatch, and on Tuesdays at 12:00 UTC. A push restores `published-slates` first, overlays finals, writes the derived track record, archives the week files it will deploy, and does not fit a model. A failed archive does not deploy. A corrupt archived week fails the track record step and does not deploy. An unreachable archive deploys with an explicit unavailable record and no invented rates. Tuesday, and a dispatch without `replace_published`, score the next unpublished week after that restore. `replace_published` rebuilds every scheduled game for the given season and week, training only on games before that week, then the same overlay runs. `backfill_archive` seeds the branch from the live site and does not score or deploy. See ADR-006 and ADR-008.
+Workflows in the repo: `ci.yml`, `pages.yml`, `refresh-results.yml`, `model-registry.yml`, `pr-guard.yml`, `databricks-smoke.yml`.
 
-**Steps**:
-1. Checkout code
-2. Install dependencies
-3. Lint (ruff)
-4. Structure (`scripts/check_structure.py` and `lint-imports`)
-5. Test (pytest)
-6. dbt compile (validate SQL)
-7. (Future) dbt build with test data
+**`ci.yml`**: push and pull request to `main`. Ubuntu checks out, installs uv and Python 3.12, runs `uv sync --frozen`, `ruff check`, `ruff format --check`, `scripts/check_structure.py`, `lint-imports`, `vulture endzone scripts --min-confidence 80`, pytest, analysis coverage at 100%, then `dbt deps`, `dbt seed`, and `dbt compile` on local DuckDB. Windows and macOS run ruff, the format check, the structure check, and pytest. They do not compile dbt. The README badge is this workflow.
 
-**Badge**: Shows CI status in README.
+`dbt build` on Databricks is `make dbt-build-databricks`. It is not a CI step. A CI job that builds warehouse tables with test data is not in the repo.
+
+**`pages.yml`**: deploys `site/` to GitHub Pages on push to `main`, on a manual dispatch, and on Tuesdays at 12:00 UTC. A push restores `published-slates` first, overlays finals, writes the derived track record, archives the week files it will deploy, and does not fit a model. A failed archive does not deploy. A corrupt archived week fails the track record step and does not deploy. An unreachable archive deploys with an explicit unavailable record and no invented rates. Tuesday, and a dispatch without `replace_published`, score the next unpublished week after that restore. `replace_published` rebuilds every scheduled game for the given season and week, training only on games before that week, then the same overlay runs. `backfill_archive` seeds the branch from the live site and does not score or deploy. See ADR-006 and ADR-008.
+
+**`refresh-results.yml`**: overlays finals, writes the track record, runs the log-loss alert, archives, and deploys. It has no warehouse credentials.
+
+**`model-registry.yml`**: manual register or promote. It is not on the Pages schedule.
+
+**`databricks-smoke.yml`**: manual `dbt debug` and `dbt compile` against the Databricks target. It is not part of `ci.yml`.
+
+**`pr-guard.yml`**: checks the pull request title, body, author, and branch prefix.
 
 #### 7. Notebooks (`notebooks/`)
 
@@ -181,21 +204,20 @@ sequenceDiagram
     participant Ingest as Data Ingestion
     participant Bronze as Bronze Layer
     participant dbt as dbt Transform
-    participant Gold as Gold Layer
+    participant Marts as Staging and marts
     participant Train as train.py
     participant MLflow as MLflow
     participant Score as score.py
     participant Pred as site/data JSON
 
     NFL->>Ingest: Download Parquet files
-    Ingest->>Bronze: Write raw data (hash + timestamp)
+    Ingest->>Bronze: Write parquet columns as Delta
     Bronze->>dbt: Read raw tables
-    dbt->>Gold: Transform to staging and marts
-    Gold->>Train: Read feature tables
-    Train->>MLflow: Log params, metrics, model
+    dbt->>Marts: Build staging views and mart tables
+    Marts->>Train: Read feature tables
+    Train->>MLflow: Log params, metrics, comparison files
     MLflow-->>Train: Return run_id
-    Train->>Train: Save model to registry
-    Gold->>Score: Read games before the scored week, and the slate to publish
+    Marts->>Score: Read games before the scored week, and the slate to publish
     Score->>MLflow: Load alias prod, or fit h2_full and register that fallback
     Score->>Pred: Write one week of home win probabilities
 ```
@@ -204,9 +226,9 @@ After that write, Pages and Results overlay finals and write `site/data/track_re
 
 ## Component Design Patterns
 
-### Future live feed
+### Live feed
 
-A second vendor for in-play data is not in this repo. Bronze history comes from nflverse through `endzone/ingest`.
+A second vendor for in-play data is not in the repo. Bronze history comes from nflverse through `endzone/ingest`.
 
 ### Wilson Modularity (endzone/)
 
@@ -242,15 +264,12 @@ endzone/
 
 ### Schema Contracts
 
-**dbt** (`schema.yml`):
-- Column-level tests (unique, not_null)
-- Business rules (e.g., `away_team != home_team`)
-- Documentation for downstream users
+**dbt** (`dbt/models/staging/schema.yml`, `dbt/models/staging/sources.yml`, `dbt/models/marts/schema.yml`):
+- Column tests (`unique`, `not_null`, accepted values, relationships)
+- Business rules (for example `away_team != home_team` on `fct_games`)
+- Column descriptions
 
-**Python** (Pydantic):
-- Config validation
-- Type safety for features and predictions
-- Fail fast on schema mismatches
+Python checks are pytest. A Pydantic model is not in the repo. `endzone/config.py` reads environment variables. It does not validate them with a schema library.
 
 ## Deployment View
 
@@ -270,13 +289,16 @@ endzone/
 
 A daily refresh, a feature-distribution drift monitor, and a live feed are not part of this batch. The published log-loss alert is the quality signal (ADR-009).
 
-### NOT in Scope (v0.1)
+### Out of scope
+
+These are not in the repo:
 
 - Kubernetes
 - Streaming (Kafka, Kinesis)
-- Real-time API (FastAPI)
-- Feature store (Databricks/Feast)
-- Multi-cloud
+- A real-time API
+- A feature store
+- A second cloud, including Snowflake as a live warehouse
+- An in-game state table
 
 ## Quality Attributes (ASRs)
 
@@ -324,11 +346,11 @@ A daily refresh, a feature-distribution drift monitor, and a live feed are not p
 
 | Decision | Benefit | Cost |
 |----------|---------|------|
-| Databricks Free Edition over Snowflake | MLflow native, lakehouse narrative | Usage quotas (serverless-only, auto-stop) |
-| dbt over Spark SQL scripts | Version control, testing, docs | Learning curve, compilation step |
-| Batch scoring over API | Simpler for portfolio, reproducible | No demo of real-time inference |
-| nflverse over live API | Free, CC BY 4.0, no secrets | Historical only; dual-vendor for live |
-| DuckDB for local dev | Zero setup, fast | Not production-grade; switch for deployment |
+| Databricks Free Edition | MLflow in the same workspace, Delta tables | Usage quotas, serverless only, warehouse auto-stop. Snowflake was not activated |
+| dbt | Versioned SQL, tests, docs | A compile step, and a separate warehouse build |
+| Batch JSON scoring | One reproducible week file | A real-time API is not in the repo |
+| nflverse | CC BY 4.0, no vendor secret | Historical files. A live feed is not in the repo |
+| DuckDB for local compile | `make dbt-compile` needs no warehouse | Warehouse builds use the Databricks target |
 
 ## Security and Secrets
 
@@ -343,10 +365,10 @@ A daily refresh, a feature-distribution drift monitor, and a live feed are not p
 - Logging: Python `logging` module with timestamps
 - One quality signal: published log loss gap above the reference CV gap plus a margin, one GitHub issue (ADR-009)
 
-**Future**:
-- Feature-distribution drift (PSI, KS test)
-- Data quality dashboards (Great Expectations + dbt tests)
-- Alerting beyond that one issue (Slack, email)
+**Not in the repo**:
+- A feature-distribution drift monitor
+- A data-quality dashboard beyond dbt tests
+- An alert channel other than the one GitHub issue (no Slack, no email)
 
 ## References
 

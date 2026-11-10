@@ -1,150 +1,137 @@
 # ADR-001: Databricks + dbt + MLflow as Primary Stack
 
-**Date**: 2026-10-06  
-**Status**: Accepted  
-**Spike Status**: PENDING_OWNER (requires completion of Databricks Free Edition configuration)
+**Date**: 2026-10-06
+**Status**: Accepted
+**Spike Status**: PASS (completed 2026-10-06)
 
 ## Context
 
 Building a public MLOps portfolio to demonstrate lakehouse architecture, analytics engineering, and ML experiment tracking. The project needs:
 
-1. A cloud data platform with free/community tier for learning
+1. A cloud data platform with a free tier for learning
 2. SQL transformation layer with version control and testing
 3. ML experiment tracking with model registry
 4. CI/CD integration
-5. Resume-friendly technologies (hiring signal for DE/MLE/MLOps roles)
+5. A stack a reviewer can recognize as Databricks, dbt, and MLflow
 
-Constraint: Must be reproducible with zero cost for initial 14-day development (Day 1-14). Paid services acceptable post-Day 14 with explicit approval.
+Constraint: reproducible at zero cost for the initial 14-day development window (Day 1-14). This is a learning project with production-shaped patterns. Batch only. It is not betting advice. On the reference table the market has the lower log loss.
 
 ## Decision
 
 **Primary stack**: Databricks Free Edition + dbt-databricks + MLflow + GitHub Actions
 
-**Plan B**: Snowflake trial (30 days) + dbt-snowflake + MLflow sidecar, **only if Databricks Free Edition spike fails**. Never operate both in parallel.
+The Day 1 spike passed on 2026-10-06. The warehouse is the pre-created serverless SQL warehouse. Unity Catalog is on. The catalog in use is `workspace`.
 
-**Note**: Databricks Free Edition replaced Community Edition (retired in 2025). Free Edition is serverless-only with Unity Catalog enabled by default.
+**Snowflake**: A Snowflake trial was the written fallback only if this spike failed. The spike passed, so that fallback was not activated. `dbt-snowflake` is not a dependency. There is no ADR-001b. `dbt/profiles.yml.example` still contains an unused `snowflake` output from that plan. Nothing in this repo selects it. Do not run a second lake.
+
+**Note**: Databricks Free Edition replaced Community Edition (retired in 2025). Free Edition is serverless-only. It does not offer a custom cluster. Unity Catalog is enabled by default.
 
 ## Rationale
 
-### Why Databricks Primary
+### Why Databricks was chosen
 
 | Criterion | Databricks Free Edition + dbt + MLflow | Snowflake + dbt + MLflow |
 |-----------|----------------------------------------|--------------------------|
 | MLOps signal | **High** (MLflow native, unified platform) | Medium (MLflow separate deployment) |
 | dbt in free tier | **Validated** (serverless SQL warehouse, Unity Catalog) | Mature in trial, established patterns |
-| FDE/DE signal | Medium-High (Spark + Delta Lake) | High (SQL warehouse, established) |
-| Post-14d continuity | **Forever free** with usage quotas | Trial expires in 30 days |
-| Learning alignment | Matches TC5061 MLflow curriculum | Additional sidecar complexity |
+| FDE/DE signal | Medium-High (Spark SQL + Delta Lake) | High (SQL warehouse, established) |
+| Post-14d continuity | **Free tier** with usage quotas | Trial expires in 30 days |
+| Learning alignment | Matches the MLflow curriculum labs (patterns only, not copied deliverables) | Additional sidecar complexity |
 | Industry adoption | Strong (Unity Catalog, lakehouse narrative) | Strong (enterprise warehouse) |
 
-### Databricks Advantages
+This table is the decision record. Snowflake is not used.
 
-1. **Unified lakehouse**: Delta Lake, Spark SQL, and MLflow in one platform
-2. **MLOps native**: Experiment tracking, model registry, and deployment built-in
-3. **Curriculum alignment**: Reuses TC5061 MLflow labs patterns (NOT copying deliverables)
-4. **Hiring signal**: Strong for ML Engineering and MLOps roles
-5. **Real product path**: Can scale to real NFL predictions if project continues
+### Databricks advantages that held
 
-### Known Risks
+1. **One platform**: Delta tables, SQL warehouse, and MLflow in one workspace
+2. **MLOps native**: Experiment tracking and a model registry
+3. **Curriculum alignment**: Reuses MLflow lab patterns (not copying deliverables)
+4. **Readable stack**: Databricks + dbt + MLflow in the README
+5. **Batch scope**: Weekly scoring writes JSON. It is not a betting product
 
-| Risk | Mitigation |
+### Known limits
+
+| Limit | What the repo does |
 |------|------------|
-| Serverless-only (no custom clusters) | Accept; serverless adequate for learning and small datasets |
-| Serverless SQL warehouse auto-stops | Accept; document in runbook; restart when needed |
-| Usage quotas and fair-use limits | Monitor usage; quotas sufficient for learning project |
-| Unity Catalog learning curve | Spike validates catalog/schema setup; document in runbook |
+| Serverless-only (no custom clusters) | Accept. dbt and ingest use the serverless SQL warehouse |
+| Serverless SQL warehouse auto-stops | Restart it in the workspace when a command needs it. The runbook says so |
+| Usage quotas | `store_failures` stays off so `nfl_dev_test_results` does not fill the 100-relation quota |
+| Unity Catalog | The spike validated catalog `workspace`, schema `nfl_raw`, and the dbt target `nfl_dev`. The runbook has the schema map |
 
-## Day 1 Spike Checklist
+## Day 1 spike checklist
 
-Must validate within Day 1 (see `../runbook.md` for detailed status):
+Completed 2026-10-06. The click-by-click procedure is in `docs/runbook.md`. The host, HTTP path, and token stay in `.env` and in GitHub Actions secrets. They are not written here.
 
-- [ ] Create Databricks Free Edition account
-- [ ] Start Serverless Starter SQL Warehouse (pre-created, no cluster needed)
-- [ ] Generate personal access token for dbt and MLflow
-- [ ] Run `dbt compile` against serverless SQL warehouse with Unity Catalog
-- [ ] Create serverless notebook and log test MLflow run (params + metrics)
-- [ ] Configure GitHub Actions secrets (DATABRICKS_HOST, DATABRICKS_HTTP_PATH, DATABRICKS_TOKEN)
+- [x] Create Databricks Free Edition account
+- [x] Start Serverless Starter SQL Warehouse (pre-created, no cluster needed)
+- [x] Generate personal access token for dbt and MLflow
+- [x] Run `dbt compile` against the serverless SQL warehouse with Unity Catalog
+- [x] Create a serverless notebook and log a test MLflow run (params and metrics)
+- [x] Configure GitHub Actions secrets (`DATABRICKS_HOST`, `DATABRICKS_HTTP_PATH`, `DATABRICKS_TOKEN`)
 
-**Spike outcome decision**:
-- **PASS**: Continue with Databricks Free Edition as primary
-- **FAIL**: Activate Plan B Snowflake same day; create ADR-001b with rationale
+**Spike outcome**: PASS. Databricks Free Edition stays the primary stack.
 
-**Current status**: PENDING_OWNER (completion of Databricks Free Edition signup and configuration steps required)
+## Snowflake
 
-## Plan B: Snowflake
+Not activated. Do not add a Snowflake target, a `dbt-snowflake` dependency, or ADR-001b.
 
-If Databricks Free Edition spike fails, switch to:
-- Snowflake 30-day trial (no credit card until trial ends)
-- dbt-snowflake adapter (mature, well-documented)
-- MLflow sidecar (separate tracking server or local sqlite:///mlflow.db)
-- **Same repository layout** (only adapter and profiles.yml change)
-
-ADR-001b will document the switch with specific failure reasons.
-
-## NFL Dataset Decision
+## NFL dataset decision
 
 **Historical source**: nflverse (CC BY 4.0)
 
 ### Why nflverse
 
-1. **License**: Creative Commons Attribution 4.0 - clear for public portfolio
-2. **Coverage**: Play-by-play data from 1999-present (~27 seasons)
-3. **Format**: Parquet files, CE/Spark-friendly
-4. **Quality**: Clean, maintained, ~370 columns per play
-5. **Features**: Includes closing lines (spread, total, moneyline) in games table
-6. **Community**: Active nflverse GitHub org, documented schemas
+1. **License**: Creative Commons Attribution 4.0, clear for a public portfolio
+2. **Coverage**: Play-by-play from 1999 to the present
+3. **Format**: Parquet files
+4. **Quality**: Maintained. Play-by-play is conformed to 372 columns in `endzone/ingest/schemas/pbp_schema.json`
+5. **Features**: Closing lines (spread, total, moneyline) are on the games file
+6. **Community**: nflverse GitHub org, documented schemas
 
-### Live Path (Documented, Not Implemented v0.1)
+### Live path
 
-- **Future target**: BALLDONTLIE NFL GOAT API (~$39.99/month) for v0.2+
-- **v0.1 status**: The unused feed stub was removed. Live data is not in the repo.
-- **Decision gate**: Live activation requires explicit owner approval, post-Day 14
+A live feed is not in the repo. The unused feed stub was removed. BALLDONTLIE is a documented vendor for a later version, not a dependency, and it is not purchased. nflverse is not a live API. It publishes nightly updates and raw data after games.
 
-**Important**: nflverse is NOT a live API. It provides clean nightly updates and raw data ~15 minutes post-game. For in-play predictions (future), a second vendor (BALLDONTLIE) is documented but not purchased in v0.1.
+### Alternatives considered
 
-### Alternatives Considered
-
-| Dataset | License | Coverage | Why Not Primary |
+| Dataset | License | Coverage | Why not primary |
 |---------|---------|----------|-----------------|
-| Wyscout Figshare | CC BY 4.0 | Soccer 2017-18 | Domain preference: NFL for US hiring signal |
+| Wyscout Figshare | CC BY 4.0 | Soccer 2017-18 | Domain preference: NFL |
 | OpenF1 | Non-commercial/edu | F1 2023+ | Shorter history; non-commercial restriction |
 | StatsBomb open-data | User Agreement | Soccer events | Redistribution restrictions |
-| Sportmonks | Commercial | Soccer multi-league | Paid tier required for Liga MX |
+| Sportmonks | Commercial | Soccer multi-league | Paid tier required |
 
 ## Consequences
 
 ### Positive
 
-- Unified platform reduces cognitive load (one authentication, one UI)
-- MLflow tracking ready out-of-box
-- Strong resume signal: "Databricks + dbt + MLflow"
-- Delta Lake format aligns with modern data engineering practices
-- Can demonstrate lakehouse medallion architecture (bronze/silver/gold)
+- One workspace for SQL and MLflow
+- MLflow tracking is available on serverless compute and locally at `sqlite:///mlflow.db`
+- The README can name Databricks, dbt, and MLflow without a second platform
+- Bronze tables are Delta (`CREATE OR REPLACE TABLE ... USING DELTA`)
+- The medallion in this repo is bronze (`nfl_raw`), staging views, and marts. See `docs/architecture.md`
 
 ### Negative
 
-- CE limitations may force compromises (no Jobs = GitHub Actions schedule)
-- Cluster auto-terminates (must restart for demos)
-- If CE spike fails, lose Day 1 time pivoting to Plan B
-- Free tier continuity uncertain beyond 14 days
+- No custom clusters. A Databricks Jobs cluster is not in the repo. The schedule is GitHub Actions
+- The SQL warehouse auto-stops
+- Free Edition usage quotas apply, including the 100-relation schema cap
+- `dbt build` against the warehouse is a local or manual step (`make dbt-build-databricks`). CI compiles with DuckDB and does not build the warehouse
 
 ### Neutral
 
-- dbt models identical across Databricks/Snowflake (SQL + Jinja)
-- MLflow tracking URI is configuration detail
-- Python training code platform-agnostic
+- The same dbt SQL compiles on DuckDB and builds on Databricks. There is no Snowflake project
+- The MLflow tracking URI is configuration
+- Training code reaches the warehouse through `endzone/data/warehouse.py`
 
-## Decision Owners
+## Decision owner
 
-- **Primary**: Carlos Galvan (portfolio owner, must complete CE spike)
-- **Advisor**: Idaho agent (scaffolds, documents spike checklist)
-- **Reviewer**: Leto II (curriculum alignment, technical design review)
+Carlos Galvan.
 
-## Related Documents
+## Related documents
 
-- [Runbook](../runbook.md): CE spike step-by-step guide and status
-- [Architecture](../architecture.md): Lakehouse design and data flow
-- [Outline](../../uploads/outline_14d_2026-10-06.md): Full 14-day plan
+- [Runbook](../runbook.md): spike procedure and current operations
+- [Architecture](../architecture.md): tables, columns, and data flow
 
 ## References
 
@@ -152,7 +139,3 @@ ADR-001b will document the switch with specific failure reasons.
 - dbt-databricks adapter: https://docs.getdbt.com/reference/warehouse-setups/databricks-setup
 - nflverse: https://github.com/nflverse
 - MLflow Tracking: https://mlflow.org/docs/latest/tracking.html
-
----
-
-**Next action**: Complete Databricks Free Edition account creation and validation of spike checklist items (estimated 45-60 minutes).
