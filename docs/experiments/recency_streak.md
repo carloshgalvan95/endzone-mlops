@@ -43,7 +43,7 @@ The command then checks the written OOF files. Each challenger file has to match
 
 Walk-forward issue 80, recorded in `docs/experiments/walk_forward.md`, scores logistic `h2_full` on 2024 week 1 through 2026 week 9. The pool is n=706 and includes 2025. The refresh passes the 0.002 margin. A different feature set on that command would be strict superiority with margin 0, which is still not ADR-005. The prod refresh was fit on completed games before 2026 week 10 (`docs/runbook.md`). I do not score historical folds with that pretrained model.
 
-I do not claim 2025 is untouched. That walk-forward already scored 2025 for logistic `h2_full`. Phase 2 H1 through H5b did not use 2025 to choose features. Phase 0 used 2025 for missingness and range. H5b counted 2025 depth-chart coverage, not log loss. Issue 61, the once-only 2024 validation and 2025 test, is still open. H6 is preregistered in `docs/experiments/h6_opponent_adjusted.md` and has not been fit. An ensemble is not frozen, so I do not run issue 61 from this comparison.
+I do not claim 2025 is untouched. That walk-forward already scored 2025 for logistic `h2_full`. Phase 2 H1 through H5b did not use 2025 to choose features. Phase 0 used 2025 for missingness and range. H5b counted 2025 depth-chart coverage, not log loss. Issue 61, the once-only 2024 validation and 2025 test, is still open. H6 is preregistered in `docs/experiments/h6_opponent_adjusted.md` and has not been fit. The stack of `h6_adj_elo`, the `h5_qb` ratings, and `recency_margin` is preregistered in `docs/experiments/pkg_core.md` and has not been fit. I do not run issue 61 from this comparison.
 
 ## Command
 

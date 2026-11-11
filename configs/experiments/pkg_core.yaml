@@ -1,0 +1,37 @@
+id: pkg_core
+phase: 2
+default: false
+aliases:
+  - pkg_core
+  - pkg-core
+tag: pkg-core
+short_name: pkg_core
+experiment_name: nfl_pregame/phase2_pkg_core
+phase_tag: "2"
+output_dir: reports/phase2_pkg_core
+title: Phase 2 pkg_core feature package
+note: "Phase 2 pkg_core. Logistic pkg_core against h2_full on rolling-origin seasons 2016-2023. h5_qb, recency_margin, and h6_adj_elo are scored in the same run for context and decided by the same rule. pkg_core is the preregistered candidate. Calibration and the market-information regression are reported and are not gates. No blend is published. 2024 and 2025 are not scored. No model is promoted from this run."
+reference_model: logistic
+reference_feature_set: h2_full
+logistic_feature_sets:
+  - h2_full
+  - pkg_core
+  - h5_qb
+  - recency_margin
+  - h6_adj_elo
+model_specs:
+  - model: logistic
+    feature_set: h2_full
+  - model: logistic
+    feature_set: pkg_core
+  - model: logistic
+    feature_set: h5_qb
+  - model: logistic
+    feature_set: recency_margin
+  - model: logistic
+    feature_set: h6_adj_elo
+log_shrinkage: true
+log_qb: true
+qb_subset: false
+qb_feature_set: h5_qb
+report_profile: pkg_core

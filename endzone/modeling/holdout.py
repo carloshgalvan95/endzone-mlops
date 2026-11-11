@@ -12,6 +12,7 @@ from endzone.config import configured_tracking_uri
 from endzone.features.opponent import H6_CHALLENGER_FEATURE_SETS
 from endzone.features.pregame import (
     FEATURE_SET_H5_QB,
+    FEATURE_SET_PKG_CORE,
     build_pregame_features,
     prepare_training_data,
     split_by_season,
@@ -133,9 +134,10 @@ def _fit_holdout_model(
 def run_holdout(args: argparse.Namespace) -> None:
     """Train one model on seasons through the train cut and log the validation metrics.
 
-    Recency and H6 challengers are refused before any warehouse read. That
+    Recency, H6, and pkg_core are refused before any warehouse read. That
     split scores 2024 and 2025. The preregistered commands are
-    ``python scripts/train_recency.py`` and ``python scripts/train_h6.py``.
+    ``python scripts/train_recency.py``, ``python scripts/train_h6.py``,
+    and ``python scripts/train_pkg_core.py``.
     """
     if args.feature_set in RECENCY_CHALLENGER_FEATURE_SETS:
         raise ValueError(
@@ -148,6 +150,13 @@ def run_holdout(args: argparse.Namespace) -> None:
         raise ValueError(
             f"{args.feature_set} is a preregistered H6 challenger. "
             "Score it with python scripts/train_h6.py. "
+            "That command is rolling-origin CV for seasons 2016-2023. "
+            "This split scores 2024 and 2025."
+        )
+    if args.feature_set == FEATURE_SET_PKG_CORE:
+        raise ValueError(
+            "pkg_core is a preregistered feature package. "
+            "Score it with python scripts/train_pkg_core.py. "
             "That command is rolling-origin CV for seasons 2016-2023. "
             "This split scores 2024 and 2025."
         )
