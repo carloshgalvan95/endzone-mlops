@@ -34,6 +34,7 @@ from endzone.modeling.evaluation import (
     qb_change_subset_comparison,
 )
 from endzone.modeling.hypotheses import (
+    MARKET_BENCHMARK_PROFILES,
     CvModelSpec,
     ExperimentSpec,
     experiment_for,
@@ -211,9 +212,9 @@ def run_phase1_baselines(
             reference_spec["model"],
             reference_spec["feature_set"],
         )
-        if experiment.report_profile == "h6":
+        if experiment.report_profile in MARKET_BENCHMARK_PROFILES:
             report["acceptance"] = label_market_benchmark(report["acceptance"])
-    if experiment.report_profile == "h6":
+    if experiment.report_profile in MARKET_BENCHMARK_PROFILES:
         report["calibration"] = calibration_table_for_results(results)
         report["market_information"] = market_information_table_for_results(
             results,

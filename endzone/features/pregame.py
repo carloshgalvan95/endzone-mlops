@@ -19,6 +19,7 @@ Features computed:
   streak, and Elo difference (see ``endzone.features.recency``)
 - Opponent-adjusted EPA, same windows as h2_full, plus an Elo difference
   that uses the margin-of-victory multiplier (see ``endzone.features.opponent``)
+- ``pkg_core`` selects those existing columns. It does not compute a new one.
 """
 
 import math
@@ -383,6 +384,36 @@ PREGAME_FEATURE_COLUMNS_H6_ADJ_ELO: tuple[str, ...] = PREGAME_FEATURE_COLUMNS_H6
     ELO_MOV_DIFF_COLUMN,
 )
 
+
+def _ordered_union(*groups: tuple[str, ...]) -> tuple[str, ...]:
+    """Keep the first occurrence of each column, walking groups in order."""
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for group in groups:
+        for column in group:
+            if column in seen:
+                continue
+            seen.add(column)
+            ordered.append(column)
+    return tuple(ordered)
+
+
+# h6_adj_elo, then the four h5_qb rating columns, then every recency_margin
+# column that is not already in that list. Names and formulas stay as scored.
+# Nothing is dropped and nothing new is added.
+FEATURE_SET_PKG_CORE: str = "pkg_core"
+PREGAME_FEATURE_COLUMNS_PKG_CORE: tuple[str, ...] = _ordered_union(
+    PREGAME_FEATURE_COLUMNS_H6_ADJ_ELO,
+    QB_RATING_COLUMNS,
+    PREGAME_FEATURE_COLUMNS_RECENCY_MARGIN,
+)
+PKG_CORE_CHALLENGER_FEATURE_SETS: tuple[str, ...] = (
+    FEATURE_SET_PKG_CORE,
+    FEATURE_SET_H5_QB,
+    FEATURE_SET_RECENCY_MARGIN,
+    FEATURE_SET_H6_ADJ_ELO,
+)
+
 EXPECTED_STARTER_COLUMNS: tuple[str, ...] = (
     "game_id",
     "home_starter_player_id",
@@ -415,6 +446,7 @@ FEATURE_SET_NAMES: tuple[str, ...] = (
     FEATURE_SET_RECENCY_ELO,
     FEATURE_SET_H6_ADJ,
     FEATURE_SET_H6_ADJ_ELO,
+    FEATURE_SET_PKG_CORE,
 )
 
 FEATURE_SET_COLUMNS: dict[str, tuple[str, ...]] = {
@@ -435,6 +467,7 @@ FEATURE_SET_COLUMNS: dict[str, tuple[str, ...]] = {
     FEATURE_SET_RECENCY_ELO: PREGAME_FEATURE_COLUMNS_RECENCY_ELO,
     FEATURE_SET_H6_ADJ: PREGAME_FEATURE_COLUMNS_H6_ADJ,
     FEATURE_SET_H6_ADJ_ELO: PREGAME_FEATURE_COLUMNS_H6_ADJ_ELO,
+    FEATURE_SET_PKG_CORE: PREGAME_FEATURE_COLUMNS_PKG_CORE,
 }
 
 # FiveThirtyEight-style Elo. Home advantage is added only when a game is
@@ -1442,6 +1475,9 @@ def build_pregame_features(
     uses a ridge fit on games with ``gameday`` strictly before the game, then
     the same lookback, shrinkage, and blend as the raw EPA columns. The Elo
     difference uses the margin-of-victory multiplier. See ``attach_h6_features``.
+
+    ``pkg_core`` is a selection of columns already on this frame. It does not
+    add a block and it does not change lookback, shrinkage, or the blend.
     """
     _validate_regression_settings(shrink_factor, blend_k)
     wanted: set[str] | None = None
@@ -1764,6 +1800,8 @@ def feature_columns_for(feature_set: str) -> tuple[str, ...]:
     ``h6_adj`` is ``h2_full`` with every EPA input taken from opponent-adjusted
     EPA. Win rate and rest stay. ``h6_adj_elo`` adds the Elo difference whose
     update uses the margin-of-victory multiplier.
+    ``pkg_core`` is ``h6_adj_elo``, then the four ``h5_qb`` rating columns,
+    then the ``recency_margin`` columns that are not already included.
 
     Args:
         feature_set: One of ``FEATURE_SET_NAMES``.

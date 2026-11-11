@@ -252,6 +252,19 @@ def _profile_lines(profile: str) -> list[str]:
             "They are not acceptance decisions. No blend is published.",
             "The market row is a benchmark. It is not a candidate.",
         ]
+    if profile == "pkg_core":
+        return [
+            "pkg_core keeps every h6_adj_elo column, then the four h5_qb",
+            "rating columns, then the recency_margin columns that are not",
+            "already in that list. A repeated name stays once. No column",
+            "is dropped and no parameter is new.",
+            "h5_qb, recency_margin, and h6_adj_elo are scored in the same",
+            "run. Each logistic row uses the same acceptance rule.",
+            "pkg_core is the preregistered candidate.",
+            "Calibration and the market-information regression are descriptive.",
+            "They are not acceptance decisions. No blend is published.",
+            "The market row is a benchmark. It is not a candidate.",
+        ]
     if profile == "ridge":
         grid_text: str = ", ".join(_format_regularization_c(value) for value in DEFAULT_L2_C_GRID)
         return (

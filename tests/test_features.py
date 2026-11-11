@@ -301,6 +301,7 @@ class TestPrepareTrainingData:
             "recency_elo",
             "h6_adj",
             "h6_adj_elo",
+            "pkg_core",
         )
         assert feature_columns_for("current") == PREGAME_FEATURE_COLUMNS
         assert feature_columns_for("with_games_played") == PREGAME_FEATURE_COLUMNS_WITH_GAMES_PLAYED
