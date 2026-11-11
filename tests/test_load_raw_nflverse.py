@@ -36,6 +36,7 @@ from endzone.ingest.schema import conform_table_to_schema, load_target_schema
 from endzone.ingest.volume import (
     DATASET_CONFIG,
     DEPTH_CHART_READ_SCHEMA_HINT,
+    GAMES_INGESTED_AT_SQL,
     cleanup_stale_pbp_files,
     create_bronze_table,
     create_schema_and_volume,
@@ -505,6 +506,8 @@ class TestCreateBronzeTable:
         assert "workspace.nfl_raw.games" in create_call
         assert "read_files" in create_call
         assert "/Volumes/workspace/nfl_raw/landing/games/games_filtered.parquet" in create_call
+        assert GAMES_INGESTED_AT_SQL in create_call
+        assert "gameday" not in create_call
 
         count_call = mock_cursor.execute.call_args_list[1][0][0]
         assert "SELECT COUNT(*)" in count_call
@@ -529,6 +532,7 @@ class TestCreateBronzeTable:
         assert "workspace.nfl_raw.play_by_play" in create_call
         assert "read_files" in create_call
         assert "/Volumes/workspace/nfl_raw/landing/pbp" in create_call
+        assert "ingested_at" not in create_call
 
 
 class TestDatasetConfig:
@@ -626,6 +630,7 @@ class TestDepthCharts:
         assert "schemaHints" in create_call
         assert DEPTH_CHART_READ_SCHEMA_HINT in create_call
         assert "week int" in create_call
+        assert "ingested_at" not in create_call
 
     def test_normalize_writes_one_week_type_and_translates_legacy_clubs(
         self,

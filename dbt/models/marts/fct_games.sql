@@ -82,30 +82,40 @@ final as (
         af.franchise_abbr as away_team_franchise,
         hf.franchise_abbr as home_team_franchise,
         
-        -- Derived outcomes
-        case
-            when home_score > away_score then 1
-            else 0
-        end as home_won,
+        -- Derived outcomes. The casts keep the contract types stable:
+        -- int for the 0/1 flags, double for the score arithmetic.
+        cast(
+            case
+                when home_score > away_score then 1
+                else 0
+            end
+            as int
+        ) as home_won,
         
-        home_score - away_score as home_margin,
+        cast(home_score - away_score as double) as home_margin,
         
-        home_score + away_score as total_points,
+        cast(home_score + away_score as double) as total_points,
         
         -- Betting outcomes (null if lines missing)
-        case
-            when spread_line is null then null
-            when (home_score - away_score) > spread_line then 1
-            when (home_score - away_score) < spread_line then 0
-            else null
-        end as home_covered_spread,
+        cast(
+            case
+                when spread_line is null then null
+                when (home_score - away_score) > spread_line then 1
+                when (home_score - away_score) < spread_line then 0
+                else null
+            end
+            as int
+        ) as home_covered_spread,
         
-        case
-            when total_line is null then null
-            when (home_score + away_score) > total_line then 1
-            when (home_score + away_score) < total_line then 0
-            else null
-        end as total_over,
+        cast(
+            case
+                when total_line is null then null
+                when (home_score + away_score) > total_line then 1
+                when (home_score + away_score) < total_line then 0
+                else null
+            end
+            as int
+        ) as total_over,
         
         -- Betting lines
         spread_line,
