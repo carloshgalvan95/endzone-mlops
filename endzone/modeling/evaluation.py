@@ -6,10 +6,46 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, brier_score_loss, log_loss, roc_auc_score
 
 # Accept a set only when pooled log loss falls by at least this much.
 MIN_LOG_LOSS_IMPROVEMENT: float = 0.003
+N_CALIBRATION_BINS: int = 10
+LOGIT_CLIP: float = 1e-6
+CALIBRATION_MODELS: frozenset[str] = frozenset({"logistic", "logistic_l2", "elo", "market"})
+CALIBRATION_COLUMNS: tuple[str, ...] = (
+    "model",
+    "feature_set",
+    "row_kind",
+    "bin",
+    "n",
+    "mean_predicted",
+    "observed_rate",
+    "ece",
+    "reliability",
+    "resolution",
+    "uncertainty",
+    "brier",
+)
+MARKET_INFORMATION_COLUMNS: tuple[str, ...] = (
+    "model",
+    "feature_set",
+    "status",
+    "reason",
+    "n",
+    "intercept",
+    "intercept_ci_low",
+    "intercept_ci_high",
+    "market_coef",
+    "market_ci_low",
+    "market_ci_high",
+    "model_coef",
+    "model_ci_low",
+    "model_ci_high",
+    "n_bootstrap",
+    "n_bootstrap_used",
+)
 
 
 def binary_classification_metrics(
@@ -421,3 +457,417 @@ def require_aligned_oof(
     if candidate_labels != reference_labels:
         raise ValueError(f"{candidate_name} OOF labels do not match the reference")
     return {"n": len(reference_ids)}
+
+
+def label_market_benchmark(decisions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Copy acceptance rows and label the market row ``benchmark``.
+
+    The numeric rule can mark the market accepted. That label is not used
+    for this row. Logistic rows are unchanged.
+
+    Args:
+        decisions: Rows from ``acceptance_decisions``.
+
+    Returns:
+        A new list. The market row's decision is ``benchmark``.
+    """
+    labeled: list[dict[str, Any]] = []
+    for row in decisions:
+        copied: dict[str, Any] = dict(row)
+        if copied.get("model") == "market" and copied.get("feature_set") == "market":
+            copied["decision"] = "benchmark"
+        labeled.append(copied)
+    return labeled
+
+
+def _as_binary_sample(y_true: np.ndarray, y_proba: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Validate one probability sample.
+
+    Raises:
+        ValueError: The arrays differ in length, a label is not 0 or 1, or a
+            probability is not finite and inside ``[0, 1]``.
+    """
+    labels: np.ndarray = np.asarray(y_true, dtype=float)
+    probabilities: np.ndarray = np.asarray(y_proba, dtype=float)
+    if len(labels) != len(probabilities):
+        raise ValueError("y_true and y_proba must have the same length")
+    if len(labels) > 0 and not np.isin(labels, (0.0, 1.0)).all():
+        raise ValueError("labels must be 0 or 1")
+    if len(probabilities) > 0 and (
+        not np.isfinite(probabilities).all()
+        or bool((probabilities < 0.0).any())
+        or bool((probabilities > 1.0).any())
+    ):
+        raise ValueError("probabilities must be finite and in [0, 1]")
+    return labels, probabilities
+
+
+def reliability_by_decile(
+    y_true: np.ndarray,
+    y_proba: np.ndarray,
+    *,
+    n_bins: int = N_CALIBRATION_BINS,
+    game_ids: np.ndarray | None = None,
+) -> dict[str, Any]:
+    """Equal-count reliability table, ECE, and the decile Brier components.
+
+    Rows are ordered by probability, then by ``game_ids`` when those are
+    passed, and split into up to ``n_bins`` groups of nearly equal size.
+    Reliability, resolution, and uncertainty describe those bins. ``brier``
+    is the score of the game probabilities. The binned components are not
+    a substitute for that score when probabilities vary inside a bin.
+
+    Args:
+        y_true: Home-win labels, 0 or 1.
+        y_proba: Predicted home-win probabilities.
+        n_bins: Maximum number of equal-count bins. Fewer are used when the
+            sample is smaller.
+        game_ids: Optional ids used only to break probability ties.
+
+    Returns:
+        Dict with ``bins``, ``n``, ``n_bins``, ``ece``, ``reliability``,
+        ``resolution``, ``uncertainty``, ``brier``, and ``base_rate``.
+        An empty sample leaves the estimates missing.
+
+    Raises:
+        ValueError: ``n_bins`` is below 1, or the sample is not a valid
+            binary probability sample.
+    """
+    if n_bins < 1:
+        raise ValueError("n_bins must be >= 1")
+    labels, probabilities = _as_binary_sample(y_true, y_proba)
+    empty_bins: list[dict[str, float | int]] = []
+    if len(labels) == 0:
+        return {
+            "bins": empty_bins,
+            "n": 0,
+            "n_bins": 0,
+            "ece": None,
+            "reliability": None,
+            "resolution": None,
+            "uncertainty": None,
+            "brier": None,
+            "base_rate": None,
+        }
+    if game_ids is None:
+        tie_break: np.ndarray = np.arange(len(labels))
+    else:
+        if len(game_ids) != len(labels):
+            raise ValueError("game_ids must have the same length as y_true")
+        tie_break = np.asarray([str(game_id) for game_id in game_ids])
+    ordering: pd.DataFrame = pd.DataFrame({"probability": probabilities, "tie_break": tie_break})
+    order: np.ndarray = ordering.sort_values(
+        ["probability", "tie_break"],
+        kind="mergesort",
+    ).index.to_numpy()
+    bin_count: int = min(int(n_bins), int(len(labels)))
+    slices: list[np.ndarray] = [
+        chunk for chunk in np.array_split(order, bin_count) if len(chunk) > 0
+    ]
+    bins: list[dict[str, float | int]] = []
+    for bin_number, indexes in enumerate(slices, start=1):
+        bins.append(
+            {
+                "bin": bin_number,
+                "n": int(len(indexes)),
+                "mean_predicted": float(probabilities[indexes].mean()),
+                "observed_rate": float(labels[indexes].mean()),
+            }
+        )
+    sample_size: int = int(len(labels))
+    base_rate: float = float(labels.mean())
+    reliability: float = 0.0
+    resolution: float = 0.0
+    calibration_error: float = 0.0
+    for item in bins:
+        weight: float = float(item["n"]) / float(sample_size)
+        gap: float = float(item["mean_predicted"]) - float(item["observed_rate"])
+        reliability += weight * gap * gap
+        outcome_gap: float = float(item["observed_rate"]) - base_rate
+        resolution += weight * outcome_gap * outcome_gap
+        calibration_error += weight * abs(gap)
+    return {
+        "bins": bins,
+        "n": sample_size,
+        "n_bins": len(bins),
+        "ece": calibration_error,
+        "reliability": reliability,
+        "resolution": resolution,
+        "uncertainty": base_rate * (1.0 - base_rate),
+        "brier": float(brier_score_loss(labels, probabilities)),
+        "base_rate": base_rate,
+    }
+
+
+def calibration_table_for_results(
+    results: list[dict[str, Any]],
+    *,
+    n_bins: int = N_CALIBRATION_BINS,
+) -> pd.DataFrame:
+    """Reliability rows for logistic models, Elo, and the market.
+
+    A skipped model is omitted. The table is informative and is not a gate.
+
+    Args:
+        results: Scored CV rows, each with ``oof`` when status is ``ok``.
+        n_bins: Maximum equal-count bins per model.
+
+    Returns:
+        A dataframe with ``CALIBRATION_COLUMNS``. Bin rows and one summary
+        row per scored model.
+    """
+    rows: list[dict[str, Any]] = []
+    for result in results:
+        if result.get("model") not in CALIBRATION_MODELS or result.get("status") != "ok":
+            continue
+        oof: pd.DataFrame | None = result.get("oof")
+        if oof is None or len(oof) == 0:
+            continue
+        summary: dict[str, Any] = reliability_by_decile(
+            oof["y_true"].to_numpy(),
+            oof["y_proba"].to_numpy(dtype=float),
+            n_bins=n_bins,
+            game_ids=oof["game_id"].to_numpy(),
+        )
+        shared: dict[str, Any] = {
+            "model": result["model"],
+            "feature_set": result["feature_set"],
+            "ece": summary["ece"],
+            "reliability": summary["reliability"],
+            "resolution": summary["resolution"],
+            "uncertainty": summary["uncertainty"],
+            "brier": summary["brier"],
+        }
+        for item in summary["bins"]:
+            rows.append(
+                {
+                    **shared,
+                    "row_kind": "bin",
+                    "bin": item["bin"],
+                    "n": item["n"],
+                    "mean_predicted": item["mean_predicted"],
+                    "observed_rate": item["observed_rate"],
+                }
+            )
+        rows.append(
+            {
+                **shared,
+                "row_kind": "summary",
+                "bin": None,
+                "n": summary["n"],
+                "mean_predicted": None,
+                "observed_rate": summary["base_rate"],
+            }
+        )
+    return pd.DataFrame(rows, columns=list(CALIBRATION_COLUMNS))
+
+
+def logit_probability(probability: np.ndarray, clip: float = LOGIT_CLIP) -> np.ndarray:
+    """Logit of a probability, with 0 and 1 moved inside ``(clip, 1 - clip)``.
+
+    Args:
+        probability: Values in ``[0, 1]``.
+        clip: Distance kept between a clipped probability and 0 or 1.
+
+    Returns:
+        The logit, one value per input.
+
+    Raises:
+        ValueError: ``clip`` is outside ``(0, 0.5)``, or a probability is
+            not finite and inside ``[0, 1]``.
+    """
+    if not 0.0 < clip < 0.5:
+        raise ValueError("logit clip must be in (0, 0.5)")
+    values: np.ndarray = np.asarray(probability, dtype=float)
+    if len(values) > 0 and (
+        not np.isfinite(values).all() or bool((values < 0.0).any()) or bool((values > 1.0).any())
+    ):
+        raise ValueError("probabilities must be finite and in [0, 1]")
+    clipped: np.ndarray = np.clip(values, clip, 1.0 - clip)
+    return np.log(clipped / (1.0 - clipped))
+
+
+def _information_coefficients(labels: np.ndarray, design: np.ndarray, seed: int) -> np.ndarray:
+    """Intercept, market coefficient, and model coefficient for one sample."""
+    estimator: LogisticRegression = LogisticRegression(
+        C=1.0,
+        max_iter=1000,
+        solver="lbfgs",
+        random_state=seed,
+    )
+    estimator.fit(design, labels.astype(int))
+    coefficients: np.ndarray = np.asarray(estimator.coef_, dtype=float).reshape(-1)
+    if len(coefficients) != 2:
+        raise ValueError("market information regression must have two coefficients")
+    return np.asarray(
+        [float(estimator.intercept_[0]), float(coefficients[0]), float(coefficients[1])],
+        dtype=float,
+    )
+
+
+def _blank_information(n_rows: int, n_bootstrap: int, reason: str) -> dict[str, Any]:
+    """A skipped information row. Coefficients stay missing."""
+    return {
+        "status": "skipped",
+        "reason": reason,
+        "n": n_rows,
+        "n_bootstrap": n_bootstrap,
+        "n_bootstrap_used": 0,
+        "intercept": None,
+        "intercept_ci_low": None,
+        "intercept_ci_high": None,
+        "market_coef": None,
+        "market_ci_low": None,
+        "market_ci_high": None,
+        "model_coef": None,
+        "model_ci_low": None,
+        "model_ci_high": None,
+    }
+
+
+def market_information_regression(
+    y_true: np.ndarray,
+    market_probability: np.ndarray,
+    model_probability: np.ndarray,
+    *,
+    n_bootstrap: int,
+    seed: int,
+) -> dict[str, Any]:
+    """Logistic regression of the result on logit(market) and logit(model).
+
+    The fit is descriptive. It does not return a blended probability, and
+    nothing in the dict is a publishing weight. Intervals are percentiles of
+    a row bootstrap. A draw with one class is skipped.
+
+    Args:
+        y_true: Home-win labels on the shared out-of-fold games.
+        market_probability: No-vig market probability on those games.
+        model_probability: Model probability on those games.
+        n_bootstrap: Bootstrap draws requested. Zero leaves the interval missing.
+        seed: Seed for the bootstrap generator and the logistic solver.
+
+    Returns:
+        Dict of coefficients, intervals, and sample size. Keys do not include
+        a blended probability.
+
+    Raises:
+        ValueError: The arrays disagree, a probability is invalid, or
+            ``n_bootstrap`` is negative.
+    """
+    if n_bootstrap < 0:
+        raise ValueError("n_bootstrap must be >= 0")
+    labels, market = _as_binary_sample(y_true, market_probability)
+    _labels, model = _as_binary_sample(y_true, model_probability)
+    if len(labels) < 2 or len(np.unique(labels)) < 2:
+        reason: str = "single_class" if len(labels) >= 2 else "too_few_games"
+        return _blank_information(len(labels), n_bootstrap, reason)
+    design: np.ndarray = np.column_stack([logit_probability(market), logit_probability(model)])
+    point: np.ndarray = _information_coefficients(labels, design, seed)
+    draws: list[np.ndarray] = []
+    if n_bootstrap > 0 and len(labels) >= 2:
+        generator: np.random.Generator = np.random.default_rng(seed)
+        attempts: int = 0
+        attempt_limit: int = max(n_bootstrap * 5, n_bootstrap)
+        while len(draws) < n_bootstrap and attempts < attempt_limit:
+            attempts += 1
+            drawn: np.ndarray = generator.integers(0, len(labels), size=len(labels))
+            if len(np.unique(labels[drawn])) < 2:
+                continue
+            draws.append(_information_coefficients(labels[drawn], design[drawn], seed))
+    intervals: list[tuple[float, float] | tuple[None, None]] = []
+    if len(draws) >= 2:
+        stacked: np.ndarray = np.vstack(draws)
+        for column in range(3):
+            intervals.append(
+                (
+                    float(np.percentile(stacked[:, column], 2.5)),
+                    float(np.percentile(stacked[:, column], 97.5)),
+                )
+            )
+    else:
+        intervals = [(None, None), (None, None), (None, None)]
+    payload: dict[str, Any] = {
+        "status": "scored",
+        "reason": None,
+        "n": int(len(labels)),
+        "n_bootstrap": int(n_bootstrap),
+        "n_bootstrap_used": len(draws),
+        "intercept": float(point[0]),
+        "intercept_ci_low": intervals[0][0],
+        "intercept_ci_high": intervals[0][1],
+        "market_coef": float(point[1]),
+        "market_ci_low": intervals[1][0],
+        "market_ci_high": intervals[1][1],
+        "model_coef": float(point[2]),
+        "model_ci_low": intervals[2][0],
+        "model_ci_high": intervals[2][1],
+    }
+    return payload
+
+
+def _market_oof(results: list[dict[str, Any]]) -> pd.DataFrame | None:
+    """Return the market out-of-fold table when it scored."""
+    for result in results:
+        if result.get("model") == "market" and result.get("feature_set") == "market":
+            oof: pd.DataFrame | None = result.get("oof")
+            if result.get("status") == "ok" and oof is not None and len(oof) > 0:
+                return oof
+    return None
+
+
+def market_information_table_for_results(
+    results: list[dict[str, Any]],
+    *,
+    n_bootstrap: int,
+    seed: int,
+) -> pd.DataFrame:
+    """One descriptive regression per logistic row, on games shared with the market.
+
+    No blended probability is stored.
+
+    Args:
+        results: Scored CV rows.
+        n_bootstrap: Bootstrap draws for each logistic row.
+        seed: Bootstrap seed.
+
+    Returns:
+        A dataframe with ``MARKET_INFORMATION_COLUMNS``.
+    """
+    market: pd.DataFrame | None = _market_oof(results)
+    rows: list[dict[str, Any]] = []
+    for result in results:
+        if result.get("model") != "logistic" or result.get("status") != "ok":
+            continue
+        model_oof: pd.DataFrame | None = result.get("oof")
+        identity: dict[str, Any] = {
+            "model": result["model"],
+            "feature_set": result["feature_set"],
+        }
+        if model_oof is None or len(model_oof) == 0 or market is None:
+            blank: dict[str, Any] = _blank_information(0, n_bootstrap, "market_not_scored")
+            rows.append({**identity, **blank})
+            continue
+        left: pd.DataFrame = model_oof.loc[:, ["game_id", "y_true", "y_proba"]].rename(
+            columns={"y_proba": "model_proba"}
+        )
+        right: pd.DataFrame = market.loc[:, ["game_id", "y_true", "y_proba"]].rename(
+            columns={"y_true": "market_label", "y_proba": "market_proba"}
+        )
+        paired: pd.DataFrame = left.merge(right, on="game_id", how="inner")
+        if paired.empty:
+            blank = _blank_information(0, n_bootstrap, "no_shared_games")
+            rows.append({**identity, **blank})
+            continue
+        if not paired["y_true"].astype(int).equals(paired["market_label"].astype(int)):
+            raise ValueError(
+                f"{result['feature_set']} labels do not match the market on shared games"
+            )
+        fitted: dict[str, Any] = market_information_regression(
+            paired["y_true"].to_numpy(),
+            paired["market_proba"].to_numpy(dtype=float),
+            paired["model_proba"].to_numpy(dtype=float),
+            n_bootstrap=n_bootstrap,
+            seed=seed,
+        )
+        rows.append({**identity, **fitted})
+    return pd.DataFrame(rows, columns=list(MARKET_INFORMATION_COLUMNS))

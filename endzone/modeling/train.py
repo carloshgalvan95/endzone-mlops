@@ -78,6 +78,7 @@ def build_parser() -> argparse.ArgumentParser:
             "--phase 2 --hypothesis h5b scores the same ratings after the starter fix. "
             "--phase 2 --hypothesis ridge scores logistic_l2 against logistic h2_full. "
             "python scripts/train_recency.py scores the preregistered recency challengers. "
+            "python scripts/train_h6.py scores the preregistered H6 challengers. "
             "Does not score 2024 or 2025."
         ),
     )
@@ -224,6 +225,47 @@ def recency_challenger_argv() -> list[str]:
         "42",
         "--output-dir",
         "reports/phase2_recency",
+    ]
+
+
+def h6_challenger_argv() -> list[str]:
+    """Argv for the preregistered H6 CV.
+
+    The window is seasons 2016-2023. Logistic ``h2_full`` stays lookback 10,
+    C 1, max_iter 1000, and seed 42. The bootstrap is 1000 resamples, seed 42.
+    The command does not register a model and does not score 2024 or 2025.
+
+    Returns:
+        Arguments for ``endzone.modeling.train.main``.
+    """
+    return [
+        "--cv",
+        "--phase",
+        "2",
+        "--hypothesis",
+        "h6",
+        "--reference-model",
+        "logistic",
+        "--reference-feature-set",
+        "h2_full",
+        "--lookback",
+        "10",
+        "--C",
+        "1.0",
+        "--max-iter",
+        "1000",
+        "--seed",
+        "42",
+        "--cv-start-season",
+        "2016",
+        "--cv-end-season",
+        "2023",
+        "--n-bootstrap",
+        "1000",
+        "--bootstrap-seed",
+        "42",
+        "--output-dir",
+        "reports/phase2_h6",
     ]
 
 

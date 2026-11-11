@@ -24,7 +24,12 @@ IDENTIFIER_COLUMNS: tuple[str, ...] = ("game_id", "gameday", "season")
 DEFAULT_L2_C_GRID: tuple[float, ...] = (0.01, 0.1, 1.0, 10.0, 100.0)
 # Recency point differential, signed streak, and Elo difference. The fill is
 # the constant 0. These names are not the home-minus-away ``diff_`` columns.
-_FORM_COLUMN_MARKERS: tuple[str, ...] = ("point_diff", "signed_streak", "elo_rating")
+_FORM_COLUMN_MARKERS: tuple[str, ...] = (
+    "point_diff",
+    "signed_streak",
+    "elo_rating",
+    "elo_mov",
+)
 
 
 class LogisticL2Settings(NamedTuple):
@@ -58,7 +63,8 @@ def feature_column_groups(feature_columns: list[str]) -> dict[str, list[str]]:
     Level EPA is filled with 0 and level win rate with 0.5. A starting-QB
     rating is filled with 0, the replacement level. A clean success rate is
     filled with 0.5. Difference columns are filled with 0. Recent point
-    differential, signed streak, and Elo difference are filled with 0.
+    differential, signed streak, Elo difference, and the H6 Elo margin
+    difference are filled with 0.
     Other columns, including rest days, are left as they are.
 
     Returns:

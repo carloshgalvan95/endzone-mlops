@@ -155,7 +155,7 @@ A PR is Done when:
 - docs/model_card.md: Win-probability model card for `workspace.nfl_dev.endzone_winprob`. The market has the lower log loss. Not betting advice.
 - `.cursor/rules/QUALITY_GUIDELINES.md`: Full SWEBOK + Wilson + TC5062 quality bar
 - `docs/definition_of_done.md`: the gates for a change
-- `.cursor/rules/ml-experiments.mdc`: phase status. Phase 0 and Phase 1 are done. H1 rejected. H2 accepted, logistic `h2_full` is the reference. H3 rejected. Ridge did not help. H4 clean EPA is rejected. H5 and H5b are rejected. The 0.003 threshold was not moved. Phases 3 and 4 are planned. Sprint 2 margin and total is live. `docs/experiments/reports/sprint2_cv_report.json` records the warehouse CV, n=2191, seasons 2016-2023. Both targets accepted. Margin MAE 10.155811 versus Elo/25 10.412221 (8 of 8 seasons). Total MAE 10.925618 versus the league mean 11.130543 (5 of 8 seasons). Do not hand-edit that file.
+- `.cursor/rules/ml-experiments.mdc`: phase status. Phase 0 and Phase 1 are done. H1 rejected. H2 accepted, logistic `h2_full` is the reference. H3 rejected. Ridge did not help. H4 clean EPA is rejected. H5 and H5b are rejected. The 0.003 threshold was not moved. H6 is preregistered and not run. Phases 3 and 4 are planned. Sprint 2 margin and total is live. `docs/experiments/reports/sprint2_cv_report.json` records the warehouse CV, n=2191, seasons 2016-2023. Both targets accepted. Margin MAE 10.155811 versus Elo/25 10.412221 (8 of 8 seasons). Total MAE 10.925618 versus the league mean 11.130543 (5 of 8 seasons). Do not hand-edit that file.
 
 ## For AI Assistants
 

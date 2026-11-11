@@ -25,6 +25,7 @@ REPORT_PROFILES: frozenset[str] = frozenset(
         "ridge",
         "clean_epa",
         "starting_qb",
+        "h6",
     }
 )
 CV_MODEL_NAMES: frozenset[str] = frozenset({"logistic", "logistic_l2"})

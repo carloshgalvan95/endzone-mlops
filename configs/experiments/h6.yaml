@@ -1,0 +1,31 @@
+id: h6
+phase: 2
+default: false
+aliases:
+  - h6
+  - h6-opponent-adjusted
+tag: h6-opponent-adjusted
+short_name: h6
+experiment_name: nfl_pregame/phase2_h6
+phase_tag: "2"
+output_dir: reports/phase2_h6
+title: Phase 2 H6 opponent-adjusted rating
+note: "Phase 2 H6 opponent-adjusted rating. Logistic h6_adj and h6_adj_elo against h2_full on rolling-origin seasons 2016-2023. Calibration and the market-information regression are reported and are not gates. No blend is published. 2024 and 2025 are not scored. No model is promoted from this run."
+reference_model: logistic
+reference_feature_set: h2_full
+logistic_feature_sets:
+  - h2_full
+  - h6_adj
+  - h6_adj_elo
+model_specs:
+  - model: logistic
+    feature_set: h2_full
+  - model: logistic
+    feature_set: h6_adj
+  - model: logistic
+    feature_set: h6_adj_elo
+log_shrinkage: true
+log_qb: false
+qb_subset: false
+qb_feature_set: null
+report_profile: h6

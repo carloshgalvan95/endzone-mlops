@@ -28,6 +28,9 @@ from endzone.modeling.evaluation import (
     MIN_LOG_LOSS_IMPROVEMENT,
     acceptance_decisions,
     attach_reference_comparison,
+    calibration_table_for_results,
+    label_market_benchmark,
+    market_information_table_for_results,
     qb_change_subset_comparison,
 )
 from endzone.modeling.hypotheses import (
@@ -207,6 +210,15 @@ def run_phase1_baselines(
             results,
             reference_spec["model"],
             reference_spec["feature_set"],
+        )
+        if experiment.report_profile == "h6":
+            report["acceptance"] = label_market_benchmark(report["acceptance"])
+    if experiment.report_profile == "h6":
+        report["calibration"] = calibration_table_for_results(results)
+        report["market_information"] = market_information_table_for_results(
+            results,
+            n_bootstrap=resolved.n_bootstrap,
+            seed=resolved.bootstrap_seed,
         )
     report["markdown"] = render_phase1_report(report)
     return report
