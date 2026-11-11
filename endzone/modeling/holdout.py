@@ -9,6 +9,7 @@ import mlflow
 import pandas as pd
 
 from endzone.config import configured_tracking_uri
+from endzone.features.opponent import H6_CHALLENGER_FEATURE_SETS
 from endzone.features.pregame import (
     FEATURE_SET_H5_QB,
     build_pregame_features,
@@ -132,14 +133,21 @@ def _fit_holdout_model(
 def run_holdout(args: argparse.Namespace) -> None:
     """Train one model on seasons through the train cut and log the validation metrics.
 
-    Recency challengers are refused before any warehouse read. That split
-    scores 2024 and 2025. The preregistered command is
-    ``python scripts/train_recency.py``.
+    Recency and H6 challengers are refused before any warehouse read. That
+    split scores 2024 and 2025. The preregistered commands are
+    ``python scripts/train_recency.py`` and ``python scripts/train_h6.py``.
     """
     if args.feature_set in RECENCY_CHALLENGER_FEATURE_SETS:
         raise ValueError(
             f"{args.feature_set} is a preregistered recency challenger. "
             "Score it with python scripts/train_recency.py. "
+            "That command is rolling-origin CV for seasons 2016-2023. "
+            "This split scores 2024 and 2025."
+        )
+    if args.feature_set in H6_CHALLENGER_FEATURE_SETS:
+        raise ValueError(
+            f"{args.feature_set} is a preregistered H6 challenger. "
+            "Score it with python scripts/train_h6.py. "
             "That command is rolling-origin CV for seasons 2016-2023. "
             "This split scores 2024 and 2025."
         )

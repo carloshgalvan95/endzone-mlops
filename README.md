@@ -55,7 +55,7 @@ Flow: nflverse -> bronze (`endzone/ingest`) -> dbt staging -> dbt marts -> `endz
 
 `endzone/config.py` reads `.env`. `endzone/data/warehouse.py` is the SQL and Volume client. Hypothesis files are `configs/experiments/*.yaml`. The canonical command is `python -m endzone.modeling.train`. `python -m endzone.train.train` is the same flags. Weekly scoring is `python -m endzone.modeling.score`.
 
-MLflow experiments: `nfl_pregame` (single split), `nfl_pregame/phase0_audit`, `nfl_pregame/phase1_baselines`, `nfl_pregame/phase2_h1` through `phase2_h5b` and `phase2_ridge`, `nfl_pregame/sprint2_score`, `nfl_pregame/weekly`, and `nfl_pregame/registry`. Those are the sqlite names. A Databricks tracking URI stores a relative name under `/Shared/endzone-mlops` unless `ENDZONE_MLFLOW_EXPERIMENT_ROOT` is set. A CV run logs one parent and one nested child per model. Child tag `decision` is `accepted`, `rejected`, `reference`, `baseline`, or `inconclusive`.
+MLflow experiments: `nfl_pregame` (single split), `nfl_pregame/phase0_audit`, `nfl_pregame/phase1_baselines`, `nfl_pregame/phase2_h1` through `phase2_h5b`, `phase2_ridge`, and `phase2_h6`, `nfl_pregame/sprint2_score`, `nfl_pregame/weekly`, and `nfl_pregame/registry`. Those are the sqlite names. A Databricks tracking URI stores a relative name under `/Shared/endzone-mlops` unless `ENDZONE_MLFLOW_EXPERIMENT_ROOT` is set. A CV run logs one parent and one nested child per model. Child tag `decision` is `accepted`, `rejected`, `reference`, `baseline`, `benchmark`, or `inconclusive`. `benchmark` is the H6 market row.
 
 CI is [`.github/workflows/ci.yml`](.github/workflows/ci.yml), on push and pull request to `main`, on a Monday schedule, and on manual dispatch. Ubuntu runs ruff, the structure and import check, vulture, the full pytest suite, analysis coverage, and the local DuckDB dbt compile. On a pull request, Windows and macOS run ruff, the structure and import check, and `pytest -m cross_platform`. On push, the weekly schedule, and a manual dispatch they run the full suite. See [docs/testing.md](docs/testing.md).
 
@@ -89,6 +89,8 @@ Same window, n=2191, unless the note says otherwise. Detail is in `docs/experime
 
 H2 is why logistic `h2_full` is the reference. H5 and H5b improve on it by less than 0.003. The intervals are entirely below 0, so the sign is a positive signal. The threshold was not moved. Notes: [H5](docs/experiments/phase2_h5_starting_qb.md), [H5b](docs/experiments/phase2_h5b_starter_coverage.md).
 
+The H6 report includes a descriptive regression of the result on the market logit and the model logit. It does not publish a blend.
+
 ## Acceptance rule
 
 On pooled out-of-fold games, accept a feature set only when `log_loss_diff` <= -0.003 and the 95% paired bootstrap interval lies entirely below 0 (1000 resamples, seed 42). Otherwise reject. The rule is [ADR-005](docs/adr/ADR-005-acceptance-rule.md).
@@ -101,7 +103,7 @@ Sprint 2 is a different rule, for home margin and total points. Ridge on `h2_ful
 
 Planned, not done.
 
-- Next hypothesis: an opponent-adjusted rating combined with Elo.
+- H6 opponent-adjusted EPA with Elo is preregistered in [h6_opponent_adjusted.md](docs/experiments/h6_opponent_adjusted.md). It has not been fit.
 
 The registry and the published log-loss alert are in [ADR-009](docs/adr/ADR-009-model-registry.md). The alert fires when the published gap is worse than the reference CV gap plus a margin. It does not say the model wins. On the reference table the market is closer, and a window that looks like that table stays quiet. The issue is not a betting signal.
 

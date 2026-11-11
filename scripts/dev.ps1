@@ -28,6 +28,7 @@ function Show-Help {
     Write-Host "  train-sweep         - Single-split sweep (5 configs). Not the reference CV"
     Write-Host "  train-cv            - H5b CV. Builds data and marts when .stamp says they are stale"
     Write-Host "  train-recency       - Preregistered recency CV, seasons 2016-2023. Does not register"
+    Write-Host "  train-h6            - Preregistered H6 CV, seasons 2016-2023. Does not register"
     Write-Host "  mlflow-ui           - Open MLflow UI against the local SQLite store"
     Write-Host "  audit-features      - Profile current pregame inputs (no feature changes)"
     Write-Host "  check-epa-filter    - Count play types in the EPA filter, plus kneel and spike rows"
@@ -186,6 +187,12 @@ function Invoke-TrainCv {
 function Invoke-TrainRecency {
     Write-Host "Running the preregistered recency CV for seasons 2016-2023..."
     python scripts/train_recency.py
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
+function Invoke-TrainH6 {
+    Write-Host "Running the preregistered H6 CV for seasons 2016-2023..."
+    python scripts/train_h6.py
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
@@ -384,6 +391,7 @@ switch ($Target.ToLower()) {
     "train-sweep" { Invoke-TrainSweep }
     "train-cv" { Invoke-TrainCv }
     "train-recency" { Invoke-TrainRecency }
+    "train-h6" { Invoke-TrainH6 }
     "mlflow-ui" { Invoke-MlflowUi }
     "audit-features" { Invoke-AuditFeatures }
     "check-epa-filter" { Invoke-CheckEpaFilter }
