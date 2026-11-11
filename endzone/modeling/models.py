@@ -22,6 +22,9 @@ IDENTIFIER_COLUMNS: tuple[str, ...] = ("game_id", "gameday", "season")
 # Fixed-C logistic is already L2. logistic_l2 chooses C inside each training fold.
 # The grid matches the sweep endpoints (0.1 and 10) plus one step on each side.
 DEFAULT_L2_C_GRID: tuple[float, ...] = (0.01, 0.1, 1.0, 10.0, 100.0)
+# Recency point differential, signed streak, and Elo difference. The fill is
+# the constant 0. These names are not the home-minus-away ``diff_`` columns.
+_FORM_COLUMN_MARKERS: tuple[str, ...] = ("point_diff", "signed_streak", "elo_rating")
 
 
 class LogisticL2Settings(NamedTuple):
@@ -54,30 +57,44 @@ def feature_column_groups(feature_columns: list[str]) -> dict[str, list[str]]:
 
     Level EPA is filled with 0 and level win rate with 0.5. A starting-QB
     rating is filled with 0, the replacement level. A clean success rate is
-    filled with 0.5. Difference columns are filled with 0. Other columns,
-    including rest days, are left as they are.
+    filled with 0.5. Difference columns are filled with 0. Recent point
+    differential, signed streak, and Elo difference are filled with 0.
+    Other columns, including rest days, are left as they are.
 
     Returns:
-        Dict with keys ``epa``, ``win_rate``, ``success_rate``, ``other``,
-        and ``diff``. A group can be empty.
+        Dict with keys ``epa``, ``win_rate``, ``success_rate``, ``form``,
+        ``other``, and ``diff``. A group can be empty.
     """
     diff_features: list[str] = [column for column in feature_columns if column.startswith("diff_")]
     level_features: list[str] = [
         column for column in feature_columns if column not in diff_features
     ]
+    form_features: list[str] = [
+        column
+        for column in level_features
+        if any(marker in column for marker in _FORM_COLUMN_MARKERS)
+    ]
+    form_names: set[str] = set(form_features)
     epa_features: list[str] = [
-        column for column in level_features if "epa" in column or "qb_rating" in column
+        column
+        for column in level_features
+        if column not in form_names and ("epa" in column or "qb_rating" in column)
     ]
-    win_rate_features: list[str] = [column for column in level_features if "win_rate" in column]
+    win_rate_features: list[str] = [
+        column for column in level_features if column not in form_names and "win_rate" in column
+    ]
     success_rate_features: list[str] = [
-        column for column in level_features if "success_rate" in column
+        column for column in level_features if column not in form_names and "success_rate" in column
     ]
-    grouped: set[str] = set(epa_features + win_rate_features + success_rate_features)
+    grouped: set[str] = set(
+        epa_features + win_rate_features + success_rate_features + form_features
+    )
     other_features: list[str] = [column for column in level_features if column not in grouped]
     return {
         "epa": epa_features,
         "win_rate": win_rate_features,
         "success_rate": success_rate_features,
+        "form": form_features,
         "other": other_features,
         "diff": diff_features,
     }
@@ -113,6 +130,10 @@ def _imputation_preprocessor(feature_columns: list[str]) -> ColumnTransformer:
                 SimpleImputer(strategy="constant", fill_value=0.5),
                 groups["success_rate"],
             )
+        )
+    if groups["form"]:
+        transformers.append(
+            ("form_imputer", SimpleImputer(strategy="constant", fill_value=0), groups["form"])
         )
     if groups["other"]:
         transformers.append(("other_passthrough", "passthrough", groups["other"]))

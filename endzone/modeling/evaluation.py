@@ -366,3 +366,58 @@ def qb_change_subset_comparison(
         seed=seed,
     )
     return summary
+
+
+def require_aligned_oof(
+    reference_oof: pd.DataFrame,
+    candidate_oof: pd.DataFrame,
+    *,
+    candidate_name: str,
+    allowed_seasons: tuple[int, ...],
+) -> dict[str, int]:
+    """Require the candidate OOF table to be the reference games, in order.
+
+    The paired log-loss comparison is only the adoption comparison when both
+    models score the same games. A shorter candidate table is a dropped game,
+    not a smaller sample to report quietly.
+
+    Args:
+        reference_oof: Out-of-fold rows for the reference model.
+        candidate_oof: Out-of-fold rows for one challenger.
+        candidate_name: Name used in the error.
+        allowed_seasons: Seasons that may appear. Any other season fails.
+
+    Returns:
+        Dict with ``n``, the shared row count.
+
+    Raises:
+        ValueError: A required column is missing, a table is empty, a game
+            or label differs, or a season is outside ``allowed_seasons``.
+    """
+    required: tuple[str, ...] = ("game_id", "season", "y_true")
+    for label, frame in (("reference", reference_oof), (candidate_name, candidate_oof)):
+        missing: list[str] = [column for column in required if column not in frame.columns]
+        if missing:
+            joined: str = ", ".join(missing)
+            raise ValueError(f"{label} OOF is missing columns: {joined}")
+        if len(frame) == 0:
+            raise ValueError(f"{label} OOF has no rows")
+    allowed: set[int] = {int(season) for season in allowed_seasons}
+    for label, frame in (("reference", reference_oof), (candidate_name, candidate_oof)):
+        seasons: set[int] = {int(season) for season in frame["season"].tolist()}
+        outside: set[int] = seasons - allowed
+        if outside:
+            outside_list: str = ", ".join(str(season) for season in sorted(outside))
+            raise ValueError(f"{label} OOF scores seasons outside the protocol: {outside_list}")
+    reference_ids: list[str] = [str(game_id) for game_id in reference_oof["game_id"].tolist()]
+    candidate_ids: list[str] = [str(game_id) for game_id in candidate_oof["game_id"].tolist()]
+    if candidate_ids != reference_ids:
+        raise ValueError(
+            f"{candidate_name} OOF game_ids do not match the reference. "
+            f"reference n={len(reference_ids)} candidate n={len(candidate_ids)}."
+        )
+    reference_labels: list[int] = [int(label) for label in reference_oof["y_true"].tolist()]
+    candidate_labels: list[int] = [int(label) for label in candidate_oof["y_true"].tolist()]
+    if candidate_labels != reference_labels:
+        raise ValueError(f"{candidate_name} OOF labels do not match the reference")
+    return {"n": len(reference_ids)}

@@ -15,12 +15,28 @@ Features computed:
 - Clean EPA, same windows as h2_full, plus a recent clean success rate (h4 sets)
 - A shrunk pregame starting-QB rating carried across teams and seasons (h5)
 - A simple Elo rating and a no-vig market probability
+- Preregistered recency challengers: 5-game EPA, point differential, signed
+  streak, and Elo difference (see ``endzone.features.recency``)
 """
 
 from typing import Any, NamedTuple
 
 import numpy as np
 import pandas as pd
+
+from endzone.features.recency import (
+    FEATURE_SET_RECENCY_ELO,
+    FEATURE_SET_RECENCY_EPA5,
+    FEATURE_SET_RECENCY_MARGIN,
+    FEATURE_SET_RECENCY_STREAK,
+    RECENCY_ELO_COLUMNS,
+    RECENCY_EPA5_COLUMNS,
+    RECENCY_OUTPUT_COLUMNS,
+    RECENCY_POINT_DIFF_COLUMNS,
+    RECENCY_STREAK_COLUMNS,
+    REPLACED_RECENT_EPA_COLUMNS,
+    attach_recency_features,
+)
 
 # Columns that identify a game. They are not model inputs.
 MODEL_ID_COLUMNS: tuple[str, ...] = ("game_id", "gameday", "season")
@@ -289,6 +305,41 @@ QB_DIAGNOSTIC_COLUMNS: tuple[str, ...] = (
 )
 QB_OUTPUT_COLUMNS: tuple[str, ...] = QB_RATING_COLUMNS + QB_DIAGNOSTIC_COLUMNS
 PREGAME_FEATURE_COLUMNS_H5_QB: tuple[str, ...] = PREGAME_FEATURE_COLUMNS_H2_FULL + QB_RATING_COLUMNS
+
+
+def _replace_named_columns(
+    columns: tuple[str, ...],
+    old: tuple[str, ...],
+    new: tuple[str, ...],
+) -> tuple[str, ...]:
+    """Swap named columns and keep every other column in place."""
+    if len(old) != len(new):
+        raise ValueError("replacement column lists must have the same length")
+    missing: list[str] = [name for name in old if name not in columns]
+    if missing:
+        missing_list: str = ", ".join(missing)
+        raise ValueError(f"column list is missing names to replace: {missing_list}")
+    mapping: dict[str, str] = dict(zip(old, new, strict=True))
+    return tuple(mapping.get(column, column) for column in columns)
+
+
+# h2_full with the four cross-season recent EPA columns measured over 5 games.
+# Regressed EPA, win rate, and rest keep the frozen h2_full definitions.
+PREGAME_FEATURE_COLUMNS_RECENCY_EPA5: tuple[str, ...] = _replace_named_columns(
+    PREGAME_FEATURE_COLUMNS_H2_FULL,
+    REPLACED_RECENT_EPA_COLUMNS,
+    RECENCY_EPA5_COLUMNS,
+)
+PREGAME_FEATURE_COLUMNS_RECENCY_MARGIN: tuple[str, ...] = (
+    PREGAME_FEATURE_COLUMNS_H2_FULL + RECENCY_POINT_DIFF_COLUMNS
+)
+PREGAME_FEATURE_COLUMNS_RECENCY_STREAK: tuple[str, ...] = (
+    PREGAME_FEATURE_COLUMNS_H2_FULL + RECENCY_STREAK_COLUMNS
+)
+PREGAME_FEATURE_COLUMNS_RECENCY_ELO: tuple[str, ...] = (
+    PREGAME_FEATURE_COLUMNS_H2_FULL + RECENCY_ELO_COLUMNS
+)
+
 EXPECTED_STARTER_COLUMNS: tuple[str, ...] = (
     "game_id",
     "home_starter_player_id",
@@ -315,6 +366,10 @@ FEATURE_SET_NAMES: tuple[str, ...] = (
     FEATURE_SET_H4_CLEAN,
     FEATURE_SET_H4_CLEAN_SR,
     FEATURE_SET_H5_QB,
+    FEATURE_SET_RECENCY_EPA5,
+    FEATURE_SET_RECENCY_MARGIN,
+    FEATURE_SET_RECENCY_STREAK,
+    FEATURE_SET_RECENCY_ELO,
 )
 
 FEATURE_SET_COLUMNS: dict[str, tuple[str, ...]] = {
@@ -329,6 +384,10 @@ FEATURE_SET_COLUMNS: dict[str, tuple[str, ...]] = {
     FEATURE_SET_H4_CLEAN: PREGAME_FEATURE_COLUMNS_H4_CLEAN,
     FEATURE_SET_H4_CLEAN_SR: PREGAME_FEATURE_COLUMNS_H4_CLEAN_SR,
     FEATURE_SET_H5_QB: PREGAME_FEATURE_COLUMNS_H5_QB,
+    FEATURE_SET_RECENCY_EPA5: PREGAME_FEATURE_COLUMNS_RECENCY_EPA5,
+    FEATURE_SET_RECENCY_MARGIN: PREGAME_FEATURE_COLUMNS_RECENCY_MARGIN,
+    FEATURE_SET_RECENCY_STREAK: PREGAME_FEATURE_COLUMNS_RECENCY_STREAK,
+    FEATURE_SET_RECENCY_ELO: PREGAME_FEATURE_COLUMNS_RECENCY_ELO,
 }
 
 # FiveThirtyEight-style Elo. Home advantage is added only when a game is
@@ -1326,6 +1385,11 @@ def build_pregame_features(
     ``ValueError``. The starter id is the depth-chart QB1 when present,
     otherwise the previous game's primary passer. Ratings use only dropbacks
     with ``gameday`` strictly before the game. See ``attach_qb_features``.
+
+    Recency challenger columns are appended after the QB block. They use a
+    fixed 5-game window and do not follow ``lookback_games``. The window and
+    the signed streak include earlier seasons. A tie is margin 0 and breaks
+    the streak. See ``attach_recency_features``.
     """
     _validate_regression_settings(shrink_factor, blend_k)
     wanted: set[str] | None = None
@@ -1567,6 +1631,7 @@ def build_pregame_features(
         *CLEAN_EPA_FEATURE_COLUMNS,
         *CLEAN_SUCCESS_RATE_COLUMNS,
         *QB_OUTPUT_COLUMNS,
+        *RECENCY_OUTPUT_COLUMNS,
     ]
     qb_features: pd.DataFrame = attach_qb_features(
         fct_games,
@@ -1575,6 +1640,8 @@ def build_pregame_features(
         lookback_games=lookback_games,
     )
     frame = frame.merge(qb_features, on="game_id", how="left")
+    recency_features: pd.DataFrame = attach_recency_features(fct_games, fct_team_game_epa)
+    frame = frame.merge(recency_features, on="game_id", how="left")
     return frame.loc[:, ordered_columns]
 
 
@@ -1630,6 +1697,9 @@ def feature_columns_for(feature_set: str) -> tuple[str, ...]:
     clean success rate for offense and defense.
     ``h5_qb`` is ``h2_full`` plus the home and away starting-QB ratings and
     each rating minus that team's recent passing EPA.
+    ``recency_epa5`` is ``h2_full`` with the four cross-season recent EPA
+    columns replaced by a 5-game mean. ``recency_margin``, ``recency_streak``,
+    and ``recency_elo`` keep ``h2_full`` and add one block each.
 
     Args:
         feature_set: One of ``FEATURE_SET_NAMES``.
@@ -1784,8 +1854,10 @@ def elo_home_probabilities(
         points_per_spread: Elo points per point of margin. 25 matches FiveThirtyEight.
 
     Returns:
-        Dict with ``probabilities`` and ``point_spreads`` (each a Series
-        aligned to ``games.index``) and the settings that were used.
+        Dict with ``probabilities``, ``point_spreads``, ``home_ratings``,
+        and ``away_ratings``. Each series is aligned to ``games.index``.
+        Ratings are the values before the game. Home advantage is not stored
+        on them. The dict also includes the settings that were used.
 
     Raises:
         ValueError: A required column is missing or a setting is out of range.
@@ -1820,6 +1892,8 @@ def elo_home_probabilities(
     )
     probabilities: pd.Series = pd.Series(np.nan, index=frame.index, dtype=float)
     point_spreads: pd.Series = pd.Series(np.nan, index=frame.index, dtype=float)
+    home_ratings: pd.Series = pd.Series(np.nan, index=frame.index, dtype=float)
+    away_ratings: pd.Series = pd.Series(np.nan, index=frame.index, dtype=float)
     ratings: dict[str, float] = {}
     pending: list[tuple[str, str, float, float]] = []
     current_season: int | None = None
@@ -1860,6 +1934,8 @@ def elo_home_probabilities(
                 probabilities.loc[row_index] = expected
                 rating_gap: float = (home_rating + home_advantage) - away_rating
                 point_spreads.loc[row_index] = rating_gap / points_per_spread
+                home_ratings.loc[row_index] = home_rating
+                away_ratings.loc[row_index] = away_rating
                 ratings.setdefault(home_team, mean_rating)
                 ratings.setdefault(away_team, mean_rating)
                 outcome: float | None = _elo_outcome(row, score_columns)
@@ -1870,6 +1946,8 @@ def elo_home_probabilities(
     return {
         "probabilities": probabilities,
         "point_spreads": point_spreads,
+        "home_ratings": home_ratings,
+        "away_ratings": away_ratings,
         "k": k,
         "home_advantage": home_advantage,
         "mean_rating": mean_rating,

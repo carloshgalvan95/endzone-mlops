@@ -27,6 +27,7 @@ function Show-Help {
     Write-Host "  train               - Train one holdout model with MLflow"
     Write-Host "  train-sweep         - Single-split sweep (5 configs). Not the reference CV"
     Write-Host "  train-cv            - H5b CV. Builds data and marts when .stamp says they are stale"
+    Write-Host "  train-recency       - Preregistered recency CV, seasons 2016-2023. Does not register"
     Write-Host "  mlflow-ui           - Open MLflow UI against the local SQLite store"
     Write-Host "  audit-features      - Profile current pregame inputs (no feature changes)"
     Write-Host "  check-epa-filter    - Count play types in the EPA filter, plus kneel and spike rows"
@@ -179,6 +180,12 @@ function Invoke-TrainCv {
     if (Test-TrainCvNeedsMarts) { Invoke-Marts }
     Write-Host "Running phase 2 H5b starter coverage CV..."
     python -m endzone.train.train --cv --phase 2 --hypothesis h5b --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h5b
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
+function Invoke-TrainRecency {
+    Write-Host "Running the preregistered recency CV for seasons 2016-2023..."
+    python scripts/train_recency.py
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
@@ -376,6 +383,7 @@ switch ($Target.ToLower()) {
     "train" { Invoke-Train }
     "train-sweep" { Invoke-TrainSweep }
     "train-cv" { Invoke-TrainCv }
+    "train-recency" { Invoke-TrainRecency }
     "mlflow-ui" { Invoke-MlflowUi }
     "audit-features" { Invoke-AuditFeatures }
     "check-epa-filter" { Invoke-CheckEpaFilter }
