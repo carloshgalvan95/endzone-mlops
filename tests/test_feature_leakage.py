@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from endzone.features.opponent import H6_OUTPUT_COLUMNS
 from endzone.features.pregame import (
     CLEAN_EPA_FEATURE_COLUMNS,
     CLEAN_SUCCESS_RATE_COLUMNS,
@@ -48,6 +49,7 @@ CHECKED_FEATURE_COLUMNS: tuple[str, ...] = (
     + CLEAN_SUCCESS_RATE_COLUMNS
     + QB_OUTPUT_COLUMNS
     + RECENCY_OUTPUT_COLUMNS
+    + H6_OUTPUT_COLUMNS
 )
 
 LOOKBACK_GAMES: int = 2

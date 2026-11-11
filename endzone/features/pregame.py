@@ -17,13 +17,23 @@ Features computed:
 - A simple Elo rating and a no-vig market probability
 - Preregistered recency challengers: 5-game EPA, point differential, signed
   streak, and Elo difference (see ``endzone.features.recency``)
+- Opponent-adjusted EPA, same windows as h2_full, plus an Elo difference
+  that uses the margin-of-victory multiplier (see ``endzone.features.opponent``)
 """
 
+import math
 from typing import Any, NamedTuple
 
 import numpy as np
 import pandas as pd
 
+from endzone.features.opponent import (
+    ELO_MOV_DIFF_COLUMN,
+    FEATURE_SET_H6_ADJ,
+    FEATURE_SET_H6_ADJ_ELO,
+    H6_OUTPUT_COLUMNS,
+    attach_h6_features,
+)
 from endzone.features.recency import (
     FEATURE_SET_RECENCY_ELO,
     FEATURE_SET_RECENCY_EPA5,
@@ -340,6 +350,39 @@ PREGAME_FEATURE_COLUMNS_RECENCY_ELO: tuple[str, ...] = (
     PREGAME_FEATURE_COLUMNS_H2_FULL + RECENCY_ELO_COLUMNS
 )
 
+
+def _epa_infix_name(column: str, infix: str) -> str:
+    """Insert ``infix`` before the offensive or defensive token.
+
+    ``infix`` includes its trailing underscore, for example ``adj_``.
+    """
+    for role in ("offensive", "defensive"):
+        token: str = f"_{role}_"
+        if token in column:
+            return column.replace(token, f"_{infix}{role}_", 1)
+    raise ValueError(f"{column} is not an offensive or defensive EPA column")
+
+
+def _h6_columns_from_h2(columns: tuple[str, ...]) -> tuple[str, ...]:
+    """Keep win rate and rest, and point every EPA column at adjusted EPA."""
+    renamed: list[str] = []
+    for column in columns:
+        if column in H2_CONTEXT_COLUMNS:
+            renamed.append(column)
+        else:
+            renamed.append(_epa_infix_name(column, "adj_"))
+    return tuple(renamed)
+
+
+# h2_full with raw EPA replaced by opponent-adjusted EPA. Win rate and rest stay.
+# The windows, shrinkage, and blend are the same as h2_full.
+PREGAME_FEATURE_COLUMNS_H6_ADJ: tuple[str, ...] = _h6_columns_from_h2(
+    PREGAME_FEATURE_COLUMNS_H2_FULL
+)
+PREGAME_FEATURE_COLUMNS_H6_ADJ_ELO: tuple[str, ...] = PREGAME_FEATURE_COLUMNS_H6_ADJ + (
+    ELO_MOV_DIFF_COLUMN,
+)
+
 EXPECTED_STARTER_COLUMNS: tuple[str, ...] = (
     "game_id",
     "home_starter_player_id",
@@ -370,6 +413,8 @@ FEATURE_SET_NAMES: tuple[str, ...] = (
     FEATURE_SET_RECENCY_MARGIN,
     FEATURE_SET_RECENCY_STREAK,
     FEATURE_SET_RECENCY_ELO,
+    FEATURE_SET_H6_ADJ,
+    FEATURE_SET_H6_ADJ_ELO,
 )
 
 FEATURE_SET_COLUMNS: dict[str, tuple[str, ...]] = {
@@ -388,6 +433,8 @@ FEATURE_SET_COLUMNS: dict[str, tuple[str, ...]] = {
     FEATURE_SET_RECENCY_MARGIN: PREGAME_FEATURE_COLUMNS_RECENCY_MARGIN,
     FEATURE_SET_RECENCY_STREAK: PREGAME_FEATURE_COLUMNS_RECENCY_STREAK,
     FEATURE_SET_RECENCY_ELO: PREGAME_FEATURE_COLUMNS_RECENCY_ELO,
+    FEATURE_SET_H6_ADJ: PREGAME_FEATURE_COLUMNS_H6_ADJ,
+    FEATURE_SET_H6_ADJ_ELO: PREGAME_FEATURE_COLUMNS_H6_ADJ_ELO,
 }
 
 # FiveThirtyEight-style Elo. Home advantage is added only when a game is
@@ -690,7 +737,7 @@ def _epa_feature_block(
     """Recent, season, and regressed EPA for one side from one column pair.
 
     Recent means use the cross-season lookback. Season and regressed-recent
-    means stay inside one season. ``infix`` is ``""`` or ``"clean_"``.
+    means stay inside one season. ``infix`` is ``""``, ``"clean_"``, or ``"adj_"``.
     """
     rolling: pd.DataFrame = prior.tail(lookback_games)
     snapshot: TeamEpaSnapshot = _team_epa_snapshot(
@@ -1390,6 +1437,11 @@ def build_pregame_features(
     fixed 5-game window and do not follow ``lookback_games``. The window and
     the signed streak include earlier seasons. A tie is margin 0 and breaks
     the streak. See ``attach_recency_features``.
+
+    H6 columns are appended after the recency block. Opponent-adjusted EPA
+    uses a ridge fit on games with ``gameday`` strictly before the game, then
+    the same lookback, shrinkage, and blend as the raw EPA columns. The Elo
+    difference uses the margin-of-victory multiplier. See ``attach_h6_features``.
     """
     _validate_regression_settings(shrink_factor, blend_k)
     wanted: set[str] | None = None
@@ -1632,6 +1684,7 @@ def build_pregame_features(
         *CLEAN_SUCCESS_RATE_COLUMNS,
         *QB_OUTPUT_COLUMNS,
         *RECENCY_OUTPUT_COLUMNS,
+        *H6_OUTPUT_COLUMNS,
     ]
     qb_features: pd.DataFrame = attach_qb_features(
         fct_games,
@@ -1642,6 +1695,14 @@ def build_pregame_features(
     frame = frame.merge(qb_features, on="game_id", how="left")
     recency_features: pd.DataFrame = attach_recency_features(fct_games, fct_team_game_epa)
     frame = frame.merge(recency_features, on="game_id", how="left")
+    h6_features: pd.DataFrame = attach_h6_features(
+        fct_games,
+        fct_team_game_epa,
+        lookback_games=lookback_games,
+        shrink_factor=shrink_factor,
+        blend_k=blend_k,
+    )
+    frame = frame.merge(h6_features, on="game_id", how="left")
     return frame.loc[:, ordered_columns]
 
 
@@ -1700,6 +1761,9 @@ def feature_columns_for(feature_set: str) -> tuple[str, ...]:
     ``recency_epa5`` is ``h2_full`` with the four cross-season recent EPA
     columns replaced by a 5-game mean. ``recency_margin``, ``recency_streak``,
     and ``recency_elo`` keep ``h2_full`` and add one block each.
+    ``h6_adj`` is ``h2_full`` with every EPA input taken from opponent-adjusted
+    EPA. Win rate and rest stay. ``h6_adj_elo`` adds the Elo difference whose
+    update uses the margin-of-victory multiplier.
 
     Args:
         feature_set: One of ``FEATURE_SET_NAMES``.
@@ -1792,6 +1856,42 @@ def split_by_season(
     return X_train, X_val, X_test, y_train, y_val, y_test
 
 
+def margin_of_victory_multiplier(point_margin: float, elo_diff: float, result: float) -> float:
+    """FiveThirtyEight margin-of-victory multiplier for one completed game.
+
+    ``point_margin`` is home score minus away score. ``elo_diff`` is the
+    pre-game home rating plus home advantage, minus the away rating. ``result``
+    is 1 for a home win, 0 for a home loss, and 0.5 for a tie. A tie uses a
+    denominator of 1. Otherwise the denominator is the winner's pre-game
+    rating gap times 0.001, plus 2.2. The margin inside the log is at least 1.
+
+    Args:
+        point_margin: Home score minus away score.
+        elo_diff: Pre-game rating gap from the home side, including home advantage.
+        result: Home result in ``{0, 0.5, 1}``.
+
+    Returns:
+        The multiplier applied to K. It is not clipped.
+
+    Raises:
+        ValueError: The result is not 0, 0.5, or 1, the inputs are not finite,
+            or the denominator is 0.
+    """
+    if result not in (0.0, 0.5, 1.0):
+        raise ValueError("result must be 0, 0.5, or 1")
+    if not (np.isfinite(point_margin) and np.isfinite(elo_diff) and np.isfinite(result)):
+        raise ValueError("margin-of-victory inputs must be finite")
+    margin: float = abs(float(point_margin))
+    if result == 0.5:
+        denominator: float = 1.0
+    else:
+        winner_diff: float = float(elo_diff) if result == 1.0 else -float(elo_diff)
+        denominator = winner_diff * 0.001 + 2.2
+    if denominator == 0.0:
+        raise ValueError("margin-of-victory denominator is zero")
+    return math.log(max(margin, 1.0) + 1.0) * (2.2 / denominator)
+
+
 def _expected_home_win(
     home_rating: float,
     away_rating: float,
@@ -1832,6 +1932,7 @@ def elo_home_probabilities(
     season_reversion: float = ELO_SEASON_REVERSION,
     scale: float = ELO_SCALE,
     points_per_spread: float = ELO_POINTS_PER_SPREAD,
+    margin_of_victory: bool = False,
 ) -> dict[str, Any]:
     """Home win probabilities from games strictly before each kickoff.
 
@@ -1843,6 +1944,10 @@ def elo_home_probabilities(
     It is not stored on the team rating. The point spread is
     ``(home rating + home advantage - away rating) / points_per_spread``.
 
+    ``margin_of_victory`` multiplies K by ``margin_of_victory_multiplier``
+    when both scores are present. The default is off, so the baseline Elo
+    probability does not use a margin. A missing score keeps the plain K step.
+
     Args:
         games: One row per game. Needs identifiers, franchises, and ``home_won``.
             ``home_score`` and ``away_score`` are optional and mark ties.
@@ -1852,6 +1957,7 @@ def elo_home_probabilities(
         season_reversion: Fraction of the gap to the mean removed between seasons.
         scale: Denominator in the logistic rating curve.
         points_per_spread: Elo points per point of margin. 25 matches FiveThirtyEight.
+        margin_of_victory: When True, scale K by the FiveThirtyEight margin factor.
 
     Returns:
         Dict with ``probabilities``, ``point_spreads``, ``home_ratings``,
@@ -1895,13 +2001,15 @@ def elo_home_probabilities(
     home_ratings: pd.Series = pd.Series(np.nan, index=frame.index, dtype=float)
     away_ratings: pd.Series = pd.Series(np.nan, index=frame.index, dtype=float)
     ratings: dict[str, float] = {}
-    pending: list[tuple[str, str, float, float]] = []
+    pending: list[tuple[str, str, float, float, float]] = []
     current_season: int | None = None
 
     def apply_pending() -> None:
         """Apply results from earlier gamedays to the stored ratings."""
-        for home_team, away_team, actual, expected in pending:
+        for home_team, away_team, actual, expected, multiplier in pending:
             delta: float = k * (actual - expected)
+            if margin_of_victory:
+                delta = k * multiplier * (actual - expected)
             ratings[home_team] = ratings[home_team] + delta
             ratings[away_team] = ratings[away_team] - delta
         pending.clear()
@@ -1941,7 +2049,17 @@ def elo_home_probabilities(
                 outcome: float | None = _elo_outcome(row, score_columns)
                 if outcome is None:
                     continue
-                pending.append((home_team, away_team, outcome, expected))
+                multiplier: float = 1.0
+                if margin_of_victory and score_columns:
+                    home_score: object = row["home_score"]
+                    away_score: object = row["away_score"]
+                    if pd.notna(home_score) and pd.notna(away_score):
+                        multiplier = margin_of_victory_multiplier(
+                            float(home_score) - float(away_score),
+                            rating_gap,
+                            float(outcome),
+                        )
+                pending.append((home_team, away_team, outcome, expected, multiplier))
 
     return {
         "probabilities": probabilities,
@@ -1954,6 +2072,7 @@ def elo_home_probabilities(
         "season_reversion": season_reversion,
         "scale": scale,
         "points_per_spread": points_per_spread,
+        "margin_of_victory": margin_of_victory,
     }
 
 
