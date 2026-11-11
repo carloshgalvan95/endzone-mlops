@@ -114,6 +114,13 @@ def _render_acceptance_section(report: dict[str, Any]) -> list[str]:
         "inconclusive. The reference row is not a candidate.",
         "",
     ]
+    if any(row.get("decision") == "benchmark" for row in rows):
+        lines.extend(
+            [
+                "The market row is labeled benchmark. It is not accepted.",
+                "",
+            ]
+        )
     if not rows:
         lines.append("No acceptance rows were computed.")
         lines.append("")
@@ -229,6 +236,22 @@ def _profile_lines(profile: str) -> list[str]:
         return _season_regression_lines()
     if profile == "pass_rush":
         return _season_regression_lines() + _pass_rush_lines()
+    if profile == "h6":
+        return [
+            "Opponent-adjusted EPA is a ridge fit of game offensive EPA",
+            "on offense, defense, and home terms. The penalty is 1.0 and",
+            "is not chosen on the scored window. The fit uses team-games",
+            "with gameday strictly before the game. Same-gameday games",
+            "share the fit and do not enter it.",
+            "Adjusted values then use the same lookback, shrinkage, and blend",
+            "as h2_full. h6_adj replaces raw EPA and keeps win rate and rest.",
+            "h6_adj_elo adds home Elo minus away Elo. That update uses K 20,",
+            "home advantage 65, season reversion 1/3, and the margin-of-victory",
+            "multiplier. The Elo probability in the comparison table does not.",
+            "Calibration and the market-information regression are descriptive.",
+            "They are not acceptance decisions. No blend is published.",
+            "The market row is a benchmark. It is not a candidate.",
+        ]
     if profile == "ridge":
         grid_text: str = ", ".join(_format_regularization_c(value) for value in DEFAULT_L2_C_GRID)
         return (
@@ -244,6 +267,130 @@ def _profile_lines(profile: str) -> list[str]:
             ]
         )
     return []
+
+
+def _calibration_lines(table: pd.DataFrame | None) -> list[str]:
+    """Reliability, ECE, and Brier components. Empty when the table was not built.
+
+    The section is descriptive. It is not an acceptance decision.
+    """
+    if table is None:
+        return []
+    lines: list[str] = [
+        "## Calibration",
+        "",
+        "Equal-count deciles of out-of-fold probability, then ECE and the",
+        "bin reliability, resolution, and uncertainty. `brier` is the score",
+        "of the game probabilities. The bin components are not that score",
+        "when probabilities vary inside a bin. This section is descriptive.",
+        "It is not an acceptance decision.",
+        "",
+    ]
+    if table.empty:
+        lines.append("No calibration rows were computed.")
+        lines.append("")
+        return lines
+    summaries: pd.DataFrame = table.loc[table["row_kind"] == "summary"]
+    bins: pd.DataFrame = table.loc[table["row_kind"] == "bin"]
+    lines.append(
+        _markdown_table(
+            [
+                "model",
+                "feature_set",
+                "n",
+                "ece",
+                "reliability",
+                "resolution",
+                "uncertainty",
+                "brier",
+            ],
+            [
+                [
+                    row.model,
+                    row.feature_set,
+                    row.n,
+                    row.ece,
+                    row.reliability,
+                    row.resolution,
+                    row.uncertainty,
+                    row.brier,
+                ]
+                for row in summaries.itertuples(index=False)
+            ],
+        )
+    )
+    lines.append("")
+    lines.append(
+        _markdown_table(
+            ["model", "feature_set", "bin", "n", "mean_predicted", "observed_rate"],
+            [
+                [
+                    row.model,
+                    row.feature_set,
+                    row.bin,
+                    row.n,
+                    row.mean_predicted,
+                    row.observed_rate,
+                ]
+                for row in bins.itertuples(index=False)
+            ],
+        )
+    )
+    lines.append("")
+    return lines
+
+
+def _market_information_lines(table: pd.DataFrame | None) -> list[str]:
+    """Descriptive regression of the result on the market logit and the model logit.
+
+    The coefficients are not a blend and they are not published.
+    """
+    if table is None:
+        return []
+    lines: list[str] = [
+        "## Market information",
+        "",
+        "Logistic regression of the result on logit(market) and logit(model)",
+        "for out-of-fold games shared with the market. Intervals are the",
+        "2.5 and 97.5 percentiles of a row bootstrap. This is descriptive.",
+        "It is not a blend, and no blend is published.",
+        "",
+    ]
+    if table.empty:
+        lines.append("No market-information rows were computed.")
+        lines.append("")
+        return lines
+    lines.append(
+        _markdown_table(
+            [
+                "feature_set",
+                "status",
+                "n",
+                "market_coef",
+                "market_ci_low",
+                "market_ci_high",
+                "model_coef",
+                "model_ci_low",
+                "model_ci_high",
+            ],
+            [
+                [
+                    row.feature_set,
+                    row.status,
+                    row.n,
+                    row.market_coef,
+                    row.market_ci_low,
+                    row.market_ci_high,
+                    row.model_coef,
+                    row.model_ci_low,
+                    row.model_ci_high,
+                ]
+                for row in table.itertuples(index=False)
+            ],
+        )
+    )
+    lines.append("")
+    return lines
 
 
 def _fold_section(result: dict[str, Any]) -> list[str]:
@@ -348,6 +495,8 @@ def render_phase1_report(report: dict[str, Any]) -> str:
         lines.extend(_fold_section(result))
     if report.get("apply_acceptance"):
         lines.extend(_render_acceptance_section(report))
+    lines.extend(_calibration_lines(report.get("calibration")))
+    lines.extend(_market_information_lines(report.get("market_information")))
     lines.append("No model is promoted from this report.")
     lines.append("")
     return "\n".join(lines)
@@ -364,7 +513,7 @@ def write_phase1_outputs(report: dict[str, Any], output_dir: Path) -> dict[str, 
     csv_path: Path = output_dir / PHASE1_CSV_NAME
     markdown_path.write_text(report["markdown"], encoding="utf-8")
     table: pd.DataFrame = report["comparison_table"]
-    table.to_csv(csv_path, index=False)
+    table.to_csv(csv_path, index=False, encoding="utf-8")
     oof_paths: dict[str, str] = {}
     for result in report["results"]:
         oof: pd.DataFrame | None = result["oof"]
@@ -372,10 +521,27 @@ def write_phase1_outputs(report: dict[str, Any], output_dir: Path) -> dict[str, 
             continue
         file_name: str = f"oof_{result['model']}_{result['feature_set']}.csv"
         oof_path: Path = output_dir / file_name
-        oof.to_csv(oof_path, index=False)
+        oof.to_csv(oof_path, index=False, encoding="utf-8")
         oof_paths[f"{result['model']}|{result['feature_set']}"] = str(oof_path)
+    extra_paths: dict[str, str] = {}
+    calibration: pd.DataFrame | None = report.get("calibration")
+    if isinstance(calibration, pd.DataFrame):
+        calibration_path: Path = output_dir / "calibration.csv"
+        calibration.to_csv(calibration_path, index=False, encoding="utf-8")
+        extra_paths["calibration"] = str(calibration_path)
+    market_information: pd.DataFrame | None = report.get("market_information")
+    if isinstance(market_information, pd.DataFrame):
+        information_path: Path = output_dir / "market_information.csv"
+        market_information.to_csv(information_path, index=False, encoding="utf-8")
+        extra_paths["market_information"] = str(information_path)
+    acceptance: list[dict[str, Any]] | None = report.get("acceptance")
+    if acceptance:
+        acceptance_path: Path = output_dir / "acceptance.csv"
+        pd.DataFrame(acceptance).to_csv(acceptance_path, index=False, encoding="utf-8")
+        extra_paths["acceptance"] = str(acceptance_path)
     return {
         "markdown_path": str(markdown_path),
         "csv_path": str(csv_path),
         "oof_paths": oof_paths,
+        "extra_paths": extra_paths,
     }

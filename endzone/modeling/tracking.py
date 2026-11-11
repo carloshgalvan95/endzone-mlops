@@ -353,6 +353,24 @@ def mlflow_decision_tag(
     return str(labeled["decision"])
 
 
+def _child_decision_tag(
+    result: dict[str, Any],
+    reference_model: str,
+    reference_feature_set: str,
+    acceptance_rows: list[dict[str, Any]] | None,
+) -> str:
+    """Return the child decision tag.
+
+    A row already labeled ``benchmark`` keeps that label. Every other row
+    uses ``mlflow_decision_tag``.
+    """
+    for row in acceptance_rows or []:
+        if row.get("model") == result["model"] and row.get("feature_set") == result["feature_set"]:
+            if row.get("decision") == "benchmark":
+                return "benchmark"
+    return mlflow_decision_tag(result, reference_model, reference_feature_set)
+
+
 def select_best_feature_set(
     results: list[dict[str, Any]],
     reference_model: str,
@@ -456,6 +474,7 @@ def _log_child_run(
     reference_feature_set: str,
     dataset: Any | None,
     dataset_frame: pd.DataFrame | None,
+    acceptance_rows: list[dict[str, Any]] | None = None,
 ) -> dict[str, str]:
     """Log one nested child and return its model, feature set, and run id."""
     run_name: str = f"{result['model']}-{result['feature_set']}"
@@ -468,7 +487,12 @@ def _log_child_run(
         mlflow.set_tag("git_commit", git_commit)
         mlflow.set_tag(
             "decision",
-            mlflow_decision_tag(result, reference_model, reference_feature_set),
+            _child_decision_tag(
+                result,
+                reference_model,
+                reference_feature_set,
+                acceptance_rows,
+            ),
         )
         mlflow.set_tag("mlflow.note.content", run_note)
         if dataset is not None and dataset_frame is not None:
@@ -574,6 +598,9 @@ def log_phase1_to_mlflow(
             )
         mlflow.log_artifact(paths["markdown_path"])
         mlflow.log_artifact(paths["csv_path"])
+        for extra_path in paths.get("extra_paths", {}).values():
+            mlflow.log_artifact(extra_path)
+        acceptance_rows: list[dict[str, Any]] = list(report.get("acceptance") or [])
         for result in report["results"]:
             if result["status"] != "ok":
                 continue
@@ -589,6 +616,7 @@ def log_phase1_to_mlflow(
                     reference_feature_set,
                     dataset,
                     dataset_frame,
+                    acceptance_rows,
                 )
             )
         parent_run_id: str = parent_run.info.run_id
