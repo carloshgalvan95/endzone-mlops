@@ -25,6 +25,7 @@ from endzone.features.pregame import (
     PREGAME_FEATURE_COLUMNS,
     PREGAME_FEATURE_COLUMNS_H2_FULL,
     PREGAME_FEATURE_COLUMNS_H4_CLEAN,
+    PREGAME_FEATURE_COLUMNS_PKG_CORE,
     QB_OUTPUT_COLUMNS,
     QB_RATING_COLUMNS,
     REGRESSED_EPA_COLUMNS,
@@ -229,6 +230,47 @@ class TestPregameLeakage:
                     poisoned_row[column],
                     baseline_row[column],
                     f"{game['game_id']}.{column}",
+                )
+
+    def test_pkg_core_uses_only_gamedays_strictly_before_the_game(self) -> None:
+        """Every pkg_core column matches history truncated before that gameday.
+
+        The package adds no column of its own. A same-day or later score or
+        EPA value must leave each selected column put.
+        """
+        assert set(PREGAME_FEATURE_COLUMNS_PKG_CORE) <= set(CHECKED_FEATURE_COLUMNS)
+        games, epa = _games_and_epa()
+        full = build_pregame_features(games, epa, lookback_games=LOOKBACK_GAMES)
+        for _, game in games.iterrows():
+            truncated = _history_before(games, epa, game)
+            full_row = _feature_row(full, game["game_id"])
+            truncated_row = _feature_row(truncated, game["game_id"])
+            poisoned_games = games.copy()
+            poisoned_epa = epa.copy()
+            on_or_after = poisoned_games["gameday"] >= game["gameday"]
+            poisoned_games.loc[on_or_after, "home_score"] = 99
+            poisoned_games.loc[on_or_after, "away_score"] = 0
+            poisoned_games.loc[on_or_after, "home_won"] = 0
+            poisoned_epa.loc[poisoned_epa["gameday"] >= game["gameday"], "avg_offensive_epa"] = 99.0
+            poisoned_epa.loc[
+                poisoned_epa["gameday"] >= game["gameday"], "avg_defensive_epa_allowed"
+            ] = 99.0
+            poisoned = build_pregame_features(
+                poisoned_games,
+                poisoned_epa,
+                lookback_games=LOOKBACK_GAMES,
+            )
+            poisoned_row = _feature_row(poisoned, game["game_id"])
+            for column in PREGAME_FEATURE_COLUMNS_PKG_CORE:
+                _assert_equal(
+                    truncated_row[column],
+                    full_row[column],
+                    f"{game['game_id']}.{column}.truncated",
+                )
+                _assert_equal(
+                    poisoned_row[column],
+                    full_row[column],
+                    f"{game['game_id']}.{column}.poisoned",
                 )
 
     def test_first_game_in_the_frame_has_no_history(self) -> None:
