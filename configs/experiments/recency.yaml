@@ -1,0 +1,37 @@
+id: recency
+phase: 2
+default: false
+aliases:
+  - recency
+  - recency-streak
+tag: recency-streak
+short_name: recency
+experiment_name: nfl_pregame/phase2_recency
+phase_tag: "2"
+output_dir: reports/phase2_recency
+title: Phase 2 recency and streak challengers
+note: "Phase 2 recency and streak challengers. Four logistic variants against h2_full on rolling-origin seasons 2016-2023. The 0.002 refresh margin is not this gate. 2024 and 2025 are not scored. No model is promoted from this run."
+reference_model: logistic
+reference_feature_set: h2_full
+logistic_feature_sets:
+  - h2_full
+  - recency_epa5
+  - recency_margin
+  - recency_streak
+  - recency_elo
+model_specs:
+  - model: logistic
+    feature_set: h2_full
+  - model: logistic
+    feature_set: recency_epa5
+  - model: logistic
+    feature_set: recency_margin
+  - model: logistic
+    feature_set: recency_streak
+  - model: logistic
+    feature_set: recency_elo
+log_shrinkage: true
+log_qb: false
+qb_subset: false
+qb_feature_set: null
+report_profile: none

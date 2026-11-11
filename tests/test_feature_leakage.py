@@ -36,6 +36,7 @@ from endzone.features.pregame import (
     regress_epa_feature,
     shrink_qb_rating,
 )
+from endzone.features.recency import RECENCY_OUTPUT_COLUMNS
 
 CHECKED_FEATURE_COLUMNS: tuple[str, ...] = (
     PREGAME_COMPUTED_COLUMNS
@@ -46,6 +47,7 @@ CHECKED_FEATURE_COLUMNS: tuple[str, ...] = (
     + CLEAN_EPA_FEATURE_COLUMNS
     + CLEAN_SUCCESS_RATE_COLUMNS
     + QB_OUTPUT_COLUMNS
+    + RECENCY_OUTPUT_COLUMNS
 )
 
 LOOKBACK_GAMES: int = 2

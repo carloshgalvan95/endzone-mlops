@@ -15,6 +15,7 @@ from endzone.features.pregame import (
     prepare_training_data,
     split_by_season,
 )
+from endzone.features.recency import RECENCY_CHALLENGER_FEATURE_SETS
 from endzone.modeling.dataset import load_data, load_qb_inputs, validate_feature_columns
 from endzone.modeling.models import (
     DEFAULT_L2_C_GRID,
@@ -129,7 +130,19 @@ def _fit_holdout_model(
 
 
 def run_holdout(args: argparse.Namespace) -> None:
-    """Train one model on seasons through the train cut and log the validation metrics."""
+    """Train one model on seasons through the train cut and log the validation metrics.
+
+    Recency challengers are refused before any warehouse read. That split
+    scores 2024 and 2025. The preregistered command is
+    ``python scripts/train_recency.py``.
+    """
+    if args.feature_set in RECENCY_CHALLENGER_FEATURE_SETS:
+        raise ValueError(
+            f"{args.feature_set} is a preregistered recency challenger. "
+            "Score it with python scripts/train_recency.py. "
+            "That command is rolling-origin CV for seasons 2016-2023. "
+            "This split scores 2024 and 2025."
+        )
     tracking_uri: str = configured_tracking_uri()
     activate_tracking_experiment(HOLDOUT_EXPERIMENT_NAME, tracking_uri)
     logger.info("Loading data...")

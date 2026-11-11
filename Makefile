@@ -1,4 +1,4 @@
-.PHONY: help setup install lint lint-structure test vulture dbt-compile dbt-run dbt-test clean reproduce data ingest ingest-current marts dbt-build-databricks train train-sweep train-cv train-s2 mlflow-ui audit-features check-epa-filter verify-reference walk-forward verify-walk-forward score rebuild-week refresh-results track-record backfill-archive register-model register-recent promote-model
+.PHONY: help setup install lint lint-structure test vulture dbt-compile dbt-run dbt-test clean reproduce data ingest ingest-current marts dbt-build-databricks train train-sweep train-cv train-recency train-s2 mlflow-ui audit-features check-epa-filter verify-reference walk-forward verify-walk-forward score rebuild-week refresh-results track-record backfill-archive register-model register-recent promote-model
 
 # Finished bronze and mart steps. Gitignored. A second train-cv does not
 # reload bronze when these stamps are current.
@@ -28,6 +28,7 @@ help:
 	@echo "  train               - Train one holdout model with MLflow"
 	@echo "  train-sweep         - Single-split sweep (5 configs). Not the reference CV"
 	@echo "  train-cv            - H5b CV. Builds data and marts when .stamp says they are stale"
+	@echo "  train-recency       - Preregistered recency CV, seasons 2016-2023. Does not register"
 	@echo "  mlflow-ui           - Open MLflow UI against the local SQLite store"
 	@echo "  audit-features      - Profile current pregame inputs (no feature changes)"
 	@echo "  check-epa-filter    - Count play types in the EPA filter, plus kneel and spike rows"
@@ -131,6 +132,11 @@ train-cv:
 		$(MAKE) marts; \
 	fi
 	python -m endzone.train.train --cv --phase 2 --hypothesis h5b --reference-model logistic --reference-feature-set h2_full --output-dir reports/phase2_h5b
+
+# Preregistered recency challengers. Does not build marts, walk forward,
+# register, or promote. The script fixes the window at 2016-2023.
+train-recency:
+	python scripts/train_recency.py
 
 mlflow-ui:
 	mlflow ui --backend-store-uri sqlite:///mlflow.db --workers 1

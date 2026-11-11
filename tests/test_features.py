@@ -295,6 +295,10 @@ class TestPrepareTrainingData:
             "h4_clean",
             "h4_clean_sr",
             "h5_qb",
+            "recency_epa5",
+            "recency_margin",
+            "recency_streak",
+            "recency_elo",
         )
         assert feature_columns_for("current") == PREGAME_FEATURE_COLUMNS
         assert feature_columns_for("with_games_played") == PREGAME_FEATURE_COLUMNS_WITH_GAMES_PLAYED

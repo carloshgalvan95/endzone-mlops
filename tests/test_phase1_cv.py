@@ -898,6 +898,7 @@ class TestReferenceSelection:
         assert groups["other"] == ["home_rest_days"]
         assert groups["diff"] == ["diff_recent_win_rate", "diff_rest_days"]
         h2_groups = feature_column_groups(list(PREGAME_FEATURE_COLUMNS_H2_FULL))
+        assert h2_groups["form"] == []
         for column in SEASON_DEFENSIVE_EPA_COLUMNS + REGRESSED_EPA_COLUMNS:
             assert column in h2_groups["epa"]
             assert column not in h2_groups["win_rate"]

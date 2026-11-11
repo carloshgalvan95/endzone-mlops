@@ -77,6 +77,7 @@ def build_parser() -> argparse.ArgumentParser:
             "--phase 2 --hypothesis h5 scores starting QB ratings against h2_full. "
             "--phase 2 --hypothesis h5b scores the same ratings after the starter fix. "
             "--phase 2 --hypothesis ridge scores logistic_l2 against logistic h2_full. "
+            "python scripts/train_recency.py scores the preregistered recency challengers. "
             "Does not score 2024 or 2025."
         ),
     )
@@ -183,6 +184,47 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-depth", type=int, default=3, help="Maximum tree depth (gbm)")
     parser.add_argument("--learning-rate", type=float, default=0.1, help="Learning rate (gbm)")
     return parser
+
+
+def recency_challenger_argv() -> list[str]:
+    """Argv for the preregistered recency CV.
+
+    The window is seasons 2016-2023. Logistic ``h2_full`` stays lookback 10,
+    C 1, max_iter 1000, and seed 42. The bootstrap is 1000 resamples, seed 42.
+    The command does not register a model and does not score 2024 or 2025.
+
+    Returns:
+        Arguments for ``endzone.modeling.train.main``.
+    """
+    return [
+        "--cv",
+        "--phase",
+        "2",
+        "--hypothesis",
+        "recency",
+        "--reference-model",
+        "logistic",
+        "--reference-feature-set",
+        "h2_full",
+        "--lookback",
+        "10",
+        "--C",
+        "1.0",
+        "--max-iter",
+        "1000",
+        "--seed",
+        "42",
+        "--cv-start-season",
+        "2016",
+        "--cv-end-season",
+        "2023",
+        "--n-bootstrap",
+        "1000",
+        "--bootstrap-seed",
+        "42",
+        "--output-dir",
+        "reports/phase2_recency",
+    ]
 
 
 def main(argv: list[str] | None = None) -> None:
