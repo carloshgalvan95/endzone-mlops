@@ -82,3 +82,7 @@ Windows: `.\scripts\dev.ps1 verify-walk-forward`. Exit 1 when `passes` is false.
 `make register-model` stays the through-2023 golden path. Do not pass `THROUGH_SEASON=2026` and expect a promote. A `through_season` tag past 2023 without `evaluation=walk_forward` is refused. The Model registry workflow is that same golden path and was not changed.
 
 The order for a fresh prod candidate, including the week 10 publish, is in `docs/runbook.md`.
+
+## Recency challengers
+
+This backtest still scores logistic `h2_full` only. The preregistered recency and streak variants are in `docs/experiments/recency_streak.md`. I do not use this window, the 0.002 margin, or the refresh fit to choose those variants.
