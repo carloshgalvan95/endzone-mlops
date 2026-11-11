@@ -16,6 +16,10 @@ VOLUME_NAME: str = "landing"
 # The upload path already writes nullable int32. This hint is the belt.
 DEPTH_CHART_READ_SCHEMA_HINT: str = "season int, week int, depth_team string, club_code string"
 
+# One timestamp for the games replace. Freshness reads it. It is not gameday.
+# The parquet file is unchanged. Play-by-play and depth charts stay select *.
+GAMES_INGESTED_AT_SQL: str = "cast(current_timestamp() as timestamp) as ingested_at"
+
 DATASET_CONFIG: dict[str, dict[str, Any]] = {
     "games": {
         "filename": "games.parquet",
@@ -173,7 +177,9 @@ def create_bronze_table(
     """Create a bronze Delta table from parquet file(s) in a Volume.
 
     For pbp, reads the entire pbp folder (all season partitions).
-    For games, reads the specific file path.
+    For games, reads the specific file path and adds ``ingested_at``, the
+    timestamp of this replace. That column is not gameday. The parquet
+    file itself is not given a new column.
 
     Args:
         sql_connection: Databricks SQL connection.
@@ -198,12 +204,16 @@ def create_bronze_table(
         read_options = (
             "format => 'parquet',\n        schemaHints => '" + DEPTH_CHART_READ_SCHEMA_HINT + "'"
         )
+    select_sql = "*"
+    if dataset == "games":
+        # Same relation name as before. The extra column is the load time.
+        select_sql = "*,\n    " + GAMES_INGESTED_AT_SQL
     create_table_sql = f"""
     CREATE OR REPLACE TABLE {table_name}
     USING DELTA
     COMMENT '{config["description"]} - loaded via nflverse feed'
     AS
-    SELECT * FROM read_files(
+    SELECT {select_sql} FROM read_files(
         '{read_path}',
         {read_options}
     )

@@ -130,7 +130,7 @@ An in-game state table is not in the repo. Weekly predictions are JSON files, no
 
 #### 4. Delta storage (Databricks Free Edition)
 
-**Technology**: Delta tables on Unity Catalog. `create_bronze_table` in `endzone/ingest/volume.py` runs `CREATE OR REPLACE TABLE ... USING DELTA AS SELECT * FROM read_files(...)`. The Python upload does not append a column. The `SELECT` list is `*`.
+**Technology**: Delta tables on Unity Catalog. `create_bronze_table` in `endzone/ingest/volume.py` runs `CREATE OR REPLACE TABLE ... USING DELTA AS SELECT ... FROM read_files(...)`. That statement replaces the existing bronze relation. Play-by-play and depth charts select `*`. Games selects `*` plus `ingested_at`, `cast(current_timestamp() as timestamp)`. The parquet upload still writes the downloaded frame with `index=False` and adds no column.
 
 Catalog `workspace`. dbt's target schema is `nfl_dev`. This repo has no `generate_schema_name` macro, so dbt appends each custom schema: staging views land in `nfl_dev_staging` and marts land in `nfl_dev_marts`. Seeds stay in `nfl_dev`. `nfl_dev_test_results` exists only after one explicit `dbt test --store-failures`. `dbt build` does not create it, and `store_failures` stays off.
 
@@ -140,7 +140,7 @@ Catalog `workspace`. dbt's target schema is `nfl_dev`. This repo has no `generat
 - `play_by_play`. Each season file is conformed to `endzone/ingest/schemas/pbp_schema.json` (372 columns) before upload. Those keys are the bronze columns. `wp` is one of them. Staging exposes it as `win_probability`.
 - `depth_charts`. The uploaded parquet has only `DEPTH_CHART_COLUMNS` from `endzone/ingest/depth_charts.py`, in this order: `season`, `club_code`, `week`, `game_type`, `depth_team`, `last_name`, `first_name`, `football_name`, `formation`, `gsis_id`, `jersey_number`, `position`, `elias_id`, `depth_position`, `full_name`. From 2025 the release uses `dt` (a UTC scrape time) instead of `week`. Ingest uses `dt` to pick the latest scrape strictly before kickoff, then writes `week` and `game_type`. The bronze table does not include `dt`.
 
-None of the three bronze tables has a row-hash column or an ingestion-timestamp column. `endzone/ingest/schemas/pbp_schema.json` has neither name. `DEPTH_CHART_COLUMNS` has neither name. The games upload writes the downloaded frame with `index=False` and adds no column (`endzone/ingest/nflverse.py`).
+Play-by-play and depth charts have no row-hash column and no ingestion timestamp. `endzone/ingest/schemas/pbp_schema.json` has neither name. `DEPTH_CHART_COLUMNS` has neither name. Games gets `ingested_at` only in the warehouse replace (`endzone/ingest/volume.py`). The parquet file from `endzone/ingest/nflverse.py` does not have that column. The live `workspace.nfl_raw.games` table gains it when the games reload runs. Staging does not select it, so the marts do not gain a column.
 
 **Staging** views: `stg_nflverse__games`, `stg_nflverse__pbp`, `stg_nflverse__depth_charts`. Column lists are the `select` in each SQL file.
 
@@ -154,7 +154,7 @@ None of the three bronze tables has a row-hash column or an ingestion-timestamp 
 | `fct_expected_starter` | one completed game | `game_id`, `season`, `week`, `game_type`, `gameday`, `home_team`, `away_team`, `home_team_franchise`, `away_team_franchise`, `home_starter_player_id`, `away_starter_player_id` |
 | `fct_qb_dropbacks` | one passer in one completed game | `game_id`, `season`, `week`, `gameday`, `team`, `team_franchise`, `passer_player_id`, `dropbacks`, `dropback_epa`, `cpoe_sum`, `cpoe_dropbacks` |
 
-Those column lists are the final `select` of each mart. `dbt/models/marts/schema.yml` documents a subset and the tests. It does not add columns.
+Those column lists are the final `select` of each mart. `fct_games` and `fct_upcoming_games` list every column in `dbt/models/marts/schema.yml` with `data_type` and `contract.enforced: true`. The other marts document a subset and the tests. The YAML lists columns the SQL already selects.
 
 A predictions table, a `dim_*` table, and an in-game state table are not in the repo.
 

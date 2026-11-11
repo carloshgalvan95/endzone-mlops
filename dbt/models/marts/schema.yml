@@ -172,8 +172,12 @@ models:
       
       Useful for model training labels, feature engineering based on recent
       results, and backtesting against betting markets.
+
+      The contract is enforced. data_type is string, int, or double.
     
     config:
+      contract:
+        enforced: true
       meta:
         owner: "Carlos Galvan"
         layer: "marts"
@@ -182,66 +186,128 @@ models:
     columns:
       - name: game_id
         description: "Primary key - unique game identifier"
+        data_type: string
         tests:
           - unique
           - not_null
       
       - name: season
         description: "NFL season year"
+        data_type: int
         tests:
           - not_null
       
       - name: week
         description: "Week number"
+        data_type: int
       
       - name: game_type
         description: "Game type (REG, POST, etc.)"
+        data_type: string
       
       - name: away_team
         description: "Away team abbreviation"
+        data_type: string
         tests:
           - not_null
       
       - name: home_team
         description: "Home team abbreviation"
+        data_type: string
         tests:
           - not_null
       
       - name: away_score
-        description: "Final away team score (null if not yet played)"
+        description: "Final away team score. Nulls in the schedules file make this a double."
+        data_type: double
       
       - name: home_score
-        description: "Final home team score (null if not yet played)"
+        description: "Final home team score. Nulls in the schedules file make this a double."
+        data_type: double
+
+      - name: away_team_franchise
+        description: "Current franchise abbreviation for the away team (OAK->LV, SD->LAC, STL->LA)"
+        data_type: string
+
+      - name: home_team_franchise
+        description: "Current franchise abbreviation for the home team (OAK->LV, SD->LAC, STL->LA)"
+        data_type: string
       
       - name: home_won
-        description: "Home team won (1 = yes, 0 = no, null = not yet played)"
+        description: "Home team won (1 = yes, 0 = no). Completed games only, so this is not null."
+        data_type: int
       
       - name: home_margin
         description: "Home team margin of victory (positive = home won)"
+        data_type: double
       
       - name: total_points
         description: "Combined final score (away + home)"
+        data_type: double
       
       - name: home_covered_spread
         description: "Home team covered spread (1 = yes, 0 = no, null = push or missing)"
+        data_type: int
       
       - name: total_over
         description: "Total went over (1 = yes, 0 = no, null = push or missing)"
+        data_type: int
       
       - name: spread_line
         description: "Closing point spread (home team perspective)"
+        data_type: double
       
       - name: total_line
         description: "Closing over/under total"
+        data_type: double
+
+      - name: away_moneyline
+        description: "Closing American moneyline for the away team. Null when nflverse has not posted a line."
+        data_type: double
+
+      - name: home_moneyline
+        description: "Closing American moneyline for the home team. Null when nflverse has not posted a line."
+        data_type: double
       
       - name: gameday
-        description: "Date of game"
+        description: "Schedule date stored as text (YYYY-MM-DD). This is not the ingestion time."
+        data_type: string
+
+      - name: weekday
+        description: "Weekday name from the nflverse schedule"
+        data_type: string
+
+      - name: gametime
+        description: "Kickoff clock time as published by nflverse, stored as text"
+        data_type: string
+
+      - name: location
+        description: "Nflverse location value, including Home and Neutral"
+        data_type: string
       
       - name: roof
         description: "Stadium roof type"
+        data_type: string
       
       - name: surface
         description: "Playing surface"
+        data_type: string
+
+      - name: temp
+        description: "Temperature in Fahrenheit. Null when nflverse did not publish one."
+        data_type: double
+
+      - name: wind
+        description: "Wind speed in mph. Null when nflverse did not publish one."
+        data_type: double
+
+      - name: away_rest
+        description: "Days of rest for the away team"
+        data_type: int
+
+      - name: home_rest
+        description: "Days of rest for the home team"
+        data_type: int
 
     tests:
       # Business logic: home and away teams should differ
@@ -274,8 +340,12 @@ models:
       
       Provides game-level features for pregame predictions (scoring input).
       Used for weekly forecast refresh and batch scoring.
+
+      The contract is enforced. data_type is string, int, or double.
     
     config:
+      contract:
+        enforced: true
       meta:
         owner: "Carlos Galvan"
         layer: "marts"
@@ -284,70 +354,104 @@ models:
     columns:
       - name: game_id
         description: "Primary key - unique game identifier"
+        data_type: string
         tests:
           - unique
           - not_null
       
       - name: season
         description: "NFL season year"
+        data_type: int
         tests:
           - not_null
       
       - name: week
         description: "Week number"
+        data_type: int
       
       - name: game_type
         description: "Game type (REG, POST, etc.)"
+        data_type: string
       
       - name: away_team
         description: "Away team abbreviation (historical name from games.parquet)"
-        tests:
-          - not_null
-      
-      - name: away_team_franchise
-        description: "Away team's current franchise abbreviation (handles relocations)"
+        data_type: string
         tests:
           - not_null
       
       - name: home_team
         description: "Home team abbreviation (historical name from games.parquet)"
+        data_type: string
+        tests:
+          - not_null
+
+      - name: away_team_franchise
+        description: "Away team's current franchise abbreviation (handles relocations)"
+        data_type: string
         tests:
           - not_null
       
       - name: home_team_franchise
         description: "Home team's current franchise abbreviation (handles relocations)"
+        data_type: string
         tests:
           - not_null
       
       - name: gameday
-        description: "Date of game"
+        description: "Schedule date stored as text (YYYY-MM-DD). This is not the ingestion time."
+        data_type: string
+
+      - name: weekday
+        description: "Weekday name from the nflverse schedule"
+        data_type: string
       
       - name: gametime
-        description: "Game time (EST)"
+        description: "Kickoff clock time as published by nflverse, stored as text"
+        data_type: string
       
       - name: spread_line
         description: "Closing point spread (home team perspective)"
+        data_type: double
       
       - name: total_line
         description: "Closing over/under total"
-
-      - name: home_moneyline
-        description: "Closing American moneyline for the home team. Null when nflverse has not posted a line. A null line stays null and does not drop the game."
+        data_type: double
 
       - name: away_moneyline
         description: "Closing American moneyline for the away team. Null when nflverse has not posted a line. A null line stays null and does not drop the game."
+        data_type: double
+
+      - name: home_moneyline
+        description: "Closing American moneyline for the home team. Null when nflverse has not posted a line. A null line stays null and does not drop the game."
+        data_type: double
+
+      - name: location
+        description: "Nflverse location value, including Home and Neutral"
+        data_type: string
       
       - name: roof
         description: "Stadium roof type"
+        data_type: string
       
       - name: surface
         description: "Playing surface"
+        data_type: string
+
+      - name: temp
+        description: "Temperature in Fahrenheit. Null when nflverse did not publish one."
+        data_type: double
+
+      - name: wind
+        description: "Wind speed in mph. Null when nflverse did not publish one."
+        data_type: double
       
       - name: away_rest
         description: "Days of rest for away team"
+        data_type: int
       
       - name: home_rest
         description: "Days of rest for home team"
+        data_type: int
 
     tests:
       # Business logic: home and away teams should differ

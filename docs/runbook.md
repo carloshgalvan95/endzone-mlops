@@ -555,6 +555,57 @@ dbt test --profiles-dir . --target databricks --select assert_team_game_two_rows
 
 The list query above shows the new name. Drop that one relation when the debugging is done (`DROP TABLE` or `DROP VIEW` in `workspace.nfl_dev_test_results`). Leave `store_failures` off in `dbt/dbt_project.yml`.
 
+### Scorer mart contracts and games freshness
+
+`fct_games` and `fct_upcoming_games` set `contract.enforced: true`. Every column those models select is listed with `data_type`: `string`, `int`, or `double`. dbt compares the model with `cast(null as <data_type>)` before it writes the table. On the Databricks table materialization this repo uses, `use_materialization_v2` stays off, so the check is a `select` with `limit 0`. That select creates no relation. When the check fails, `CREATE OR REPLACE` does not run and the existing mart stays.
+
+A passing build replaces `workspace.nfl_dev_marts.fct_games` and `workspace.nfl_dev_marts.fct_upcoming_games`. Those are the relations the scorer already reads. The build keeps those names. It does not add a table, and it does not write `nfl_dev_test_results`. `store_failures` stays off. DuckDB builds a temporary relation, renames it onto the existing name, and drops the backup. That temporary name lives only in the local DuckDB file.
+
+The warehouse was not queried for these types. They come from the public schedules parquet after the pandas rewrite in `download_nflverse_games`, read on 2026-11-10. Text stayed text, including `gameday`. `season`, `week`, `away_rest`, and `home_rest` stayed int32. Scores, moneylines, `temp`, `wind`, `spread_line`, and `total_line` are double because nulls widened them. The 0/1 flags are cast to `int`. Score arithmetic is cast to `double`. Run the Databricks commands below before treating the contract as confirmed.
+
+Games freshness uses `ingested_at`. `gameday` is the schedule date, stored as text. A future kickoff would keep `max(gameday)` inside a freshness window after the bronze load is old. `ingested_at` is `cast(current_timestamp() as timestamp)` on the games replace. Every row from one reload shares that statement timestamp. Staging leaves the column out, so the marts and the scorer stay as they are. Play-by-play and depth charts are unchanged.
+
+`dbt build` does not run source freshness, so the contract build can run before the games reload. `dbt source freshness` needs `ingested_at` on `workspace.nfl_raw.games`. That column appears when the games reload runs. The reload was not run from this change.
+
+The next Pages run that still has a week to score runs `load_raw_nflverse --current-season --dataset all`, then `dbt build`. That ingest replaces `workspace.nfl_raw.games` and adds `ingested_at`. A week already on `published-slates` is skipped before ingest. A push to `main` does not score.
+
+The windows follow that weekly reload: warn after 8 days, error after 15. A load from the previous Tuesday is still inside the warn window. A missed Tuesday warns. Two missed Tuesdays error. An offseason table that has not been reloaded errors. Freshness is not in `dbt build` or in Pages, so that error does not block scoring.
+
+Reload games, then check freshness. The command uses the `.env` already on the machine. Leave `.env` uncommitted. It replaces `workspace.nfl_raw.games` with the same nflverse rows plus `ingested_at`. It leaves play-by-play and depth charts alone. It does not score, write `published-slates`, or change a model alias.
+
+```bash
+python -m endzone.ingest.load_raw_nflverse --dataset games
+```
+
+```powershell
+python -m endzone.ingest.load_raw_nflverse --dataset games
+```
+
+From `dbt/`:
+
+```bash
+dbt source freshness --profiles-dir . --target databricks --select source:nflverse.raw_games
+```
+
+The contract build needs `dbt deps` when `dbt_packages` is missing. It replaces the two existing marts and runs their tests. It does not need the games reload, and it does not store failure rows.
+
+```bash
+cd dbt && dbt deps --profiles-dir . && dbt build --profiles-dir . --target databricks --select fct_games fct_upcoming_games
+```
+
+PowerShell 5.1 has no `&&`:
+
+```powershell
+Push-Location dbt
+dbt deps --profiles-dir .
+if ($LASTEXITCODE -eq 0) { dbt build --profiles-dir . --target databricks --select fct_games fct_upcoming_games }
+Pop-Location
+```
+
+`make dbt-build-databricks` or `.\scripts\dev.ps1 dbt-build-databricks` rebuilds every mart in `nfl_dev_marts`. That also keeps `store_failures` off.
+
+Rollback: revert the change, then build the two marts again. That replaces the same two relations with the previous SQL. A failed contract check leaves the previous marts in place, so those tables need no warehouse rollback. After a games reload, `ingested_at` remains until the next games reload from the reverted code, which writes `SELECT *` again. Staging ignores the extra column either way. Leave `nfl_dev_marts`, `nfl_raw`, `published-slates`, and model aliases where they are.
+
 ### Depth charts from 2025
 
 `depth_charts_2001.parquet` through `depth_charts_2024.parquet` are weekly. They already have `season`, `club_code`, `week`, `game_type`, `depth_team`, `formation`, `position`, and `gsis_id`.

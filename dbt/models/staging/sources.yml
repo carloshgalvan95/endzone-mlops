@@ -31,8 +31,20 @@ sources:
         description: |
           NFL game schedules and results from 1999-present.
           Includes scores, betting lines, venue, weather, and cross-reference IDs.
+
+          ingested_at is the timestamp of the bronze replace, not gameday.
+          The live games table does not have that column until the games reload.
+          Staging does not select it.
         
         config:
+          loaded_at_field: ingested_at
+          freshness:
+            warn_after:
+              count: 8
+              period: day
+            error_after:
+              count: 15
+              period: day
           meta:
             parquet_url: "https://github.com/nflverse/nflverse-data/releases/download/schedules/games.parquet"
             update_frequency: "Daily (nightly after games complete)"
