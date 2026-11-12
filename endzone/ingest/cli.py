@@ -10,6 +10,7 @@ from typing import Any
 from endzone.config import get_databricks_config, load_env_file
 from endzone.data.warehouse import connect_sql, connect_workspace
 from endzone.ingest.depth_charts import download_nflverse_depth_charts
+from endzone.ingest.injuries import download_nflverse_injuries
 from endzone.ingest.nflverse import (
     download_nflverse_games,
     download_nflverse_pbp,
@@ -71,9 +72,12 @@ See .env.example and docs/runbook.md for configuration details.
     )
     parser.add_argument(
         "--dataset",
-        choices=["games", "pbp", "depth_charts", "all"],
+        choices=["games", "pbp", "depth_charts", "injuries", "all"],
         default="all",
-        help="Dataset to load (default: all). depth_charts is the weekly starter chart.",
+        help=(
+            "Dataset to load (default: all). depth_charts is the weekly starter chart. "
+            "injuries is the weekly injury report from 2009."
+        ),
     )
     parser.add_argument(
         "--log-level",
@@ -85,7 +89,7 @@ See .env.example and docs/runbook.md for configuration details.
 
 
 def _season_plan(args: argparse.Namespace) -> dict[str, list[int]]:
-    """Resolve games, pbp, and depth-chart season lists for this invocation."""
+    """Resolve games, pbp, depth-chart, and injury season lists for this invocation."""
     if args.seasons:
         season_range = args.seasons
     else:
@@ -97,11 +101,22 @@ def _season_plan(args: argparse.Namespace) -> dict[str, list[int]]:
     if args.current_season:
         current = get_current_season()
         logger.info(
-            "Current season mode: pbp and depth charts load %s only, games loads full range",
+            "Current season mode: pbp, depth charts, and injuries load %s only, "
+            "games loads full range",
             current,
         )
-        return {"games": all_seasons, "pbp": [current], "depth_charts": [current]}
-    return {"games": all_seasons, "pbp": all_seasons, "depth_charts": all_seasons}
+        return {
+            "games": all_seasons,
+            "pbp": [current],
+            "depth_charts": [current],
+            "injuries": [current],
+        }
+    return {
+        "games": all_seasons,
+        "pbp": all_seasons,
+        "depth_charts": all_seasons,
+        "injuries": all_seasons,
+    }
 
 
 def _load_games(
@@ -152,6 +167,25 @@ def _load_depth_charts(
     create_bronze_table(sql_connection, "depth_charts", volume_path=None)
 
 
+def _load_injuries(
+    sql_connection: Any,
+    workspace_client: Any,
+    seasons: list[int],
+) -> None:
+    """Upload one injury file per season, then replace the bronze table."""
+    logger.info("Loading injury reports for seasons: %s", seasons)
+    with TemporaryDirectory() as injury_dir:
+        processed_injuries = download_nflverse_injuries(
+            seasons,
+            Path(injury_dir),
+            workspace_client,
+        )
+    if not processed_injuries:
+        logger.warning("No injury reports processed, skipping bronze table creation")
+        return
+    create_bronze_table(sql_connection, "injuries", volume_path=None)
+
+
 def main(argv: list[str] | None = None) -> int:
     """Load nflverse parquet into ``workspace.nfl_raw``.
 
@@ -187,6 +221,8 @@ def main(argv: list[str] | None = None) -> int:
                     _load_pbp(sql_connection, workspace_client, plan["pbp"])
                 if args.dataset in ("depth_charts", "all"):
                     _load_depth_charts(sql_connection, workspace_client, plan["depth_charts"])
+                if args.dataset in ("injuries", "all"):
+                    _load_injuries(sql_connection, workspace_client, plan["injuries"])
             logger.info("Data load completed successfully")
             return 0
         finally:
