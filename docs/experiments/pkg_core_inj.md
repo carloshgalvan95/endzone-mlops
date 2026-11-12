@@ -2,6 +2,8 @@
 
 Preregistered before any fit. This note does not report a log loss. I will copy `reports/phase2_pkg_core_inj/comparison.md` here only after the warehouse run, and only if I decide a candidate.
 
+Pre-results bug fix: a game with no injury rows does not need a kickoff, and a game whose kickoff cannot be built stays at 0. The 2016-2023 rule is unchanged.
+
 The question is whether four pre-game starter-absence counts improve logistic `pkg_core` on the same rolling-origin window as ADR-005. The reference is logistic `h2_full`. `pkg_core` is scored in the same run for context. It is not a second candidate.
 
 ## Coverage gate
