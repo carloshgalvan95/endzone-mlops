@@ -14,6 +14,7 @@ from endzone.features.pregame import (
     FEATURE_SET_H5_QB,
     FEATURE_SET_PKG_CORE,
     PKG_CORE_INJ_FEATURE_SETS,
+    PRIOR_SHRINK_FEATURE_SETS,
     QBELO538_FEATURE_SETS,
     build_pregame_features,
     prepare_training_data,
@@ -137,14 +138,16 @@ def run_holdout(args: argparse.Namespace) -> None:
     """Train one model on seasons through the train cut and log the validation metrics.
 
     Recency, H6, pkg_core, the injury candidates, the ensemble
-    candidates, and the QB Elo candidate are refused before any warehouse
-    read. That split scores 2024 and 2025. The preregistered commands are
+    candidates, the QB Elo candidate, and the prior-shrink candidates
+    are refused before any warehouse read. That split scores 2024 and
+    2025. The preregistered commands are
     ``python scripts/train_recency.py``, ``python scripts/train_h6.py``,
     ``python scripts/train_pkg_core.py``,
     ``python scripts/train_pkg_core_inj.py``,
     ``python scripts/train_ensembles.py``,
-    ``python scripts/train_ensembles_r2.py``, and
-    ``python scripts/train_qbelo538.py``.
+    ``python scripts/train_ensembles_r2.py``,
+    ``python scripts/train_qbelo538.py``, and
+    ``python scripts/train_prior_shrink.py``.
     """
     if args.feature_set in RECENCY_CHALLENGER_FEATURE_SETS:
         raise ValueError(
@@ -178,6 +181,13 @@ def run_holdout(args: argparse.Namespace) -> None:
         raise ValueError(
             f"{args.feature_set} is a preregistered QB Elo candidate. "
             "Score it with python scripts/train_qbelo538.py. "
+            "That command is rolling-origin CV for seasons 2016-2023. "
+            "This split scores 2024 and 2025."
+        )
+    if args.feature_set in PRIOR_SHRINK_FEATURE_SETS:
+        raise ValueError(
+            f"{args.feature_set} is a preregistered prior-shrink candidate. "
+            "Score it with python scripts/train_prior_shrink.py. "
             "That command is rolling-origin CV for seasons 2016-2023. "
             "This split scores 2024 and 2025."
         )

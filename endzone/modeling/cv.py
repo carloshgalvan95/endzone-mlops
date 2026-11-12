@@ -13,6 +13,7 @@ from endzone.modeling.evaluation import binary_classification_metrics
 from endzone.modeling.hypotheses import FINAL_VALIDATION_SEASON, HELD_OUT_TEST_SEASON
 from endzone.modeling.models import (
     model_feature_columns,
+    season_decay_weights,
     select_logistic_l2_c,
     train_baseline_home,
     train_logistic_regression,
@@ -308,8 +309,17 @@ def _baseline_fold_predictor() -> FoldPredictor:
     return predict
 
 
-def _logistic_fold_predictor(c_value: float, max_iter: int, random_state: int) -> FoldPredictor:
-    """Logistic pipeline refit on each fold's training seasons."""
+def _logistic_fold_predictor(
+    c_value: float,
+    max_iter: int,
+    random_state: int,
+    season_half_life: float | None = None,
+) -> FoldPredictor:
+    """Logistic pipeline refit on each fold's training seasons.
+
+    ``season_half_life`` weights training rows by season age. None leaves
+    the fit unweighted. The evaluation rows are never weighted.
+    """
 
     def predict(
         train_frame: pd.DataFrame,
@@ -317,6 +327,9 @@ def _logistic_fold_predictor(c_value: float, max_iter: int, random_state: int) -
         eval_frame: pd.DataFrame,
         eval_target: pd.Series,
     ) -> np.ndarray:
+        weights: np.ndarray | None = None
+        if season_half_life is not None:
+            weights = season_decay_weights(train_frame["season"], season_half_life)
         model, _metrics = train_logistic_regression(
             train_frame,
             train_target,
@@ -325,6 +338,7 @@ def _logistic_fold_predictor(c_value: float, max_iter: int, random_state: int) -
             C=c_value,
             max_iter=max_iter,
             random_state=random_state,
+            sample_weight=weights,
         )
         return _model_probability(model, eval_frame)
 

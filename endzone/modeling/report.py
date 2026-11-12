@@ -344,6 +344,25 @@ def _profile_lines(profile: str) -> list[str]:
             "They are not acceptance decisions. No blend is published.",
             "The market row is a benchmark. It is not a candidate.",
         ]
+    if profile == "prior_shrink":
+        return [
+            "pkg_core_inj_l2_k39 is the defender columns with the same",
+            "names and order. Regressed season and within-season recent",
+            "EPA uses blend k 3 on offense and k 9 on defense. Shrink",
+            "stays 1/3. C is fixed at 0.1.",
+            "pkg_core_inj_l2_k39_decay uses those same columns. Training",
+            "rows are weighted by 0.5 ** ((last_train_season - season) / 5).",
+            "The weight is computed on each fold's training seasons.",
+            "Scoring is unweighted.",
+            "Each candidate is judged alone against logistic pkg_core_inj_l2.",
+            "h2_full, Elo, and elo_mov are context. They are not candidates.",
+            "elo_mov is the margin Elo gap plus home advantage 65 on a",
+            "400 scale.",
+            "Calibration, the per-season table, and the market-information",
+            "regression are descriptive. They are not acceptance decisions.",
+            "No blend is published.",
+            "The market row is a benchmark. It is not a candidate.",
+        ]
     if profile == "ridge":
         grid_text: str = ", ".join(_format_regularization_c(value) for value in DEFAULT_L2_C_GRID)
         return (

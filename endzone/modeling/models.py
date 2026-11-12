@@ -22,6 +22,9 @@ IDENTIFIER_COLUMNS: tuple[str, ...] = ("game_id", "gameday", "season")
 # Fixed-C logistic is already L2. logistic_l2 chooses C inside each training fold.
 # The grid matches the sweep endpoints (0.1 and 10) plus one step on each side.
 DEFAULT_L2_C_GRID: tuple[float, ...] = (0.01, 0.1, 1.0, 10.0, 100.0)
+# Training-row weight half-life for the prior-shrink decay candidate.
+# A season five years before the last training season has weight 0.5.
+TRAIN_SEASON_HALF_LIFE: float = 5.0
 # Recency point differential, signed streak, and Elo difference. The fill is
 # the constant 0. These names are not the home-minus-away ``diff_`` columns.
 _FORM_COLUMN_MARKERS: tuple[str, ...] = (
@@ -187,17 +190,49 @@ def train_baseline_home(
     return model, _validation_metrics(y_val, y_pred, y_pred_proba)
 
 
+def season_decay_weights(
+    seasons: pd.Series, half_life: float = TRAIN_SEASON_HALF_LIFE
+) -> np.ndarray:
+    """Weight each training row by how old its season is.
+
+    ``w = 0.5 ** ((last_train_season - season) / half_life)``. The last
+    training season in ``seasons`` has weight 1. The scored season is not
+    an input.
+
+    Args:
+        seasons: Season of each training row.
+        half_life: Seasons that cut the weight in half. Must be positive.
+
+    Returns:
+        One weight per row, in the same order.
+
+    Raises:
+        ValueError: ``half_life`` is not positive, or a season is missing.
+    """
+    if float(half_life) <= 0.0:
+        raise ValueError("half_life must be positive")
+    values: pd.Series = pd.to_numeric(seasons, errors="coerce")
+    if values.isna().any():
+        raise ValueError("training seasons must be numeric")
+    season_values: np.ndarray = values.to_numpy(dtype=float)
+    last_train_season: float = float(np.max(season_values))
+    return np.power(0.5, (last_train_season - season_values) / float(half_life))
+
+
 def fit_logistic_pipeline(
     X_train: pd.DataFrame,
     y_train: pd.Series,
     C: float = 1.0,
     max_iter: int = 1000,
     random_state: int = 42,
+    sample_weight: np.ndarray | None = None,
 ) -> Pipeline:
     """Fit logistic regression with imputation and standard scaling.
 
     Scaling follows imputation so lbfgs can converge when ``C`` is large and
     the feature scales differ. The caller scores whatever rows it needs.
+    ``sample_weight`` is applied only to the classifier. None leaves the
+    fit unweighted, which is the path every other model uses.
     """
     feature_cols: list[str] = model_feature_columns(X_train)
     pipeline = Pipeline(
@@ -215,7 +250,16 @@ def fit_logistic_pipeline(
             ),
         ]
     )
-    pipeline.fit(X_train[feature_cols], y_train)
+    fit_rows: pd.DataFrame = X_train[feature_cols]
+    if sample_weight is None:
+        pipeline.fit(fit_rows, y_train)
+    else:
+        weights: np.ndarray = np.asarray(sample_weight, dtype=float)
+        if len(weights) != len(fit_rows):
+            raise ValueError("sample_weight must have one value per training row")
+        if not np.isfinite(weights).all() or (weights < 0.0).any():
+            raise ValueError("sample_weight must be finite and non-negative")
+        pipeline.fit(fit_rows, y_train, classifier__sample_weight=weights)
     return pipeline
 
 
@@ -254,10 +298,13 @@ def train_logistic_regression(
     C: float = 1.0,
     max_iter: int = 1000,
     random_state: int = 42,
+    sample_weight: np.ndarray | None = None,
 ) -> tuple[Pipeline, dict[str, float]]:
     """Train logistic regression and score the validation split.
 
     The fitted pipeline is the same one ``fit_logistic_pipeline`` returns.
+    ``sample_weight`` weights training rows only. The validation score
+    stays unweighted.
     """
     pipeline: Pipeline = fit_logistic_pipeline(
         X_train,
@@ -265,6 +312,7 @@ def train_logistic_regression(
         C=C,
         max_iter=max_iter,
         random_state=random_state,
+        sample_weight=sample_weight,
     )
     feature_cols: list[str] = model_feature_columns(X_train)
     y_pred_proba: np.ndarray = pipeline.predict_proba(X_val[feature_cols])[:, 1]

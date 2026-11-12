@@ -11,9 +11,12 @@ import pandas as pd
 from endzone.config import configured_tracking_uri
 from endzone.features.opponent import ELO_MOV_DIFF_COLUMN
 from endzone.features.pregame import (
+    DEFENSIVE_BLEND_K,
     FEATURE_SET_CURRENT,
     FEATURE_SET_H2_FULL,
+    OFFENSIVE_BLEND_K,
     PKG_CORE_INJ_FEATURE_SETS,
+    PRIOR_SHRINK_FEATURE_SETS,
     QBELO538_FEATURE_SETS,
     attach_qb_features,
     build_pregame_features,
@@ -171,11 +174,36 @@ def run_phase1_baselines(
         injury_reports=injury_reports,
         qb_box_scores=qb_box_scores,
     )
+    requested_sets: tuple[str, ...] = _requested_feature_sets(
+        model_specs, reference_spec["feature_set"]
+    )
     validate_feature_columns(
         features,
-        _requested_feature_sets(model_specs, reference_spec["feature_set"]),
+        requested_sets,
         max_null_fraction=max_null_fraction,
     )
+    prior_sets: tuple[str, ...] = tuple(
+        name for name in requested_sets if name in PRIOR_SHRINK_FEATURE_SETS
+    )
+    prior_features: pd.DataFrame | None = None
+    if prior_sets:
+        prior_features = build_pregame_features(
+            games,
+            team_games,
+            lookback_games=lookback_games,
+            expected_starters=expected_starters,
+            qb_dropbacks=qb_dropbacks,
+            depth_chart_starters=depth_chart_starters,
+            injury_reports=injury_reports,
+            qb_box_scores=qb_box_scores,
+            blend_k_offense=OFFENSIVE_BLEND_K,
+            blend_k_defense=DEFENSIVE_BLEND_K,
+        )
+        validate_feature_columns(
+            prior_features,
+            prior_sets,
+            max_null_fraction=max_null_fraction,
+        )
     settings = CvScoreSettings(
         resolved=resolved,
         lookback_games=lookback_games,
@@ -211,7 +239,12 @@ def run_phase1_baselines(
     for spec in model_specs:
         if spec.model in DERIVED_CV_MODELS:
             continue
-        results.append(_score_model_spec(games, features, spec, settings, shared))
+        spec_features: pd.DataFrame = features
+        if spec.feature_set in PRIOR_SHRINK_FEATURE_SETS:
+            if prior_features is None:
+                raise ValueError(f"{spec.feature_set} is missing its blend frame")
+            spec_features = prior_features
+        results.append(_score_model_spec(games, spec_features, spec, settings, shared))
     needs_elo: bool = any(
         spec.model in {MODEL_ENS_MEAN_ELO, MODEL_STACK_ELO} for spec in derived_specs
     )
@@ -240,7 +273,7 @@ def run_phase1_baselines(
             raise ValueError(f"Unknown derived model {spec.model!r}.")
     if not needs_elo:
         results.append(_score_elo(games, current_matrix, current_target, settings, shared))
-    if experiment.report_profile == "qbelo538":
+    if experiment.report_profile in {"qbelo538", "prior_shrink"}:
         results.append(
             _score_rating_gap(
                 features,
@@ -252,6 +285,7 @@ def run_phase1_baselines(
                 MODEL_ELO_MOV,
             )
         )
+    if experiment.report_profile == "qbelo538":
         results.append(
             _score_rating_gap(
                 features,
@@ -312,8 +346,9 @@ def run_phase1_baselines(
         )
         if experiment.report_profile in MARKET_BENCHMARK_PROFILES:
             report["acceptance"] = label_market_benchmark(report["acceptance"])
-        if experiment.report_profile == "qbelo538":
+        if experiment.report_profile in {"qbelo538", "prior_shrink"}:
             report["acceptance"] = label_context_baselines(report["acceptance"])
+        if experiment.report_profile == "qbelo538":
             starter_frame: pd.DataFrame = attach_qb_features(
                 games,
                 expected_starters,
@@ -371,8 +406,10 @@ def run_cv_cli(args: argparse.Namespace) -> None:
     depth_chart_starters: pd.DataFrame | None = None
     injury_reports: pd.DataFrame | None = None
     scored_sets: set[str] = {spec.feature_set for spec in experiment.model_specs}
-    if scored_sets.intersection(PKG_CORE_INJ_FEATURE_SETS) or scored_sets.intersection(
-        QBELO538_FEATURE_SETS
+    if (
+        scored_sets.intersection(PKG_CORE_INJ_FEATURE_SETS)
+        or scored_sets.intersection(QBELO538_FEATURE_SETS)
+        or scored_sets.intersection(PRIOR_SHRINK_FEATURE_SETS)
     ):
         depth_chart_starters, injury_reports = load_injury_inputs(fixture_path)
     qb_box_scores: pd.DataFrame | None = None

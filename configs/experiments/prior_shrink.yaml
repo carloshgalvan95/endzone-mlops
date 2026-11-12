@@ -1,0 +1,36 @@
+id: prior_shrink
+phase: 2
+default: false
+aliases:
+  - prior_shrink
+tag: prior_shrink
+short_name: prior_shrink
+experiment_name: nfl_pregame/phase2_prior_shrink
+phase_tag: "2"
+output_dir: reports/phase2_prior_shrink
+title: Phase 2 prior strength and season weights
+note: "Phase 2 prior shrink. Logistic pkg_core_inj_l2_k39 and pkg_core_inj_l2_k39_decay against logistic pkg_core_inj_l2 on rolling-origin seasons 2016-2023. Both candidates use the defender columns with the same names and order. Regressed season and within-season recent EPA uses blend k 3 on offense and k 9 on defense. Shrink stays 1/3. C is fixed at 0.1. The decay candidate also weights training rows by 0.5 ** ((last_train_season - season) / 5). Scoring is unweighted. h2_full, Elo, and elo_mov are context. elo_mov is the margin Elo gap plus home advantage 65 on a 400 scale. The market row is benchmark. Calibration, per-season results, and the market-information regression are reported and are not gates. Each candidate is judged alone. No blend is published. 2024 and 2025 are not scored. No model is promoted from this run."
+reference_model: logistic
+reference_feature_set: pkg_core_inj_l2
+logistic_feature_sets:
+  - h2_full
+  - pkg_core_inj_l2
+  - pkg_core_inj_l2_k39
+  - pkg_core_inj_l2_k39_decay
+model_specs:
+  - model: logistic
+    feature_set: h2_full
+  - model: logistic
+    feature_set: pkg_core_inj_l2
+    fixed_c: 0.1
+  - model: logistic
+    feature_set: pkg_core_inj_l2_k39
+    fixed_c: 0.1
+  - model: logistic
+    feature_set: pkg_core_inj_l2_k39_decay
+    fixed_c: 0.1
+log_shrinkage: true
+log_qb: true
+qb_subset: false
+qb_feature_set: h5_qb
+report_profile: prior_shrink

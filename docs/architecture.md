@@ -128,7 +128,7 @@ An in-game state table is not in the repo. Weekly predictions are JSON files, no
 
 **v0.1 Scope**: Pregame win probability (logistic `h2_full`) plus margin and total. Both score targets passed ADR-007, so weekly scoring writes the estimate.
 
-**Not in the repo**: an in-game model and a feature-distribution drift monitor. A mean ensemble is preregistered in `docs/experiments/ensembles.md` and is not registered. A defender-plus-Elo mean and stack are preregistered in `docs/experiments/ensembles_r2.md` and are not registered. A FiveThirtyEight QB adjustment on Elo is preregistered in `docs/experiments/qbelo538.md` and is not registered. The published log-loss alert is ADR-009.
+**Not in the repo**: an in-game model and a feature-distribution drift monitor. A mean ensemble is preregistered in `docs/experiments/ensembles.md` and is not registered. A defender-plus-Elo mean and stack are preregistered in `docs/experiments/ensembles_r2.md` and are not registered. A FiveThirtyEight QB adjustment on Elo is preregistered in `docs/experiments/qbelo538.md` and is not registered. A prior-strength and season-weight comparison is preregistered in `docs/experiments/prior_shrink.md` and is not registered. The published log-loss alert is ADR-009.
 
 #### 4. Delta storage (Databricks Free Edition)
 

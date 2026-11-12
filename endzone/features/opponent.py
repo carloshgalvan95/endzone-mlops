@@ -339,6 +339,8 @@ def attach_h6_features(
     lookback_games: int,
     shrink_factor: float,
     blend_k: float,
+    blend_k_offense: float | None = None,
+    blend_k_defense: float | None = None,
 ) -> pd.DataFrame:
     """Build the H6 columns for every game.
 
@@ -352,6 +354,8 @@ def attach_h6_features(
         lookback_games: Cross-season window for recent adjusted EPA.
         shrink_factor: Fraction of the prior-season gap removed.
         blend_k: Current-season blend strength, ``n / (n + blend_k)``.
+        blend_k_offense: Offensive regressed blend. None uses ``blend_k``.
+        blend_k_defense: Defensive regressed blend. None uses ``blend_k``.
 
     Returns:
         One row per input game, with ``game_id`` and ``H6_OUTPUT_COLUMNS``.
@@ -444,6 +448,8 @@ def attach_h6_features(
                 ADJ_OFFENSIVE_COLUMN,
                 ADJ_DEFENSIVE_COLUMN,
                 infix="adj_",
+                blend_k_offense=blend_k_offense,
+                blend_k_defense=blend_k_defense,
             )
             record.update(block)
         missing_names: list[str] = [
