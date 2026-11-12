@@ -22,6 +22,7 @@ Licensed under CC BY 4.0: https://creativecommons.org/licenses/by/4.0/
 - Games/schedules: `https://github.com/nflverse/nflverse-data/releases/download/schedules/games.parquet`
 - Player data: `https://github.com/nflverse/nflverse-data/releases/download/player_stats/players.parquet`
 - Weekly depth charts (2001 onward): `https://github.com/nflverse/nflverse-data/releases/download/depth_charts/depth_charts_{season}.parquet`
+- Weekly injury reports (2009 onward): `https://github.com/nflverse/nflverse-data/releases/download/injuries/injuries_{season}.parquet`
 
 **Terms of Use**:
 - Attribution required: Yes (this document fulfills requirement)
