@@ -536,6 +536,16 @@ PYTHONUTF8=1 MLFLOW_TRACKING_URI=databricks MLFLOW_REGISTRY_URI=databricks-uc uv
 
 `make train-ensembles` is the train step alone. Windows: `.\scripts\dev.ps1 train-ensembles`.
 
+### Defender plus Elo
+
+`ens_mean_elo` and `stack_elo` are preregistered against logistic `pkg_core_inj_l2`. The stacker is fit on inner out-of-fold rows from 2010 through the season before the one being scored. The command does not ingest, register, or promote. See `docs/experiments/ensembles_r2.md`.
+
+```bash
+PYTHONUTF8=1 MLFLOW_TRACKING_URI=databricks MLFLOW_REGISTRY_URI=databricks-uc uv run python scripts/train_ensembles_r2.py
+```
+
+`make train-ensembles-r2` is the train step alone. Windows: `.\scripts\dev.ps1 train-ensembles-r2`.
+
 ### Test result schema
 
 `dbt build` and `dbt test` run the tests and do not store a failure relation for each one. Unity Catalog Free Edition allows 100 tables per schema and counts views toward that same quota. The project used to set `store_failures` on every test, so `<target_schema>_test_results` filled with one relation per test, including empty relations from tests that passed. The warning fires at 80 relations. `tests/test_dbt_store_failures.py` fails if a project or directory config turns `store_failures` back on, and the cap on named exceptions is 0.

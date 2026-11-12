@@ -43,7 +43,7 @@ DEFAULT_DATABRICKS_EXPERIMENT_ROOT: str = "/Shared/endzone-mlops"
 _ENV_EXPERIMENT_ROOT: str = "ENDZONE_MLFLOW_EXPERIMENT_ROOT"
 BASELINE_MODEL_NAMES: frozenset[str] = frozenset({"baseline-home", "elo", "market"})
 SCORED_FEATURE_MODELS: frozenset[str] = frozenset(
-    {"logistic", "logistic_l2", "gbm_pkg_core_inj", "ens_mean"}
+    {"logistic", "logistic_l2", "gbm_pkg_core_inj", "ens_mean", "ens_mean_elo", "stack_elo"}
 )
 
 

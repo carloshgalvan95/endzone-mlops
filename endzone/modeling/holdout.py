@@ -140,8 +140,9 @@ def run_holdout(args: argparse.Namespace) -> None:
     2024 and 2025. The preregistered commands are
     ``python scripts/train_recency.py``, ``python scripts/train_h6.py``,
     ``python scripts/train_pkg_core.py``,
-    ``python scripts/train_pkg_core_inj.py``, and
-    ``python scripts/train_ensembles.py``.
+    ``python scripts/train_pkg_core_inj.py``,
+    ``python scripts/train_ensembles.py``, and
+    ``python scripts/train_ensembles_r2.py``.
     """
     if args.feature_set in RECENCY_CHALLENGER_FEATURE_SETS:
         raise ValueError(

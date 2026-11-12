@@ -26,7 +26,15 @@ from endzone.modeling.dataset import (
     load_qb_inputs,
     validate_feature_columns,
 )
-from endzone.modeling.ensembles import MODEL_ENS_MEAN, ensemble_mean_result
+from endzone.modeling.ensembles import (
+    DERIVED_CV_MODELS,
+    MODEL_ENS_MEAN,
+    MODEL_ENS_MEAN_ELO,
+    MODEL_STACK_ELO,
+    elo_mean_result,
+    ensemble_mean_result,
+    stack_elo_result,
+)
 from endzone.modeling.evaluation import (
     MIN_LOG_LOSS_IMPROVEMENT,
     acceptance_decisions,
@@ -173,18 +181,48 @@ def run_phase1_baselines(
     results: list[dict[str, Any]] = [
         _score_baseline(current_matrix, current_target, settings, shared)
     ]
-    ensemble_specs: tuple[CvModelSpec, ...] = tuple(
-        spec for spec in model_specs if spec.model == MODEL_ENS_MEAN
+    derived_specs: tuple[CvModelSpec, ...] = tuple(
+        spec for spec in model_specs if spec.model in DERIVED_CV_MODELS
     )
-    if len(ensemble_specs) > 1:
-        raise ValueError("ens_mean can be scored only once")
+    derived_counts: dict[str, int] = {}
+    for spec in derived_specs:
+        derived_counts[spec.model] = derived_counts.get(spec.model, 0) + 1
+    repeated: list[str] = [name for name, count in derived_counts.items() if count > 1]
+    if repeated:
+        joined: str = ", ".join(repeated)
+        raise ValueError(f"derived model scored more than once: {joined}")
     for spec in model_specs:
-        if spec.model == MODEL_ENS_MEAN:
+        if spec.model in DERIVED_CV_MODELS:
             continue
         results.append(_score_model_spec(games, features, spec, settings, shared))
-    for spec in ensemble_specs:
-        results.append(ensemble_mean_result(results, spec, shared))
-    results.append(_score_elo(games, current_matrix, current_target, settings, shared))
+    needs_elo: bool = any(
+        spec.model in {MODEL_ENS_MEAN_ELO, MODEL_STACK_ELO} for spec in derived_specs
+    )
+    if needs_elo:
+        results.append(_score_elo(games, current_matrix, current_target, settings, shared))
+    for spec in derived_specs:
+        if spec.model == MODEL_ENS_MEAN:
+            results.append(ensemble_mean_result(results, spec, shared))
+        elif spec.model == MODEL_ENS_MEAN_ELO:
+            results.append(elo_mean_result(results, spec, shared))
+        elif spec.model == MODEL_STACK_ELO:
+            results.append(
+                stack_elo_result(
+                    games,
+                    features,
+                    results,
+                    spec,
+                    shared,
+                    cv_start_season=settings.resolved.cv_start_season,
+                    cv_end_season=settings.resolved.cv_end_season,
+                    logistic_max_iter=settings.logistic_max_iter,
+                    random_state=settings.random_state,
+                )
+            )
+        else:
+            raise ValueError(f"Unknown derived model {spec.model!r}.")
+    if not needs_elo:
+        results.append(_score_elo(games, current_matrix, current_target, settings, shared))
     results.append(_score_market(games, settings, shared))
     attach_reference_comparison(
         results,
@@ -241,6 +279,13 @@ def run_phase1_baselines(
             n_bootstrap=resolved.n_bootstrap,
             seed=resolved.bootstrap_seed,
         )
+    stacker_frames: list[pd.DataFrame] = [
+        result["stacker_coefficients"]
+        for result in results
+        if isinstance(result.get("stacker_coefficients"), pd.DataFrame)
+    ]
+    if stacker_frames:
+        report["stacker_coefficients"] = pd.concat(stacker_frames, ignore_index=True)
     report["markdown"] = render_phase1_report(report)
     return report
 

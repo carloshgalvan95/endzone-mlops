@@ -1,0 +1,32 @@
+id: ensembles_r2
+phase: 2
+default: false
+aliases:
+  - ensembles_r2
+tag: ensembles_r2
+short_name: ensembles_r2
+experiment_name: nfl_pregame/phase2_ensembles_r2
+phase_tag: "2"
+output_dir: reports/phase2_ensembles_r2
+title: Phase 2 mean and stack of the defender and Elo
+note: "Phase 2 ensembles round 2. ens_mean_elo and stack_elo against logistic pkg_core_inj_l2 on rolling-origin seasons 2016-2023. h2_full, Elo, and the market are scored in the same run for context. ens_mean_elo is the unweighted mean of per-fold logistic pkg_core_inj_l2 and Elo probabilities. stack_elo is logistic regression on logit(p_pkg_core_inj_l2) and logit(p_elo) with an intercept and C fixed at 1.0. Probabilities are clipped at 1e-6 before the logit. For outer season S the stacker is fit only on inner out-of-fold rows from 2010 through S-1. Members for inner season T train on seasons before T. The stacker does not see season S or any later season. pkg_core_inj_l2 fixes C at 0.1. The market row is benchmark. Calibration, per-season results, stacker coefficients, and the market-information regression are reported and are not gates. No blend is published. 2024 and 2025 are not scored. No model is promoted from this run."
+reference_model: logistic
+reference_feature_set: pkg_core_inj_l2
+logistic_feature_sets:
+  - h2_full
+  - pkg_core_inj_l2
+model_specs:
+  - model: logistic
+    feature_set: h2_full
+  - model: logistic
+    feature_set: pkg_core_inj_l2
+    fixed_c: 0.1
+  - model: ens_mean_elo
+    feature_set: pkg_core_inj_l2
+  - model: stack_elo
+    feature_set: pkg_core_inj_l2
+log_shrinkage: true
+log_qb: true
+qb_subset: false
+qb_feature_set: h5_qb
+report_profile: ensembles_r2
