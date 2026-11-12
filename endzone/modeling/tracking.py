@@ -45,7 +45,16 @@ BASELINE_MODEL_NAMES: frozenset[str] = frozenset(
     {"baseline-home", "elo", "market", "elo_mov", "qbelo538"}
 )
 SCORED_FEATURE_MODELS: frozenset[str] = frozenset(
-    {"logistic", "logistic_l2", "gbm_pkg_core_inj", "ens_mean", "ens_mean_elo", "stack_elo"}
+    {
+        "logistic",
+        "logistic_l2",
+        "gbm_pkg_core_inj",
+        "ens_mean",
+        "ens_mean_elo",
+        "stack_elo",
+        "margin_ridge_pkg_core_inj",
+        "margin_mean",
+    }
 )
 
 

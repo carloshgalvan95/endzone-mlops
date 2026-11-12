@@ -1,4 +1,4 @@
-.PHONY: help setup install lint lint-structure test vulture dbt-compile dbt-run dbt-test clean reproduce data ingest ingest-current marts dbt-build-databricks train train-sweep train-cv train-recency train-h6 train-pkg-core train-pkg-core-inj train-ensembles train-ensembles-r2 train-qbelo538 train-prior-shrink train-s2 mlflow-ui audit-features check-epa-filter verify-reference walk-forward verify-walk-forward score rebuild-week refresh-results track-record backfill-archive register-model register-recent promote-model
+.PHONY: help setup install lint lint-structure test vulture dbt-compile dbt-run dbt-test clean reproduce data ingest ingest-current marts dbt-build-databricks train train-sweep train-cv train-recency train-h6 train-pkg-core train-pkg-core-inj train-ensembles train-ensembles-r2 train-qbelo538 train-prior-shrink train-margin train-s2 mlflow-ui audit-features check-epa-filter verify-reference walk-forward verify-walk-forward score rebuild-week refresh-results track-record backfill-archive register-model register-recent promote-model
 
 # Finished bronze and mart steps. Gitignored. A second train-cv does not
 # reload bronze when these stamps are current.
@@ -36,6 +36,7 @@ help:
 	@echo "  train-ensembles-r2  - Preregistered defender-plus-Elo mean and stack, seasons 2016-2023. Does not register"
 	@echo "  train-qbelo538      - Preregistered QB adjustment on Elo, seasons 2016-2023. Does not register"
 	@echo "  train-prior-shrink  - Preregistered prior strength and season weights, seasons 2016-2023. Does not register"
+	@echo "  train-margin        - Preregistered margin-to-probability candidates, seasons 2016-2023. Does not register"
 	@echo "  mlflow-ui           - Open MLflow UI against the local SQLite store"
 	@echo "  audit-features      - Profile current pregame inputs (no feature changes)"
 	@echo "  check-epa-filter    - Count play types in the EPA filter, plus kneel and spike rows"
@@ -182,6 +183,13 @@ train-qbelo538:
 # at 2016-2023. No dbt rebuild is required.
 train-prior-shrink:
 	python scripts/train_prior_shrink.py
+
+# Preregistered margin-to-probability candidates. Does not build marts,
+# walk forward, register, or promote. The script fixes the window at
+# 2016-2023. It does not change the ADR-007 score models. No dbt rebuild
+# is required.
+train-margin:
+	python scripts/train_margin.py
 
 mlflow-ui:
 	mlflow ui --backend-store-uri sqlite:///mlflow.db --workers 1

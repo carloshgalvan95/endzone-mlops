@@ -18,6 +18,9 @@ from sklearn.preprocessing import StandardScaler
 MODEL_LOGISTIC: str = "logistic"
 MODEL_LOGISTIC_L2: str = "logistic_l2"
 MODEL_BASELINE_HOME: str = "baseline-home"
+# Win-probability candidates. These names are not the ADR-007 score models.
+MODEL_MARGIN_RIDGE: str = "margin_ridge_pkg_core_inj"
+MODEL_MARGIN_MEAN: str = "margin_mean"
 IDENTIFIER_COLUMNS: tuple[str, ...] = ("game_id", "gameday", "season")
 # Fixed-C logistic is already L2. logistic_l2 chooses C inside each training fold.
 # The grid matches the sweep endpoints (0.1 and 10) plus one step on each side.

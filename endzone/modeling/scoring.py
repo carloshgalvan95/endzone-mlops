@@ -47,6 +47,11 @@ from endzone.modeling.ensembles import (
     hist_gradient_boosting_param_fields,
 )
 from endzone.modeling.hypotheses import CvModelSpec
+from endzone.modeling.margin import (
+    MARGIN_RIDGE_ALPHA,
+    MODEL_MARGIN_RIDGE,
+    margin_ridge_fold_predictor,
+)
 from endzone.modeling.models import (
     DEFAULT_L2_C_GRID,
     MODEL_BASELINE_HOME,
@@ -218,6 +223,19 @@ def _score_model_spec(
         if half_life is not None:
             model_params["season_half_life"] = half_life
             model_params["sample_weight"] = "train_season_half_life"
+    elif spec.model == MODEL_MARGIN_RIDGE:
+        predictor = margin_ridge_fold_predictor(games)
+        model_params = {
+            **shared,
+            "model_type": spec.model,
+            "feature_set": spec.feature_set,
+            "features": columns,
+            "ridge_alpha": MARGIN_RIDGE_ALPHA,
+            "target": "home_score_minus_away_score",
+            "probability": "phi(mu/sigma)",
+            "sigma": "train_residual_std_ddof_1",
+            "probability_clip": 1e-6,
+        }
     else:
         raise ValueError(f"Unknown CV model {spec.model!r}.")
     scored: dict[str, Any] = rolling_origin_cv(matrix, target, predictor, settings.resolved)
