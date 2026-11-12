@@ -20,6 +20,8 @@ Features computed:
 - Opponent-adjusted EPA, same windows as h2_full, plus an Elo difference
   that uses the margin-of-victory multiplier (see ``endzone.features.opponent``)
 - ``pkg_core`` selects those existing columns. It does not compute a new one.
+- Pre-game starter absences: home minus away Out or Doubtful counts for
+  OL, skill, front seven, and DB (see ``endzone.features.injuries``)
 """
 
 import math
@@ -28,6 +30,7 @@ from typing import Any, NamedTuple
 import numpy as np
 import pandas as pd
 
+from endzone.features.injuries import INJURY_DIFF_COLUMNS, attach_injury_features
 from endzone.features.opponent import (
     ELO_MOV_DIFF_COLUMN,
     FEATURE_SET_H6_ADJ,
@@ -413,6 +416,17 @@ PKG_CORE_CHALLENGER_FEATURE_SETS: tuple[str, ...] = (
     FEATURE_SET_RECENCY_MARGIN,
     FEATURE_SET_H6_ADJ_ELO,
 )
+# pkg_core plus four home-minus-away starter absence counts. The L2 name is
+# the same columns with C fixed at 0.1. It is not a different formula.
+FEATURE_SET_PKG_CORE_INJ: str = "pkg_core_inj"
+FEATURE_SET_PKG_CORE_INJ_L2: str = "pkg_core_inj_l2"
+PREGAME_FEATURE_COLUMNS_PKG_CORE_INJ: tuple[str, ...] = (
+    PREGAME_FEATURE_COLUMNS_PKG_CORE + INJURY_DIFF_COLUMNS
+)
+PKG_CORE_INJ_FEATURE_SETS: tuple[str, ...] = (
+    FEATURE_SET_PKG_CORE_INJ,
+    FEATURE_SET_PKG_CORE_INJ_L2,
+)
 
 EXPECTED_STARTER_COLUMNS: tuple[str, ...] = (
     "game_id",
@@ -447,6 +461,8 @@ FEATURE_SET_NAMES: tuple[str, ...] = (
     FEATURE_SET_H6_ADJ,
     FEATURE_SET_H6_ADJ_ELO,
     FEATURE_SET_PKG_CORE,
+    FEATURE_SET_PKG_CORE_INJ,
+    FEATURE_SET_PKG_CORE_INJ_L2,
 )
 
 FEATURE_SET_COLUMNS: dict[str, tuple[str, ...]] = {
@@ -468,6 +484,8 @@ FEATURE_SET_COLUMNS: dict[str, tuple[str, ...]] = {
     FEATURE_SET_H6_ADJ: PREGAME_FEATURE_COLUMNS_H6_ADJ,
     FEATURE_SET_H6_ADJ_ELO: PREGAME_FEATURE_COLUMNS_H6_ADJ_ELO,
     FEATURE_SET_PKG_CORE: PREGAME_FEATURE_COLUMNS_PKG_CORE,
+    FEATURE_SET_PKG_CORE_INJ: PREGAME_FEATURE_COLUMNS_PKG_CORE_INJ,
+    FEATURE_SET_PKG_CORE_INJ_L2: PREGAME_FEATURE_COLUMNS_PKG_CORE_INJ,
 }
 
 # FiveThirtyEight-style Elo. Home advantage is added only when a game is
@@ -1371,6 +1389,8 @@ def build_pregame_features(
     expected_starters: pd.DataFrame | None = None,
     qb_dropbacks: pd.DataFrame | None = None,
     game_ids: set[str] | None = None,
+    depth_chart_starters: pd.DataFrame | None = None,
+    injury_reports: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """
     Build pre-game features for each game using only prior game data.
@@ -1389,6 +1409,10 @@ def build_pregame_features(
         qb_dropbacks: Passer dropbacks. This is who played, not the starter.
         game_ids: When set, only these games are returned. Prior rows still
             come from the full frame. None returns every game.
+        depth_chart_starters: Depth 1 chart rows. Omit together with
+            ``injury_reports`` to leave the absence columns missing.
+        injury_reports: Weekly injury rows, including timestamps on or after
+            kickoff. The absence columns drop those rows.
 
     Returns:
         DataFrame with game_id and feature columns
@@ -1478,6 +1502,12 @@ def build_pregame_features(
 
     ``pkg_core`` is a selection of columns already on this frame. It does not
     add a block and it does not change lookback, shrinkage, or the blend.
+
+    Injury columns are home minus away counts of depth-chart starters listed
+    Out or Doubtful. The report row has to carry ``date_modified`` strictly
+    before kickoff. Kickoff is ``gameday`` plus ``gametime`` in Eastern time.
+    QB is not in a group. Both injury inputs omitted leaves the columns
+    missing. See ``attach_injury_features``.
     """
     _validate_regression_settings(shrink_factor, blend_k)
     wanted: set[str] | None = None
@@ -1721,6 +1751,7 @@ def build_pregame_features(
         *QB_OUTPUT_COLUMNS,
         *RECENCY_OUTPUT_COLUMNS,
         *H6_OUTPUT_COLUMNS,
+        *INJURY_DIFF_COLUMNS,
     ]
     qb_features: pd.DataFrame = attach_qb_features(
         fct_games,
@@ -1739,6 +1770,12 @@ def build_pregame_features(
         blend_k=blend_k,
     )
     frame = frame.merge(h6_features, on="game_id", how="left")
+    injury_features: pd.DataFrame = attach_injury_features(
+        fct_games,
+        depth_chart_starters,
+        injury_reports,
+    )
+    frame = frame.merge(injury_features, on="game_id", how="left")
     return frame.loc[:, ordered_columns]
 
 
@@ -1802,6 +1839,8 @@ def feature_columns_for(feature_set: str) -> tuple[str, ...]:
     update uses the margin-of-victory multiplier.
     ``pkg_core`` is ``h6_adj_elo``, then the four ``h5_qb`` rating columns,
     then the ``recency_margin`` columns that are not already included.
+    ``pkg_core_inj`` appends the four starter-absence differences.
+    ``pkg_core_inj_l2`` uses those same columns.
 
     Args:
         feature_set: One of ``FEATURE_SET_NAMES``.

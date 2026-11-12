@@ -1,4 +1,4 @@
-.PHONY: help setup install lint lint-structure test vulture dbt-compile dbt-run dbt-test clean reproduce data ingest ingest-current marts dbt-build-databricks train train-sweep train-cv train-recency train-h6 train-pkg-core train-s2 mlflow-ui audit-features check-epa-filter verify-reference walk-forward verify-walk-forward score rebuild-week refresh-results track-record backfill-archive register-model register-recent promote-model
+.PHONY: help setup install lint lint-structure test vulture dbt-compile dbt-run dbt-test clean reproduce data ingest ingest-current marts dbt-build-databricks train train-sweep train-cv train-recency train-h6 train-pkg-core train-pkg-core-inj train-s2 mlflow-ui audit-features check-epa-filter verify-reference walk-forward verify-walk-forward score rebuild-week refresh-results track-record backfill-archive register-model register-recent promote-model
 
 # Finished bronze and mart steps. Gitignored. A second train-cv does not
 # reload bronze when these stamps are current.
@@ -31,6 +31,7 @@ help:
 	@echo "  train-recency       - Preregistered recency CV, seasons 2016-2023. Does not register"
 	@echo "  train-h6            - Preregistered H6 CV, seasons 2016-2023. Does not register"
 	@echo "  train-pkg-core      - Preregistered pkg_core CV, seasons 2016-2023. Does not register"
+	@echo "  train-pkg-core-inj  - Preregistered injury CV, seasons 2016-2023. Does not register"
 	@echo "  mlflow-ui           - Open MLflow UI against the local SQLite store"
 	@echo "  audit-features      - Profile current pregame inputs (no feature changes)"
 	@echo "  check-epa-filter    - Count play types in the EPA filter, plus kneel and spike rows"
@@ -149,6 +150,11 @@ train-h6:
 # register, or promote. The script fixes the window at 2016-2023.
 train-pkg-core:
 	python scripts/train_pkg_core.py
+
+# Preregistered injury candidates. Does not build marts, walk forward,
+# register, or promote. The script fixes the window at 2016-2023.
+train-pkg-core-inj:
+	python scripts/train_pkg_core_inj.py
 
 mlflow-ui:
 	mlflow ui --backend-store-uri sqlite:///mlflow.db --workers 1

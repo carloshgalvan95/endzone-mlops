@@ -80,6 +80,7 @@ def build_parser() -> argparse.ArgumentParser:
             "python scripts/train_recency.py scores the preregistered recency challengers. "
             "python scripts/train_h6.py scores the preregistered H6 challengers. "
             "python scripts/train_pkg_core.py scores the preregistered pkg_core package. "
+            "python scripts/train_pkg_core_inj.py scores the preregistered injury package. "
             "Does not score 2024 or 2025."
         ),
     )
@@ -308,6 +309,48 @@ def pkg_core_challenger_argv() -> list[str]:
         "42",
         "--output-dir",
         "reports/phase2_pkg_core",
+    ]
+
+
+def pkg_core_inj_challenger_argv() -> list[str]:
+    """Argv for the preregistered injury CV.
+
+    The window is seasons 2016-2023. Logistic ``h2_full`` and ``pkg_core``
+    stay at C 1. ``pkg_core_inj_l2`` fixes C at 0.1 in the experiment file.
+    The bootstrap is 1000 resamples, seed 42. The command does not register
+    a model and does not score 2024 or 2025.
+
+    Returns:
+        Arguments for ``endzone.modeling.train.main``.
+    """
+    return [
+        "--cv",
+        "--phase",
+        "2",
+        "--hypothesis",
+        "pkg_core_inj",
+        "--reference-model",
+        "logistic",
+        "--reference-feature-set",
+        "h2_full",
+        "--lookback",
+        "10",
+        "--C",
+        "1.0",
+        "--max-iter",
+        "1000",
+        "--seed",
+        "42",
+        "--cv-start-season",
+        "2016",
+        "--cv-end-season",
+        "2023",
+        "--n-bootstrap",
+        "1000",
+        "--bootstrap-seed",
+        "42",
+        "--output-dir",
+        "reports/phase2_pkg_core_inj",
     ]
 
 

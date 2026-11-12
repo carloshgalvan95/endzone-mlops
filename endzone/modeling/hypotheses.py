@@ -6,6 +6,7 @@ Elo, and the market are scored for every hypothesis and are not listed here.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -27,11 +28,12 @@ REPORT_PROFILES: frozenset[str] = frozenset(
         "starting_qb",
         "h6",
         "pkg_core",
+        "pkg_core_inj",
     }
 )
 # These profiles label the market ``benchmark`` and write calibration plus
 # the descriptive market-information regression. Other profiles do not.
-MARKET_BENCHMARK_PROFILES: frozenset[str] = frozenset({"h6", "pkg_core"})
+MARKET_BENCHMARK_PROFILES: frozenset[str] = frozenset({"h6", "pkg_core", "pkg_core_inj"})
 CV_MODEL_NAMES: frozenset[str] = frozenset({"logistic", "logistic_l2"})
 MODEL_DEFAULT_FEATURE_SET: dict[str, str] = {
     "baseline-home": "none",
@@ -68,10 +70,15 @@ _EXPERIMENT_KEYS: frozenset[str] = frozenset(
 
 @dataclass(frozen=True)
 class CvModelSpec:
-    """One model and feature set scored in a rolling-origin comparison."""
+    """One model and feature set scored in a rolling-origin comparison.
+
+    ``fixed_c`` overrides the command's C for that row. None keeps the
+    command value. It is not the inner-fold search used by ``logistic_l2``.
+    """
 
     model: str
     feature_set: str
+    fixed_c: float | None = None
 
 
 @dataclass(frozen=True)
@@ -203,6 +210,25 @@ def _feature_set_name(name: str, path: Path) -> str:
     return name
 
 
+def _fixed_c(value: object, path: Path, model_name: str) -> float | None:
+    """Return a positive finite C, or None when the row does not set one.
+
+    Raises:
+        ValueError: The value is not a positive finite number, or it is set
+            on a model other than logistic.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{path.name} fixed_c must be a positive number")
+    c_value: float = float(value)
+    if not math.isfinite(c_value) or c_value <= 0.0:
+        raise ValueError(f"{path.name} fixed_c must be a positive finite number, got {value!r}")
+    if model_name != "logistic":
+        raise ValueError(f"{path.name} fixed_c is only valid on logistic, not {model_name}")
+    return c_value
+
+
 def _model_specs(payload: dict[str, Any], path: Path) -> tuple[CvModelSpec, ...]:
     """Parse the scored model rows."""
     raw: object = payload["model_specs"]
@@ -214,13 +240,19 @@ def _model_specs(payload: dict[str, Any], path: Path) -> tuple[CvModelSpec, ...]
             raise ValueError(f"{path.name} each model spec must be a mapping")
         model_name: object = item.get("model")
         feature_set: object = item.get("feature_set")
-        extra: list[str] = sorted(set(item) - {"model", "feature_set"})
+        extra: list[str] = sorted(set(item) - {"model", "feature_set", "fixed_c"})
         if extra or not isinstance(model_name, str) or not isinstance(feature_set, str):
             raise ValueError(f"{path.name} model specs need model and feature_set strings")
         if model_name not in CV_MODEL_NAMES:
             known: str = ", ".join(sorted(CV_MODEL_NAMES))
             raise ValueError(f"{path.name} model {model_name!r} is unknown. Known: {known}.")
-        specs.append(CvModelSpec(model_name, _feature_set_name(feature_set, path)))
+        specs.append(
+            CvModelSpec(
+                model_name,
+                _feature_set_name(feature_set, path),
+                _fixed_c(item.get("fixed_c"), path, model_name),
+            )
+        )
     return tuple(specs)
 
 

@@ -12,6 +12,7 @@ from endzone.config import configured_tracking_uri
 from endzone.features.pregame import (
     FEATURE_SET_CURRENT,
     FEATURE_SET_H2_FULL,
+    PKG_CORE_INJ_FEATURE_SETS,
     build_pregame_features,
     feature_columns_for,
     prepare_training_data,
@@ -21,6 +22,7 @@ from endzone.modeling.dataset import (
     DEFAULT_MAX_NULL_FRACTION,
     cv_dataset_frame,
     load_data,
+    load_injury_inputs,
     load_qb_inputs,
     validate_feature_columns,
 )
@@ -75,6 +77,8 @@ def run_phase1_baselines(
     max_null_fraction: float = DEFAULT_MAX_NULL_FRACTION,
     expected_starters: pd.DataFrame | None = None,
     qb_dropbacks: pd.DataFrame | None = None,
+    depth_chart_starters: pd.DataFrame | None = None,
+    injury_reports: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
     """Score logistic feature sets, the home prior, Elo, and the market.
 
@@ -100,6 +104,10 @@ def run_phase1_baselines(
         max_null_fraction: Fail a requested column at or above this null share.
         expected_starters: Depth-chart QB1 table. None leaves QB columns missing.
         qb_dropbacks: Passer dropbacks. None leaves QB columns missing.
+        depth_chart_starters: Depth 1 chart rows for the absence counts.
+            None leaves those columns missing when reports are also None.
+        injury_reports: Injury rows, including timestamps. None leaves the
+            absence columns missing when starters are also None.
 
     Returns:
         Dict with ``results``, ``comparison_table``, ``markdown``, ``config``,
@@ -134,6 +142,8 @@ def run_phase1_baselines(
         lookback_games=lookback_games,
         expected_starters=expected_starters,
         qb_dropbacks=qb_dropbacks,
+        depth_chart_starters=depth_chart_starters,
+        injury_reports=injury_reports,
     )
     validate_feature_columns(
         features,
@@ -250,6 +260,11 @@ def run_cv_cli(args: argparse.Namespace) -> None:
     qb_dropbacks: pd.DataFrame | None = None
     if experiment.log_qb or experiment.qb_subset:
         expected_starters, qb_dropbacks = load_qb_inputs(fixture_path)
+    depth_chart_starters: pd.DataFrame | None = None
+    injury_reports: pd.DataFrame | None = None
+    scored_sets: set[str] = {spec.feature_set for spec in experiment.model_specs}
+    if scored_sets.intersection(PKG_CORE_INJ_FEATURE_SETS):
+        depth_chart_starters, injury_reports = load_injury_inputs(fixture_path)
     report: dict[str, Any] = run_phase1_baselines(
         games,
         team_games,
@@ -265,6 +280,8 @@ def run_cv_cli(args: argparse.Namespace) -> None:
         max_null_fraction=args.max_null_fraction,
         expected_starters=expected_starters,
         qb_dropbacks=qb_dropbacks,
+        depth_chart_starters=depth_chart_starters,
+        injury_reports=injury_reports,
     )
     paths: dict[str, Any] = write_phase1_outputs(report, Path(output_dir))
     tracking_uri: str = configured_tracking_uri()

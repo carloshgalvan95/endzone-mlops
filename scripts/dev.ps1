@@ -20,7 +20,7 @@ function Show-Help {
     Write-Host "  dbt-run             - Run dbt models (creates tables)"
     Write-Host "  dbt-test            - Run dbt tests"
     Write-Host "  data                - Load bronze (same as ingest) and record .stamp/data"
-    Write-Host "  ingest              - Load all seasons (games, pbp, depth charts from 2001)"
+    Write-Host "  ingest              - Load all seasons (games, pbp, depth charts from 2001, injuries from 2009)"
     Write-Host "  ingest-current      - Refresh current season only (for weekly update)"
     Write-Host "  marts               - Build Databricks marts after bronze is loaded"
     Write-Host "  dbt-build-databricks - dbt deps, then build models on the Databricks target"
@@ -30,6 +30,7 @@ function Show-Help {
     Write-Host "  train-recency       - Preregistered recency CV, seasons 2016-2023. Does not register"
     Write-Host "  train-h6            - Preregistered H6 CV, seasons 2016-2023. Does not register"
     Write-Host "  train-pkg-core      - Preregistered pkg_core CV, seasons 2016-2023. Does not register"
+    Write-Host "  train-pkg-core-inj  - Preregistered injury CV, seasons 2016-2023. Does not register"
     Write-Host "  mlflow-ui           - Open MLflow UI against the local SQLite store"
     Write-Host "  audit-features      - Profile current pregame inputs (no feature changes)"
     Write-Host "  check-epa-filter    - Count play types in the EPA filter, plus kneel and spike rows"
@@ -200,6 +201,12 @@ function Invoke-TrainH6 {
 function Invoke-TrainPkgCore {
     Write-Host "Running the preregistered pkg_core CV for seasons 2016-2023..."
     python scripts/train_pkg_core.py
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
+function Invoke-TrainPkgCoreInj {
+    Write-Host "Running the preregistered injury CV for seasons 2016-2023..."
+    python scripts/train_pkg_core_inj.py
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
@@ -400,6 +407,7 @@ switch ($Target.ToLower()) {
     "train-recency" { Invoke-TrainRecency }
     "train-h6" { Invoke-TrainH6 }
     "train-pkg-core" { Invoke-TrainPkgCore }
+    "train-pkg-core-inj" { Invoke-TrainPkgCoreInj }
     "mlflow-ui" { Invoke-MlflowUi }
     "audit-features" { Invoke-AuditFeatures }
     "check-epa-filter" { Invoke-CheckEpaFilter }
