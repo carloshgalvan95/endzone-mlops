@@ -7,12 +7,16 @@ from typing import Any, NamedTuple
 import pandas as pd
 
 from endzone.features.pregame import (
+    DEFENSIVE_BLEND_K,
     ELO_HOME_ADVANTAGE,
     ELO_K,
     ELO_MEAN_RATING,
     ELO_SCALE,
     ELO_SEASON_REVERSION,
     FEATURE_SET_COLUMNS,
+    FEATURE_SET_PKG_CORE_INJ_L2_K39_DECAY,
+    OFFENSIVE_BLEND_K,
+    PRIOR_SHRINK_FEATURE_SETS,
     QB_PRIOR_DROPBACKS,
     REPLACEMENT_EPA_PER_DROPBACK,
     SEASON_BLEND_K,
@@ -48,6 +52,7 @@ from endzone.modeling.models import (
     MODEL_BASELINE_HOME,
     MODEL_LOGISTIC,
     MODEL_LOGISTIC_L2,
+    TRAIN_SEASON_HALF_LIFE,
     _format_regularization_c,
     chosen_c_param_fields,
 )
@@ -187,10 +192,16 @@ def _score_model_spec(
             "regularization": "l2",
         }
     elif spec.model == MODEL_LOGISTIC:
+        half_life: float | None = (
+            TRAIN_SEASON_HALF_LIFE
+            if spec.feature_set == FEATURE_SET_PKG_CORE_INJ_L2_K39_DECAY
+            else None
+        )
         predictor = _logistic_fold_predictor(
             logistic_c_for_spec(spec, settings.logistic_c),
             settings.logistic_max_iter,
             settings.random_state,
+            season_half_life=half_life,
         )
         model_params = {
             **shared,
@@ -201,6 +212,12 @@ def _score_model_spec(
             "regularization": "l2",
             "C": logistic_c_for_spec(spec, settings.logistic_c),
         }
+        if spec.feature_set in PRIOR_SHRINK_FEATURE_SETS:
+            model_params["blend_k_offense"] = OFFENSIVE_BLEND_K
+            model_params["blend_k_defense"] = DEFENSIVE_BLEND_K
+        if half_life is not None:
+            model_params["season_half_life"] = half_life
+            model_params["sample_weight"] = "train_season_half_life"
     else:
         raise ValueError(f"Unknown CV model {spec.model!r}.")
     scored: dict[str, Any] = rolling_origin_cv(matrix, target, predictor, settings.resolved)

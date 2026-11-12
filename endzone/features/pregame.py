@@ -438,6 +438,16 @@ PREGAME_FEATURE_COLUMNS_PKG_CORE_INJ_L2_QBELO538: tuple[str, ...] = tuple(
     for column in PREGAME_FEATURE_COLUMNS_PKG_CORE_INJ
 )
 QBELO538_FEATURE_SETS: tuple[str, ...] = (FEATURE_SET_PKG_CORE_INJ_L2_QBELO538,)
+# Same columns as the defender. The blend constant on regressed EPA is
+# 3 for offense and 9 for defense. The decay name uses those columns
+# and, at fit time only, a 5-season half-life on the training rows.
+FEATURE_SET_PKG_CORE_INJ_L2_K39: str = "pkg_core_inj_l2_k39"
+FEATURE_SET_PKG_CORE_INJ_L2_K39_DECAY: str = "pkg_core_inj_l2_k39_decay"
+PREGAME_FEATURE_COLUMNS_PKG_CORE_INJ_L2_K39: tuple[str, ...] = PREGAME_FEATURE_COLUMNS_PKG_CORE_INJ
+PRIOR_SHRINK_FEATURE_SETS: tuple[str, ...] = (
+    FEATURE_SET_PKG_CORE_INJ_L2_K39,
+    FEATURE_SET_PKG_CORE_INJ_L2_K39_DECAY,
+)
 
 EXPECTED_STARTER_COLUMNS: tuple[str, ...] = (
     "game_id",
@@ -475,6 +485,8 @@ FEATURE_SET_NAMES: tuple[str, ...] = (
     FEATURE_SET_PKG_CORE_INJ,
     FEATURE_SET_PKG_CORE_INJ_L2,
     FEATURE_SET_PKG_CORE_INJ_L2_QBELO538,
+    FEATURE_SET_PKG_CORE_INJ_L2_K39,
+    FEATURE_SET_PKG_CORE_INJ_L2_K39_DECAY,
 )
 
 FEATURE_SET_COLUMNS: dict[str, tuple[str, ...]] = {
@@ -499,6 +511,8 @@ FEATURE_SET_COLUMNS: dict[str, tuple[str, ...]] = {
     FEATURE_SET_PKG_CORE_INJ: PREGAME_FEATURE_COLUMNS_PKG_CORE_INJ,
     FEATURE_SET_PKG_CORE_INJ_L2: PREGAME_FEATURE_COLUMNS_PKG_CORE_INJ,
     FEATURE_SET_PKG_CORE_INJ_L2_QBELO538: PREGAME_FEATURE_COLUMNS_PKG_CORE_INJ_L2_QBELO538,
+    FEATURE_SET_PKG_CORE_INJ_L2_K39: PREGAME_FEATURE_COLUMNS_PKG_CORE_INJ_L2_K39,
+    FEATURE_SET_PKG_CORE_INJ_L2_K39_DECAY: PREGAME_FEATURE_COLUMNS_PKG_CORE_INJ_L2_K39,
 }
 
 # FiveThirtyEight-style Elo. Home advantage is added only when a game is
@@ -518,6 +532,10 @@ ELO_POINTS_PER_SPREAD: float = 25.0
 SEASON_SHRINK_FACTOR: float = ELO_SEASON_REVERSION
 # Current-season weight is n / (n + k). Half weight at k games.
 SEASON_BLEND_K: float = 4.0
+# FTN DAVE prior strengths, rounded down. Offense keeps less of the prior
+# than defense. Used only by the prior-shrink candidates.
+OFFENSIVE_BLEND_K: float = 3.0
+DEFENSIVE_BLEND_K: float = 9.0
 
 MONEYLINE_HOME_COLUMN: str = "home_moneyline"
 MONEYLINE_AWAY_COLUMN: str = "away_moneyline"
@@ -733,6 +751,20 @@ def _prior_season_league_means(
     }
 
 
+def _blend_pair(
+    blend_k: float,
+    blend_k_offense: float | None,
+    blend_k_defense: float | None,
+) -> tuple[float, float]:
+    """Return the offensive and defensive blend constants.
+
+    A missing side uses ``blend_k``, so existing callers stay on one constant.
+    """
+    offense_k: float = float(blend_k if blend_k_offense is None else blend_k_offense)
+    defense_k: float = float(blend_k if blend_k_defense is None else blend_k_defense)
+    return offense_k, defense_k
+
+
 def _regressed_epa_for_side(
     side: str,
     snapshot: TeamEpaSnapshot,
@@ -740,11 +772,15 @@ def _regressed_epa_for_side(
     shrink_factor: float,
     blend_k: float,
     infix: str = "",
+    blend_k_offense: float | None = None,
+    blend_k_defense: float | None = None,
 ) -> dict[str, float]:
     """Regressed recent and season EPA columns for ``home`` or ``away``.
 
     ``infix`` is ``""`` for the original columns and ``"clean_"`` for the
-    clean-EPA columns. Shrinkage and the blend weight do not change.
+    clean-EPA columns. Shrinkage stays shared. Offense and defense can use
+    different blend constants. When those arguments are omitted, both use
+    ``blend_k``.
     """
     specs: tuple[tuple[str, float, float, float], ...] = (
         (
@@ -772,15 +808,17 @@ def _regressed_epa_for_side(
             league_means["defensive"],
         ),
     )
+    offense_k, defense_k = _blend_pair(blend_k, blend_k_offense, blend_k_defense)
     columns: dict[str, float] = {}
     for suffix, current_value, prior_value, league_mean in specs:
+        column_k: float = offense_k if "offensive" in suffix else defense_k
         regressed: dict[str, float] = regress_epa_feature(
             current_value,
             snapshot.current_season_n,
             prior_value,
             league_mean,
             shrink_factor=shrink_factor,
-            blend_k=blend_k,
+            blend_k=column_k,
         )
         columns[f"{side}_{suffix}"] = regressed["value"]
     return columns
@@ -797,6 +835,8 @@ def _epa_feature_block(
     offensive_column: str,
     defensive_column: str,
     infix: str = "",
+    blend_k_offense: float | None = None,
+    blend_k_defense: float | None = None,
 ) -> dict[str, float]:
     """Recent, season, and regressed EPA for one side from one column pair.
 
@@ -818,6 +858,8 @@ def _epa_feature_block(
         shrink_factor,
         blend_k,
         infix=infix,
+        blend_k_offense=blend_k_offense,
+        blend_k_defense=blend_k_defense,
     )
     return {
         f"{side}_recent_{infix}offensive_epa_per_play": _column_mean(rolling, offensive_column),
@@ -962,6 +1004,8 @@ def _regressed_season_pass_rush(
     league_means: dict[str, float],
     shrink_factor: float,
     blend_k: float,
+    blend_k_offense: float | None = None,
+    blend_k_defense: float | None = None,
 ) -> dict[str, float]:
     """Regressed-season pass and rush EPA for ``home`` or ``away``.
 
@@ -973,16 +1017,18 @@ def _regressed_season_pass_rush(
     prior_rows: pd.DataFrame = prior.loc[prior["season"] == season - 1]
     current_means: dict[str, float] = _pass_rush_means(current_rows)
     prior_means: dict[str, float] = _pass_rush_means(prior_rows)
+    offense_k, defense_k = _blend_pair(blend_k, blend_k_offense, blend_k_defense)
     columns: dict[str, float] = {}
     for role, kind, _rate_column in _PASS_RUSH_RATE_COLUMNS:
         key: str = f"{role}_{kind}"
+        column_k: float = offense_k if role == "offensive" else defense_k
         regressed: dict[str, float] = regress_epa_feature(
             current_means[key],
             int(len(current_rows)),
             prior_means[key],
             league_means[key],
             shrink_factor=shrink_factor,
-            blend_k=blend_k,
+            blend_k=column_k,
         )
         columns[f"{side}_regressed_season_{role}_{kind}_epa_per_play"] = regressed["value"]
     return columns
@@ -1405,6 +1451,8 @@ def build_pregame_features(
     depth_chart_starters: pd.DataFrame | None = None,
     injury_reports: pd.DataFrame | None = None,
     qb_box_scores: pd.DataFrame | None = None,
+    blend_k_offense: float | None = None,
+    blend_k_defense: float | None = None,
 ) -> pd.DataFrame:
     """
     Build pre-game features for each game using only prior game data.
@@ -1429,6 +1477,10 @@ def build_pregame_features(
             kickoff. The absence columns drop those rows.
         qb_box_scores: Pass and rush counting stats by player and game.
             None leaves ``qbelo538_diff`` equal to ``elo_mov_diff``.
+        blend_k_offense: Blend constant for offensive regressed EPA.
+            None uses ``blend_k`` for offense and defense together.
+        blend_k_defense: Blend constant for defensive regressed EPA.
+            None uses ``blend_k``.
 
     Returns:
         DataFrame with game_id and feature columns
@@ -1526,6 +1578,9 @@ def build_pregame_features(
     missing. See ``attach_injury_features``.
     """
     _validate_regression_settings(shrink_factor, blend_k)
+    offense_k, defense_k = _blend_pair(blend_k, blend_k_offense, blend_k_defense)
+    _validate_regression_settings(shrink_factor, offense_k)
+    _validate_regression_settings(shrink_factor, defense_k)
     wanted: set[str] | None = None
     if game_ids is not None:
         if len(game_ids) == 0:
@@ -1653,6 +1708,8 @@ def build_pregame_features(
             blend_k,
             "avg_offensive_epa",
             "avg_defensive_epa_allowed",
+            blend_k_offense=offense_k,
+            blend_k_defense=defense_k,
         )
         away_epa: dict[str, float] = _epa_feature_block(
             "away",
@@ -1664,6 +1721,8 @@ def build_pregame_features(
             blend_k,
             "avg_offensive_epa",
             "avg_defensive_epa_allowed",
+            blend_k_offense=offense_k,
+            blend_k_defense=defense_k,
         )
         home_clean: dict[str, float] = _epa_feature_block(
             "home",
@@ -1676,6 +1735,8 @@ def build_pregame_features(
             CLEAN_OFFENSIVE_EPA_COLUMN,
             CLEAN_DEFENSIVE_EPA_COLUMN,
             infix="clean_",
+            blend_k_offense=offense_k,
+            blend_k_defense=defense_k,
         )
         away_clean: dict[str, float] = _epa_feature_block(
             "away",
@@ -1688,6 +1749,8 @@ def build_pregame_features(
             CLEAN_OFFENSIVE_EPA_COLUMN,
             CLEAN_DEFENSIVE_EPA_COLUMN,
             infix="clean_",
+            blend_k_offense=offense_k,
+            blend_k_defense=defense_k,
         )
         home_clean_success: dict[str, float] = _recent_clean_success(
             "home", home_prior, lookback_games
@@ -1711,6 +1774,8 @@ def build_pregame_features(
             pass_rush_league,
             shrink_factor,
             blend_k,
+            blend_k_offense=offense_k,
+            blend_k_defense=defense_k,
         )
         away_pass_rush_season: dict[str, float] = _regressed_season_pass_rush(
             away_prior,
@@ -1719,6 +1784,8 @@ def build_pregame_features(
             pass_rush_league,
             shrink_factor,
             blend_k,
+            blend_k_offense=offense_k,
+            blend_k_defense=defense_k,
         )
 
         # Rest days (from fct_games.home_rest/away_rest)
@@ -1785,6 +1852,8 @@ def build_pregame_features(
         lookback_games=lookback_games,
         shrink_factor=shrink_factor,
         blend_k=blend_k,
+        blend_k_offense=offense_k,
+        blend_k_defense=defense_k,
     )
     frame = frame.merge(h6_features, on="game_id", how="left")
     injury_features: pd.DataFrame = attach_injury_features(
@@ -1866,6 +1935,8 @@ def feature_columns_for(feature_set: str) -> tuple[str, ...]:
     ``pkg_core_inj_l2`` uses those same columns.
     ``pkg_core_inj_l2_qbelo538`` replaces ``elo_mov_diff`` with
     ``qbelo538_diff`` and keeps every other column.
+    ``pkg_core_inj_l2_k39`` and ``pkg_core_inj_l2_k39_decay`` use the
+    ``pkg_core_inj_l2`` columns. Their blend is chosen by the caller.
 
     Args:
         feature_set: One of ``FEATURE_SET_NAMES``.
