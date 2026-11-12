@@ -188,3 +188,37 @@ sources:
             description: "Player id. Same format as play-by-play passer_player_id."
           - name: full_name
             description: "Player name as published on the depth chart"
+
+      - name: raw_injuries
+        # On Databricks this resolves to: workspace.nfl_raw.injuries
+        # On local DuckDB this resolves to: main.raw_injuries
+        identifier: "{{ 'injuries' if target.name == 'databricks' else 'raw_injuries' }}"
+        description: |
+          NFL weekly injury reports from nflverse, 2009-present.
+          Loaded via `python -m endzone.ingest.load_raw_nflverse --dataset injuries`.
+          date_modified is the report update time. The 2025 and 2026 releases
+          do not publish it, and ingest stores that column null.
+
+        config:
+          meta:
+            parquet_url_pattern: "https://github.com/nflverse/nflverse-data/releases/download/injuries/injuries_{season}.parquet"
+
+        columns:
+          - name: season
+            description: "NFL season year"
+          - name: game_type
+            description: "Game type matching games.parquet (REG, WC, DIV, CON, SB)."
+          - name: team
+            description: "Schedule team abbreviation."
+          - name: week
+            description: "Week number, aligned with games.parquet."
+          - name: gsis_id
+            description: "Player id. Same format as depth-chart gsis_id."
+          - name: position
+            description: "Position on the injury report. The feature group uses the depth chart, not this column."
+          - name: full_name
+            description: "Player name on the injury report."
+          - name: report_status
+            description: "Game status on the report: Out, Doubtful, or Questionable. Null when the row is practice only."
+          - name: date_modified
+            description: "UTC timestamp of the report update. Null when the release did not publish one. Not gameday."

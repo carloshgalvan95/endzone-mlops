@@ -555,3 +555,82 @@ models:
             combination_of_columns:
               - game_id
               - passer_player_id
+
+  - name: fct_injury_reports
+    description: |
+      Injury report rows used to build pre-game starter absences.
+
+      Grain: one row per player report. date_modified can repeat a player
+      inside a week. This table does not drop a row dated after kickoff.
+      The feature code does.
+
+    config:
+      meta:
+        owner: "Carlos Galvan"
+        layer: "marts"
+        grain: "season, week, game_type, team, gsis_id, date_modified"
+
+    columns:
+      - name: season
+        description: "NFL season year"
+      - name: week
+        description: "Week number aligned with the schedule"
+      - name: game_type
+        description: "REG, WC, DIV, CON, or SB"
+      - name: team
+        description: "Schedule team abbreviation"
+      - name: gsis_id
+        description: "Player id"
+      - name: report_status
+        description: "Out, Doubtful, Questionable, or null for a practice-only row"
+      - name: date_modified
+        description: "Report update time. Null when the release has no clock. Compared to kickoff in the feature code, not in this model."
+
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - season
+              - week
+              - game_type
+              - team
+              - gsis_id
+              - date_modified
+
+  - name: fct_depth_chart_starters
+    description: |
+      Depth-chart rank 1 for every listed position, on the schedule team code.
+
+      Grain: one row per season, week, game_type, team, player, and position.
+      QB stays on this table. The injury feature drops QB when it assigns groups.
+
+    config:
+      meta:
+        owner: "Carlos Galvan"
+        layer: "marts"
+        grain: "season, week, game_type, team, gsis_id, position"
+
+    columns:
+      - name: season
+        description: "NFL season year"
+      - name: week
+        description: "Week number aligned with the schedule"
+      - name: game_type
+        description: "REG, WC, DIV, CON, or SB"
+      - name: team
+        description: "Schedule team abbreviation after the club-code map"
+      - name: gsis_id
+        description: "Player id"
+      - name: position
+        description: "Depth-chart position. The injury group is assigned from this column."
+
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - season
+              - week
+              - game_type
+              - team
+              - gsis_id
+              - position

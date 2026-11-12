@@ -432,7 +432,7 @@ class TestGamesFreshness:
             assert freshness.get("warn_after") == {"count": WARN_AFTER_DAYS, "period": "day"}
             assert freshness.get("error_after") == {"count": ERROR_AFTER_DAYS, "period": "day"}
             assert "gameday" not in str(freshness)
-        assert seen == {"raw_games", "raw_play_by_play", "raw_depth_charts"}
+        assert seen == {"raw_games", "raw_play_by_play", "raw_depth_charts", "raw_injuries"}
 
     def test_staging_does_not_select_the_load_timestamp(self) -> None:
         """ingested_at is not in the nflverse parquet fixture and not in staging."""
