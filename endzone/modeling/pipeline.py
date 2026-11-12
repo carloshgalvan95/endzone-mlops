@@ -9,13 +9,23 @@ from typing import Any
 import pandas as pd
 
 from endzone.config import configured_tracking_uri
+from endzone.features.opponent import ELO_MOV_DIFF_COLUMN
 from endzone.features.pregame import (
     FEATURE_SET_CURRENT,
     FEATURE_SET_H2_FULL,
     PKG_CORE_INJ_FEATURE_SETS,
+    QBELO538_FEATURE_SETS,
+    attach_qb_features,
     build_pregame_features,
     feature_columns_for,
     prepare_training_data,
+)
+from endzone.features.qbelo import (
+    MODEL_ELO_MOV,
+    MODEL_QBELO538,
+    QBELO_DIFF_COLUMN,
+    qb_coverage_by_season,
+    qbelo_pregame_table,
 )
 from endzone.modeling.cv import RollingOriginConfig, make_rolling_origin_config
 from endzone.modeling.dataset import (
@@ -23,6 +33,7 @@ from endzone.modeling.dataset import (
     cv_dataset_frame,
     load_data,
     load_injury_inputs,
+    load_qb_box_scores,
     load_qb_inputs,
     validate_feature_columns,
 )
@@ -40,6 +51,7 @@ from endzone.modeling.evaluation import (
     acceptance_decisions,
     attach_reference_comparison,
     calibration_table_for_results,
+    label_context_baselines,
     label_market_benchmark,
     market_information_table_for_results,
     qb_change_subset_comparison,
@@ -62,6 +74,7 @@ from endzone.modeling.scoring import (
     _score_elo,
     _score_market,
     _score_model_spec,
+    _score_rating_gap,
     _shared_params,
 )
 from endzone.modeling.tracking import log_phase1_to_mlflow
@@ -88,6 +101,7 @@ def run_phase1_baselines(
     qb_dropbacks: pd.DataFrame | None = None,
     depth_chart_starters: pd.DataFrame | None = None,
     injury_reports: pd.DataFrame | None = None,
+    qb_box_scores: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
     """Score logistic feature sets, the home prior, Elo, and the market.
 
@@ -117,6 +131,8 @@ def run_phase1_baselines(
             None leaves those columns missing when reports are also None.
         injury_reports: Injury rows, including timestamps. None leaves the
             absence columns missing when starters are also None.
+        qb_box_scores: Pass and rush counts for the QB VALUE rating.
+            None leaves the QB adjustment at 0.
 
     Returns:
         Dict with ``results``, ``comparison_table``, ``markdown``, ``config``,
@@ -153,6 +169,7 @@ def run_phase1_baselines(
         qb_dropbacks=qb_dropbacks,
         depth_chart_starters=depth_chart_starters,
         injury_reports=injury_reports,
+        qb_box_scores=qb_box_scores,
     )
     validate_feature_columns(
         features,
@@ -223,6 +240,29 @@ def run_phase1_baselines(
             raise ValueError(f"Unknown derived model {spec.model!r}.")
     if not needs_elo:
         results.append(_score_elo(games, current_matrix, current_target, settings, shared))
+    if experiment.report_profile == "qbelo538":
+        results.append(
+            _score_rating_gap(
+                features,
+                current_matrix,
+                current_target,
+                settings,
+                shared,
+                ELO_MOV_DIFF_COLUMN,
+                MODEL_ELO_MOV,
+            )
+        )
+        results.append(
+            _score_rating_gap(
+                features,
+                current_matrix,
+                current_target,
+                settings,
+                shared,
+                QBELO_DIFF_COLUMN,
+                MODEL_QBELO538,
+            )
+        )
     results.append(_score_market(games, settings, shared))
     attach_reference_comparison(
         results,
@@ -272,6 +312,19 @@ def run_phase1_baselines(
         )
         if experiment.report_profile in MARKET_BENCHMARK_PROFILES:
             report["acceptance"] = label_market_benchmark(report["acceptance"])
+        if experiment.report_profile == "qbelo538":
+            report["acceptance"] = label_context_baselines(report["acceptance"])
+            starter_frame: pd.DataFrame = attach_qb_features(
+                games,
+                expected_starters,
+                qb_dropbacks,
+                lookback_games=lookback_games,
+            )
+            detail: pd.DataFrame = qbelo_pregame_table(games, starter_frame, qb_box_scores)
+            covered_seasons: tuple[int, ...] = tuple(
+                range(resolved.cv_start_season, resolved.cv_end_season + 1)
+            )
+            report["qb_coverage"] = qb_coverage_by_season(games, detail, covered_seasons)
     if experiment.report_profile in MARKET_BENCHMARK_PROFILES:
         report["calibration"] = calibration_table_for_results(results)
         report["market_information"] = market_information_table_for_results(
@@ -318,8 +371,13 @@ def run_cv_cli(args: argparse.Namespace) -> None:
     depth_chart_starters: pd.DataFrame | None = None
     injury_reports: pd.DataFrame | None = None
     scored_sets: set[str] = {spec.feature_set for spec in experiment.model_specs}
-    if scored_sets.intersection(PKG_CORE_INJ_FEATURE_SETS):
+    if scored_sets.intersection(PKG_CORE_INJ_FEATURE_SETS) or scored_sets.intersection(
+        QBELO538_FEATURE_SETS
+    ):
         depth_chart_starters, injury_reports = load_injury_inputs(fixture_path)
+    qb_box_scores: pd.DataFrame | None = None
+    if scored_sets.intersection(QBELO538_FEATURE_SETS):
+        qb_box_scores = load_qb_box_scores(fixture_path)
     report: dict[str, Any] = run_phase1_baselines(
         games,
         team_games,
@@ -337,6 +395,7 @@ def run_cv_cli(args: argparse.Namespace) -> None:
         qb_dropbacks=qb_dropbacks,
         depth_chart_starters=depth_chart_starters,
         injury_reports=injury_reports,
+        qb_box_scores=qb_box_scores,
     )
     paths: dict[str, Any] = write_phase1_outputs(report, Path(output_dir))
     tracking_uri: str = configured_tracking_uri()

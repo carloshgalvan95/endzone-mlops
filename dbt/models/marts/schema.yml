@@ -556,6 +556,81 @@ models:
               - game_id
               - passer_player_id
 
+  - name: fct_qb_box_scores
+    description: |
+      Pass and rush counting stats for one player in one completed game.
+
+      Grain: one row per game_id and player_id.
+      The VALUE formula is applied in Python. This is who produced the
+      counts. It is not the expected starter.
+
+    config:
+      meta:
+        owner: "Carlos Galvan"
+        layer: "marts"
+        grain: "game_id, player_id"
+
+    columns:
+      - name: game_id
+        description: "Completed game identifier"
+        tests:
+          - not_null
+      - name: player_id
+        description: "GSIS id of the passer or rusher"
+        tests:
+          - not_null
+      - name: team_franchise
+        description: "Current franchise of the possession team"
+        tests:
+          - not_null
+      - name: gameday
+        description: "Date of the game"
+        tests:
+          - not_null
+      - name: pass_attempts
+        description: "Pass attempts. A sack with pass_attempt 0 does not count."
+        tests:
+          - not_null
+      - name: completions
+        description: "Completions"
+        tests:
+          - not_null
+      - name: passing_yards
+        description: "Passing yards. A null yard count on a counted play is 0."
+        tests:
+          - not_null
+      - name: passing_tds
+        description: "Passing touchdowns"
+        tests:
+          - not_null
+      - name: interceptions
+        description: "Interceptions thrown"
+        tests:
+          - not_null
+      - name: sacks
+        description: "Times sacked. Counted on the passer row."
+        tests:
+          - not_null
+      - name: rush_attempts
+        description: "Rush attempts"
+        tests:
+          - not_null
+      - name: rushing_yards
+        description: "Rushing yards. A null yard count on a rush is 0."
+        tests:
+          - not_null
+      - name: rushing_tds
+        description: "Rushing touchdowns"
+        tests:
+          - not_null
+
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - game_id
+              - player_id
+
   - name: fct_injury_reports
     description: |
       Injury report rows used to build pre-game starter absences.

@@ -322,6 +322,28 @@ def _profile_lines(profile: str) -> list[str]:
             "They are not acceptance decisions. No blend is published.",
             "The market row is a benchmark. It is not a candidate.",
         ]
+    if profile == "qbelo538":
+        return [
+            "pkg_core_inj_l2_qbelo538 is logistic regression on the",
+            "pkg_core_inj_l2 columns with elo_mov_diff replaced by",
+            "qbelo538_diff. C is fixed at 0.1. The column count is unchanged.",
+            "qbelo538_diff adds 3.3 times the home QB adjustment minus",
+            "the away QB adjustment to elo_mov_diff. The adjustment is",
+            "the starter VALUE rating minus the team VALUE rating.",
+            "A starter with no earlier game has adjustment 0.",
+            "The VALUE weights, the 0.9 and 0.1 quarterback update,",
+            "the 0.95 and 0.05 team update, and the 3.3 factor are the",
+            "FiveThirtyEight methodology values. They are not tuned.",
+            "elo_mov and qbelo538 are home win probabilities from the",
+            "rating gap plus home advantage 65 on a 400 scale.",
+            "They are context. They are not candidates.",
+            "The reference is logistic pkg_core_inj_l2 with C fixed at 0.1.",
+            "h2_full is scored in the same run for context.",
+            "QB coverage, calibration, the per-season table, and the",
+            "market-information regression are descriptive.",
+            "They are not acceptance decisions. No blend is published.",
+            "The market row is a benchmark. It is not a candidate.",
+        ]
     if profile == "ridge":
         grid_text: str = ", ".join(_format_regularization_c(value) for value in DEFAULT_L2_C_GRID)
         return (
@@ -448,6 +470,36 @@ def _stacker_lines(table: pd.DataFrame | None) -> list[str]:
                     row.coef_logit_pkg_core_inj_l2,
                     row.coef_logit_elo,
                 ]
+                for row in table.itertuples(index=False)
+            ],
+        )
+    )
+    lines.append("")
+    return lines
+
+
+def _qb_coverage_lines(table: pd.DataFrame | None) -> list[str]:
+    """Render the per-season starter and VALUE-history shares."""
+    if table is None:
+        return []
+    lines: list[str] = [
+        "## QB coverage",
+        "",
+        "Share of games in the scored window with a resolved starter",
+        "for both teams, and with a prior QB VALUE game for both starters.",
+        "A prior game is strictly before the scored date. This table is",
+        "descriptive. It is not an acceptance decision.",
+        "",
+    ]
+    if table.empty:
+        lines.append("No QB coverage rows were computed.")
+        lines.append("")
+        return lines
+    lines.append(
+        _markdown_table(
+            ["season", "n", "starter_both_share", "history_both_share"],
+            [
+                [row.season, row.n, row.starter_both_share, row.history_both_share]
                 for row in table.itertuples(index=False)
             ],
         )
@@ -615,6 +667,7 @@ def render_phase1_report(report: dict[str, Any]) -> str:
         lines.extend(_render_acceptance_section(report))
     lines.extend(_calibration_lines(report.get("calibration")))
     lines.extend(_stacker_lines(report.get("stacker_coefficients")))
+    lines.extend(_qb_coverage_lines(report.get("qb_coverage")))
     lines.extend(_market_information_lines(report.get("market_information")))
     lines.append("No model is promoted from this report.")
     lines.append("")
@@ -658,6 +711,11 @@ def write_phase1_outputs(report: dict[str, Any], output_dir: Path) -> dict[str, 
         stacker_path: Path = output_dir / "stacker_coefficients.csv"
         stacker_coefficients.to_csv(stacker_path, index=False, encoding="utf-8")
         extra_paths["stacker_coefficients"] = str(stacker_path)
+    qb_coverage: pd.DataFrame | None = report.get("qb_coverage")
+    if isinstance(qb_coverage, pd.DataFrame):
+        coverage_path: Path = output_dir / "qb_coverage.csv"
+        qb_coverage.to_csv(coverage_path, index=False, encoding="utf-8")
+        extra_paths["qb_coverage"] = str(coverage_path)
     acceptance: list[dict[str, Any]] | None = report.get("acceptance")
     if acceptance:
         acceptance_path: Path = output_dir / "acceptance.csv"

@@ -22,6 +22,8 @@ Features computed:
 - ``pkg_core`` selects those existing columns. It does not compute a new one.
 - Pre-game starter absences: home minus away Out or Doubtful counts for
   OL, skill, front seven, and DB (see ``endzone.features.injuries``)
+- A FiveThirtyEight QB adjustment added to the margin Elo gap
+  (see ``endzone.features.qbelo``)
 """
 
 import math
@@ -38,6 +40,7 @@ from endzone.features.opponent import (
     H6_OUTPUT_COLUMNS,
     attach_h6_features,
 )
+from endzone.features.qbelo import qbelo538_diff_frame, qbelo_pregame_table
 from endzone.features.recency import (
     FEATURE_SET_RECENCY_ELO,
     FEATURE_SET_RECENCY_EPA5,
@@ -427,6 +430,14 @@ PKG_CORE_INJ_FEATURE_SETS: tuple[str, ...] = (
     FEATURE_SET_PKG_CORE_INJ,
     FEATURE_SET_PKG_CORE_INJ_L2,
 )
+# Defender columns with elo_mov_diff replaced by the QB-adjusted gap.
+# The column count stays the same. C is fixed at 0.1 on the experiment.
+FEATURE_SET_PKG_CORE_INJ_L2_QBELO538: str = "pkg_core_inj_l2_qbelo538"
+PREGAME_FEATURE_COLUMNS_PKG_CORE_INJ_L2_QBELO538: tuple[str, ...] = tuple(
+    "qbelo538_diff" if column == ELO_MOV_DIFF_COLUMN else column
+    for column in PREGAME_FEATURE_COLUMNS_PKG_CORE_INJ
+)
+QBELO538_FEATURE_SETS: tuple[str, ...] = (FEATURE_SET_PKG_CORE_INJ_L2_QBELO538,)
 
 EXPECTED_STARTER_COLUMNS: tuple[str, ...] = (
     "game_id",
@@ -463,6 +474,7 @@ FEATURE_SET_NAMES: tuple[str, ...] = (
     FEATURE_SET_PKG_CORE,
     FEATURE_SET_PKG_CORE_INJ,
     FEATURE_SET_PKG_CORE_INJ_L2,
+    FEATURE_SET_PKG_CORE_INJ_L2_QBELO538,
 )
 
 FEATURE_SET_COLUMNS: dict[str, tuple[str, ...]] = {
@@ -486,6 +498,7 @@ FEATURE_SET_COLUMNS: dict[str, tuple[str, ...]] = {
     FEATURE_SET_PKG_CORE: PREGAME_FEATURE_COLUMNS_PKG_CORE,
     FEATURE_SET_PKG_CORE_INJ: PREGAME_FEATURE_COLUMNS_PKG_CORE_INJ,
     FEATURE_SET_PKG_CORE_INJ_L2: PREGAME_FEATURE_COLUMNS_PKG_CORE_INJ,
+    FEATURE_SET_PKG_CORE_INJ_L2_QBELO538: PREGAME_FEATURE_COLUMNS_PKG_CORE_INJ_L2_QBELO538,
 }
 
 # FiveThirtyEight-style Elo. Home advantage is added only when a game is
@@ -1391,6 +1404,7 @@ def build_pregame_features(
     game_ids: set[str] | None = None,
     depth_chart_starters: pd.DataFrame | None = None,
     injury_reports: pd.DataFrame | None = None,
+    qb_box_scores: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """
     Build pre-game features for each game using only prior game data.
@@ -1413,6 +1427,8 @@ def build_pregame_features(
             ``injury_reports`` to leave the absence columns missing.
         injury_reports: Weekly injury rows, including timestamps on or after
             kickoff. The absence columns drop those rows.
+        qb_box_scores: Pass and rush counting stats by player and game.
+            None leaves ``qbelo538_diff`` equal to ``elo_mov_diff``.
 
     Returns:
         DataFrame with game_id and feature columns
@@ -1752,6 +1768,7 @@ def build_pregame_features(
         *RECENCY_OUTPUT_COLUMNS,
         *H6_OUTPUT_COLUMNS,
         *INJURY_DIFF_COLUMNS,
+        "qbelo538_diff",
     ]
     qb_features: pd.DataFrame = attach_qb_features(
         fct_games,
@@ -1776,6 +1793,12 @@ def build_pregame_features(
         injury_reports,
     )
     frame = frame.merge(injury_features, on="game_id", how="left")
+    qbelo_detail: pd.DataFrame = qbelo_pregame_table(fct_games, qb_features, qb_box_scores)
+    qbelo_diff: pd.DataFrame = qbelo538_diff_frame(
+        frame.loc[:, ["game_id", ELO_MOV_DIFF_COLUMN]],
+        qbelo_detail,
+    )
+    frame = frame.merge(qbelo_diff, on="game_id", how="left")
     return frame.loc[:, ordered_columns]
 
 
@@ -1841,6 +1864,8 @@ def feature_columns_for(feature_set: str) -> tuple[str, ...]:
     then the ``recency_margin`` columns that are not already included.
     ``pkg_core_inj`` appends the four starter-absence differences.
     ``pkg_core_inj_l2`` uses those same columns.
+    ``pkg_core_inj_l2_qbelo538`` replaces ``elo_mov_diff`` with
+    ``qbelo538_diff`` and keeps every other column.
 
     Args:
         feature_set: One of ``FEATURE_SET_NAMES``.

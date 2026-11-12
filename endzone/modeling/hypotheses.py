@@ -31,12 +31,13 @@ REPORT_PROFILES: frozenset[str] = frozenset(
         "pkg_core_inj",
         "ensembles",
         "ensembles_r2",
+        "qbelo538",
     }
 )
 # These profiles label the market ``benchmark`` and write calibration plus
 # the descriptive market-information regression. Other profiles do not.
 MARKET_BENCHMARK_PROFILES: frozenset[str] = frozenset(
-    {"h6", "pkg_core", "pkg_core_inj", "ensembles", "ensembles_r2"}
+    {"h6", "pkg_core", "pkg_core_inj", "ensembles", "ensembles_r2", "qbelo538"}
 )
 CV_MODEL_NAMES: frozenset[str] = frozenset(
     {

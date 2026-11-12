@@ -100,7 +100,7 @@ endzone-mlops demonstrates a lakehouse architecture for NFL analytics: Databrick
 
 **Layers**:
 - `stg_nflverse__games`: Game-level data (schedule, scores, lines)
-- `stg_nflverse__pbp`: Play-by-play, including passer id, dropback, and CPOE
+- `stg_nflverse__pbp`: Play-by-play, including passer id, dropback, CPOE, and the pass and rush counts used by the QB box-score mart
 - `stg_nflverse__depth_charts`: Depth charts from 2001. From 2025 the release is a timestamped snapshot, and ingest assigns each team-game the latest snapshot strictly before kickoff.
 - `stg_nflverse__injuries`: Weekly injury reports from 2009. `date_modified` is null when the release has no clock. This view does not compare the timestamp to kickoff.
 - `fct_games`: one row per completed game (both scores present)
@@ -108,6 +108,7 @@ endzone-mlops demonstrates a lakehouse architecture for NFL analytics: Databrick
 - `fct_upcoming_games`: one row per game with both scores null
 - `fct_expected_starter`: offense QB1 for each completed game. It does not read play-by-play.
 - `fct_qb_dropbacks`: one row per completed game and passer. This is who played, not the starter.
+- `fct_qb_box_scores`: one row per completed game and player, with pass and rush counting stats. The VALUE formula is applied in Python.
 
 Seeds, in `nfl_dev` because they have no custom schema: `team_franchise_map`, `depth_chart_club_map`, `known_pbp_gaps`.
 
@@ -127,7 +128,7 @@ An in-game state table is not in the repo. Weekly predictions are JSON files, no
 
 **v0.1 Scope**: Pregame win probability (logistic `h2_full`) plus margin and total. Both score targets passed ADR-007, so weekly scoring writes the estimate.
 
-**Not in the repo**: an in-game model and a feature-distribution drift monitor. A mean ensemble is preregistered in `docs/experiments/ensembles.md` and is not registered. A defender-plus-Elo mean and stack are preregistered in `docs/experiments/ensembles_r2.md` and are not registered. The published log-loss alert is ADR-009.
+**Not in the repo**: an in-game model and a feature-distribution drift monitor. A mean ensemble is preregistered in `docs/experiments/ensembles.md` and is not registered. A defender-plus-Elo mean and stack are preregistered in `docs/experiments/ensembles_r2.md` and are not registered. A FiveThirtyEight QB adjustment on Elo is preregistered in `docs/experiments/qbelo538.md` and is not registered. The published log-loss alert is ADR-009.
 
 #### 4. Delta storage (Databricks Free Edition)
 

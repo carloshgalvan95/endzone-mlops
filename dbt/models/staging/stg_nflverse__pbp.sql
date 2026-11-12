@@ -76,11 +76,17 @@ with source as (
         complete_pass,
         incomplete_pass,
         interception,
+        passing_yards,
+        pass_touchdown,
+        sack,
         air_yards,
         yards_after_catch,
         
         -- Rush-specific
         rush_attempt,
+        rushing_yards,
+        rush_touchdown,
+        rusher_player_id,
         
         -- Scoring plays
         field_goal_attempt,

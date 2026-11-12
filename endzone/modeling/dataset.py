@@ -132,6 +132,32 @@ def load_injury_inputs(
         )
 
 
+def load_qb_box_scores(fixture_path: str | None = None) -> pd.DataFrame | None:
+    """Load pass and rush counting stats for the QB VALUE rating.
+
+    A fixture directory without the parquet file returns None so the
+    adjustment stays at 0 and the column check can still name a gap.
+    A warehouse read uses ``fct_qb_box_scores``.
+
+    Args:
+        fixture_path: Optional directory of parquet fixtures. None reads the warehouse.
+
+    Returns:
+        One row per game and player, or None when the fixture file is absent.
+    """
+    if fixture_path:
+        fixture_dir = Path(fixture_path)
+        box_file = fixture_dir / "fct_qb_box_scores.parquet"
+        if not box_file.exists():
+            logger.info("QB box-score fixture is absent in %s", fixture_dir)
+            return None
+        logger.info("Loading QB box scores from fixtures: %s", fixture_dir)
+        return pd.read_parquet(box_file)
+    logger.info("Loading QB box scores from Databricks")
+    with DatabricksClient() as client:
+        return client.read_table("fct_qb_box_scores")
+
+
 def cv_dataset_frame(
     games: pd.DataFrame,
     features: pd.DataFrame,
