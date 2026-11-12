@@ -304,6 +304,7 @@ class TestPrepareTrainingData:
             "pkg_core",
             "pkg_core_inj",
             "pkg_core_inj_l2",
+            "pkg_core_inj_l2_qbelo538",
         )
         assert feature_columns_for("current") == PREGAME_FEATURE_COLUMNS
         assert feature_columns_for("with_games_played") == PREGAME_FEATURE_COLUMNS_WITH_GAMES_PLAYED

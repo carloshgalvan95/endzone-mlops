@@ -23,9 +23,13 @@ CALIBRATION_MODELS: frozenset[str] = frozenset(
         "ens_mean",
         "ens_mean_elo",
         "stack_elo",
+        "elo_mov",
+        "qbelo538",
     }
 )
-# Descriptive market-information rows. Baseline models are not in this set.
+# Descriptive market-information rows. The home prior, Elo, and the market
+# stay out. The qbelo538 context probabilities are included so the report
+# can compare them with the margin Elo row.
 INFORMATION_MODELS: frozenset[str] = frozenset(
     {
         "logistic",
@@ -34,8 +38,11 @@ INFORMATION_MODELS: frozenset[str] = frozenset(
         "ens_mean",
         "ens_mean_elo",
         "stack_elo",
+        "elo_mov",
+        "qbelo538",
     }
 )
+CONTEXT_BASELINE_MODELS: frozenset[str] = frozenset({"elo_mov", "qbelo538"})
 CALIBRATION_COLUMNS: tuple[str, ...] = (
     "model",
     "feature_set",
@@ -498,6 +505,27 @@ def label_market_benchmark(decisions: list[dict[str, Any]]) -> list[dict[str, An
         copied: dict[str, Any] = dict(row)
         if copied.get("model") == "market" and copied.get("feature_set") == "market":
             copied["decision"] = "benchmark"
+        labeled.append(copied)
+    return labeled
+
+
+def label_context_baselines(decisions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Copy acceptance rows and label the QB Elo context rows ``baseline``.
+
+    ``elo_mov`` and ``qbelo538`` are probabilities, not candidates. The
+    numeric rule can mark them accepted. That label is not used.
+
+    Args:
+        decisions: Rows from ``acceptance_decisions``.
+
+    Returns:
+        A new list. Those two models have decision ``baseline``.
+    """
+    labeled: list[dict[str, Any]] = []
+    for row in decisions:
+        copied: dict[str, Any] = dict(row)
+        if copied.get("model") in CONTEXT_BASELINE_MODELS:
+            copied["decision"] = "baseline"
         labeled.append(copied)
     return labeled
 

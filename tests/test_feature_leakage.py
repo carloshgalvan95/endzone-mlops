@@ -53,6 +53,7 @@ CHECKED_FEATURE_COLUMNS: tuple[str, ...] = (
     + RECENCY_OUTPUT_COLUMNS
     + H6_OUTPUT_COLUMNS
     + INJURY_DIFF_COLUMNS
+    + ("qbelo538_diff",)
 )
 
 LOOKBACK_GAMES: int = 2

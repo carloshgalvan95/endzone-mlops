@@ -1,0 +1,32 @@
+id: qbelo538
+phase: 2
+default: false
+aliases:
+  - qbelo538
+tag: qbelo538
+short_name: qbelo538
+experiment_name: nfl_pregame/phase2_qbelo538
+phase_tag: "2"
+output_dir: reports/phase2_qbelo538
+title: Phase 2 FiveThirtyEight QB adjustment on Elo
+note: "Phase 2 QB Elo. Logistic pkg_core_inj_l2_qbelo538 against logistic pkg_core_inj_l2 on rolling-origin seasons 2016-2023. The candidate uses the defender columns with elo_mov_diff replaced by qbelo538_diff and C fixed at 0.1. h2_full is scored in the same run for context. elo_mov and qbelo538 are home win probabilities from the rating gap plus home advantage 65 on a 400 scale. They are context, not candidates. The starter is the depth-chart QB1, with the same previous-passer fallback as H5. A starter with no earlier game has adjustment 0. The VALUE weights, the 0.9 and 0.1 quarterback update, the 0.95 and 0.05 team update, and the 3.3 factor are the FiveThirtyEight methodology values and are not tuned. QB ratings do not revert between seasons. The market row is benchmark. Calibration, per-season results, QB coverage, and the market-information regression are reported and are not gates. No blend is published. 2024 and 2025 are not scored. No model is promoted from this run."
+reference_model: logistic
+reference_feature_set: pkg_core_inj_l2
+logistic_feature_sets:
+  - h2_full
+  - pkg_core_inj_l2
+  - pkg_core_inj_l2_qbelo538
+model_specs:
+  - model: logistic
+    feature_set: h2_full
+  - model: logistic
+    feature_set: pkg_core_inj_l2
+    fixed_c: 0.1
+  - model: logistic
+    feature_set: pkg_core_inj_l2_qbelo538
+    fixed_c: 0.1
+log_shrinkage: true
+log_qb: true
+qb_subset: false
+qb_feature_set: h5_qb
+report_profile: qbelo538

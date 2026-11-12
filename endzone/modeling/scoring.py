@@ -21,6 +21,11 @@ from endzone.features.pregame import (
     market_home_probabilities,
     prepare_training_data,
 )
+from endzone.features.qbelo import (
+    QBELO_HOME_ADVANTAGE,
+    QBELO_SCALE,
+    rating_win_probability,
+)
 from endzone.modeling.cv import (
     RollingOriginConfig,
     _baseline_fold_predictor,
@@ -248,6 +253,50 @@ def _score_elo(
             "elo_scale": ELO_SCALE,
         },
         elo_cv,
+    )
+
+
+def _score_rating_gap(
+    features: pd.DataFrame,
+    matrix: pd.DataFrame,
+    target: pd.Series,
+    settings: CvScoreSettings,
+    shared: dict[str, Any],
+    column: str,
+    model_name: str,
+) -> dict[str, Any]:
+    """Score a stored Elo gap plus home advantage 65 on the 400 scale.
+
+    The gap is already leakage-safe. The fold predictor only looks up the
+    precomputed probability for the evaluation game ids.
+    """
+    indexed: pd.Series = features.drop_duplicates("game_id").set_index("game_id")[column]
+    gaps = indexed.loc[matrix["game_id"].to_numpy()].to_numpy(dtype=float)
+    probabilities: pd.Series = pd.Series(
+        rating_win_probability(gaps),
+        index=matrix["game_id"].to_numpy(),
+    )
+    scored: dict[str, Any] = rolling_origin_cv(
+        matrix,
+        target,
+        _lookup_fold_predictor(probabilities),
+        settings.resolved,
+    )
+    reason: str | None = None if not scored["oof"].empty else "no_scored_folds"
+    return cv_result_record(
+        model_name,
+        model_name,
+        "ok" if reason is None else "skipped",
+        reason,
+        {
+            **shared,
+            "model_type": model_name,
+            "feature_set": model_name,
+            "features": column,
+            "elo_home_advantage": QBELO_HOME_ADVANTAGE,
+            "elo_scale": QBELO_SCALE,
+        },
+        scored,
     )
 
 
