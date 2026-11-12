@@ -4,6 +4,8 @@ The count for a team-game uses the last injury row for each starter whose
 ``date_modified`` is strictly before kickoff. Kickoff is ``gameday`` plus
 ``gametime`` in Eastern time (``America/New_York``). A row with no timestamp,
 or a timestamp on or after kickoff, is not used. Week number is not a clock.
+A game with no injury rows does not need a kickoff. A game that has rows
+but no buildable kickoff contributes 0.
 
 QB is excluded. The four model columns are home minus away.
 """
@@ -13,6 +15,10 @@ from __future__ import annotations
 from zoneinfo import ZoneInfo
 
 import pandas as pd
+
+from endzone.utils.logging import setup_logger
+
+logger = setup_logger(__name__)
 
 EASTERN: ZoneInfo = ZoneInfo("America/New_York")
 
@@ -137,7 +143,8 @@ def starter_absence_diffs(
 
     Args:
         games: Schedule rows. Kickoff is ``gameday`` plus ``gametime`` in
-            Eastern time.
+            Eastern time. A missing clock is ignored when that game has no
+            injury rows.
         depth_chart_starters: Chart rows. When ``depth_team`` is present, only
             rank 1 is a starter. QB, fullback, and specialists are not in a
             group. The group comes from chart ``position``.
@@ -150,12 +157,13 @@ def starter_absence_diffs(
         count. A side with no qualifying starter is 0.
 
     Raises:
-        ValueError: A required column is missing, or a kickoff cannot be built.
+        ValueError: A required column is missing.
     """
     _require_columns(games, _GAME_COLUMNS, "games")
     _require_columns(depth_chart_starters, _STARTER_COLUMNS, "depth_chart_starters")
     _require_columns(injury_reports, _INJURY_COLUMNS, "injury_reports")
     team_games: pd.DataFrame = _team_games(games)
+    _warn_unusable_kickoff(injury_reports, team_games)
     reports: pd.DataFrame = _last_pregame_status(injury_reports, team_games)
     starters: pd.DataFrame = _grouped_starters(depth_chart_starters)
     counted: pd.DataFrame = _absence_counts(reports, starters)
@@ -181,13 +189,16 @@ def _as_text(values: pd.Series) -> pd.Series:
 
 
 def _kickoff_utc(gameday: pd.Series, gametime: pd.Series) -> pd.Series:
-    """Return kickoff as UTC. The clock is Eastern, including daylight time."""
+    """Return kickoff as UTC. A blank clock stays missing.
+
+    The format is ``%Y-%m-%d %H:%M:%S``. A date-only value must not decide
+    the format for the rest of the series. That inference turns every later
+    ``HH:MM`` into a missing kickoff when the earliest seasons have no clock.
+    """
     day: pd.Series = pd.to_datetime(gameday, errors="coerce")
-    clock: pd.Series = _as_text(gametime)
-    stamp: pd.Series = pd.to_datetime(
-        day.dt.strftime("%Y-%m-%d") + " " + clock.fillna(""),
-        errors="coerce",
-    )
+    clock: pd.Series = _normalized_clock(gametime)
+    text: pd.Series = day.dt.strftime("%Y-%m-%d") + " " + clock
+    stamp: pd.Series = pd.to_datetime(text, format="%Y-%m-%d %H:%M:%S", errors="coerce")
     localized: pd.Series = stamp.dt.tz_localize(
         EASTERN,
         ambiguous="NaT",
@@ -196,13 +207,26 @@ def _kickoff_utc(gameday: pd.Series, gametime: pd.Series) -> pd.Series:
     return localized.dt.tz_convert("UTC")
 
 
+def _normalized_clock(gametime: pd.Series) -> pd.Series:
+    """Return ``HH:MM:SS``, or missing when the clock cannot be read."""
+    clock: pd.Series = _as_text(gametime)
+    blank: pd.Series = clock.isna() | clock.str.lower().isin(["", "na", "nat", "none", "nan"])
+    clock = clock.mask(blank)
+    parts: pd.DataFrame = clock.str.split(":", expand=True, n=2)
+    width: int = int(parts.shape[1])
+    while width < 3:
+        parts[width] = pd.NA
+        width += 1
+    hour: pd.Series = parts[0].astype("string").str.zfill(2)
+    minute: pd.Series = parts[1].astype("string").str.zfill(2)
+    second: pd.Series = parts[2].astype("string").fillna("00").str.zfill(2)
+    normalized: pd.Series = hour + ":" + minute + ":" + second
+    return normalized.mask(hour.isna() | minute.isna() | second.isna())
+
+
 def _team_games(games: pd.DataFrame) -> pd.DataFrame:
-    """One row per side, with a kickoff that can be compared to a report."""
+    """One row per side. Kickoff may be missing when the clock is blank."""
     kickoff: pd.Series = _kickoff_utc(games["gameday"], games["gametime"])
-    if kickoff.isna().any():
-        bad_ids: list[str] = games.loc[kickoff.isna(), "game_id"].astype("string").head(8).tolist()
-        listed: str = ", ".join(bad_ids)
-        raise ValueError(f"kickoff could not be built for game_id: {listed}")
     aligned_kickoff: pd.Series = pd.Series(kickoff.to_numpy(), dtype="datetime64[ns, UTC]")
     base: pd.DataFrame = pd.DataFrame(
         {
@@ -221,6 +245,37 @@ def _team_games(games: pd.DataFrame) -> pd.DataFrame:
     away["team"] = _as_text(games["away_team"]).to_numpy()
     away["side"] = "away"
     return pd.concat([home, away], ignore_index=True)
+
+
+def _warn_unusable_kickoff(injuries: pd.DataFrame, team_games: pd.DataFrame) -> None:
+    """Warn when injury rows exist and the kickoff clock cannot be built.
+
+    Games with no report rows are not counted. Their absence columns stay 0
+    without a timestamp. Rows on a game with no kickoff are excluded later.
+    """
+    reports: pd.DataFrame = pd.DataFrame(
+        {
+            "season": _as_int(injuries["season"]),
+            "week": _as_int(injuries["week"]),
+            "game_type": _as_text(injuries["game_type"]),
+            "team": _as_text(injuries["team"]),
+            "gsis_id": _as_text(injuries["gsis_id"]),
+        }
+    )
+    reports = reports.loc[reports["gsis_id"].notna() & reports["gsis_id"].ne("")]
+    if reports.empty or team_games.empty:
+        return
+    keys: pd.DataFrame = reports.loc[:, list(_JOIN_KEYS)].drop_duplicates()
+    linked: pd.DataFrame = team_games.merge(keys, on=list(_JOIN_KEYS), how="left", indicator=True)
+    unusable: pd.Series = linked["kickoff_utc"].isna() & linked["_merge"].eq("both")
+    n_games: int = int(linked.loc[unusable, "game_id"].nunique())
+    if n_games == 0:
+        return
+    logger.warning(
+        "%s games have injury rows and no buildable kickoff. "
+        "Those rows are excluded and the absence counts are 0.",
+        n_games,
+    )
 
 
 def _last_pregame_status(injuries: pd.DataFrame, team_games: pd.DataFrame) -> pd.DataFrame:

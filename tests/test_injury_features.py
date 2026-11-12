@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import pandas as pd
 import pytest
 
@@ -345,3 +347,158 @@ def test_build_ignores_a_report_dated_after_kickoff() -> None:
     assert quiet_row["diff_skill_starters_out_or_doubtful"] == 0.0
     assert out_row["diff_skill_starters_out_or_doubtful"] == 1.0
     pd.testing.assert_series_equal(out_row, later_row)
+
+
+def _dated_game(
+    game_id: str,
+    season: int,
+    gameday: str,
+    gametime: object,
+    home: str = "A",
+    away: str = "B",
+) -> dict[str, object]:
+    """One schedule row. ``gametime`` may be missing."""
+    return {
+        "game_id": game_id,
+        "season": season,
+        "week": 1,
+        "game_type": "REG",
+        "gameday": gameday,
+        "gametime": gametime,
+        "home_team": home,
+        "away_team": away,
+    }
+
+
+def test_missing_gametime_before_coverage_stays_zero(caplog: pytest.LogCaptureFixture) -> None:
+    """A 2000 game with no clock and no report is 0, and a later kickoff still counts."""
+    games: pd.DataFrame = pd.DataFrame(
+        [
+            _dated_game("2000_01_TEN_BUF", 2000, "2000-09-03", None, home="TEN", away="BUF"),
+            _dated_game("2000_01_SD_OAK", 2000, "2000-09-03", pd.NA, home="SD", away="OAK"),
+            _dated_game("2016-1", 2016, "2016-09-11", "13:00"),
+        ]
+    )
+    starters: list[dict[str, object]] = [_starter("A", "wr", "WR")]
+    reports: list[dict[str, object]] = [_report("A", "wr", "Out", "2016-09-10 16:30:00+00:00")]
+    with caplog.at_level(logging.WARNING, logger="endzone.features.injuries"):
+        counted: pd.DataFrame = starter_absence_diffs(
+            games,
+            pd.DataFrame(starters),
+            pd.DataFrame(reports),
+        )
+    early: pd.DataFrame = counted.loc[
+        counted["game_id"].isin(["2000_01_TEN_BUF", "2000_01_SD_OAK"])
+    ]
+    assert (early[list(INJURY_DIFF_COLUMNS)] == 0.0).all().all()
+    later: pd.Series = counted.loc[counted["game_id"] == "2016-1"].iloc[0]
+    assert later["diff_skill_starters_out_or_doubtful"] == 1.0
+    assert "no buildable kickoff" not in caplog.text
+
+
+def test_injury_rows_without_a_kickoff_count_zero_and_warn(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Rows on a game with no clock are excluded. A neighboring kickoff still counts."""
+    games: pd.DataFrame = pd.DataFrame(
+        [
+            _dated_game("1999_01_MIN_ATL", 1999, "1999-09-12", None, home="MIN", away="ATL"),
+            _dated_game("no-clock", 2016, "2016-09-11", None),
+            _dated_game("has-clock", 2016, "2016-09-18", "13:00", home="C", away="D"),
+        ]
+    )
+    starters: list[dict[str, object]] = [
+        _starter("A", "wr", "WR"),
+        {
+            "season": 2016,
+            "week": 1,
+            "game_type": "REG",
+            "team": "C",
+            "gsis_id": "wr2",
+            "position": "WR",
+            "depth_team": 1,
+        },
+    ]
+    reports: list[dict[str, object]] = [
+        _report("A", "wr", "Out", "2016-09-10 12:00:00+00:00"),
+        {
+            "season": 2016,
+            "week": 1,
+            "game_type": "REG",
+            "team": "C",
+            "gsis_id": "wr2",
+            "report_status": "Out",
+            "date_modified": "2016-09-17 16:00:00+00:00",
+        },
+    ]
+    with caplog.at_level(logging.WARNING, logger="endzone.features.injuries"):
+        counted: pd.DataFrame = starter_absence_diffs(
+            games,
+            pd.DataFrame(starters),
+            pd.DataFrame(reports),
+        )
+    no_clock: pd.Series = counted.loc[counted["game_id"] == "no-clock"].iloc[0]
+    has_clock: pd.Series = counted.loc[counted["game_id"] == "has-clock"].iloc[0]
+    pre_coverage: pd.Series = counted.loc[counted["game_id"] == "1999_01_MIN_ATL"].iloc[0]
+    assert no_clock["diff_skill_starters_out_or_doubtful"] == 0.0
+    assert has_clock["diff_skill_starters_out_or_doubtful"] == 1.0
+    assert pre_coverage["diff_skill_starters_out_or_doubtful"] == 0.0
+    assert "1 games have injury rows and no buildable kickoff" in caplog.text
+
+
+def test_build_keeps_training_when_an_early_game_has_no_gametime() -> None:
+    """The feature build used by training does not raise on a 2000 game with no clock."""
+    games, epa = _multiweek_slate(weeks=1)
+    parts: pd.Series = games["game_id"].astype(str).str.split("-", expand=True)
+    games = games.copy()
+    games["week"] = parts[1].astype(int) + 1
+    games["game_type"] = "REG"
+    games["gametime"] = "13:00"
+    games["home_team"] = games["home_team_franchise"]
+    games["away_team"] = games["away_team_franchise"]
+    early: pd.DataFrame = pd.DataFrame(
+        [
+            {
+                "game_id": "2000_01_TEN_BUF",
+                "season": 2000,
+                "week": 1,
+                "game_type": "REG",
+                "gameday": "2000-09-03",
+                "gametime": None,
+                "home_team": "TEN",
+                "away_team": "BUF",
+                "home_team_franchise": "TEN",
+                "away_team_franchise": "BUF",
+                "home_won": 1,
+                "home_score": 16,
+                "away_score": 13,
+                "home_rest": 7,
+                "away_rest": 7,
+                "home_moneyline": None,
+                "away_moneyline": None,
+            }
+        ]
+    )
+    games = pd.concat([early, games], ignore_index=True)
+    features: pd.DataFrame = build_pregame_features(
+        games,
+        epa,
+        depth_chart_starters=pd.DataFrame(
+            columns=["season", "week", "game_type", "team", "gsis_id", "position"]
+        ),
+        injury_reports=pd.DataFrame(
+            columns=[
+                "season",
+                "week",
+                "game_type",
+                "team",
+                "gsis_id",
+                "report_status",
+                "date_modified",
+            ]
+        ),
+    )
+    row: pd.Series = features.loc[
+        features["game_id"] == "2000_01_TEN_BUF", INJURY_DIFF_COLUMNS
+    ].iloc[0]
+    assert row.tolist() == [0.0, 0.0, 0.0, 0.0]
