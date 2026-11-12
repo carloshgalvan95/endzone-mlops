@@ -30,15 +30,23 @@ REPORT_PROFILES: frozenset[str] = frozenset(
         "pkg_core",
         "pkg_core_inj",
         "ensembles",
+        "ensembles_r2",
     }
 )
 # These profiles label the market ``benchmark`` and write calibration plus
 # the descriptive market-information regression. Other profiles do not.
 MARKET_BENCHMARK_PROFILES: frozenset[str] = frozenset(
-    {"h6", "pkg_core", "pkg_core_inj", "ensembles"}
+    {"h6", "pkg_core", "pkg_core_inj", "ensembles", "ensembles_r2"}
 )
 CV_MODEL_NAMES: frozenset[str] = frozenset(
-    {"logistic", "logistic_l2", "gbm_pkg_core_inj", "ens_mean"}
+    {
+        "logistic",
+        "logistic_l2",
+        "gbm_pkg_core_inj",
+        "ens_mean",
+        "ens_mean_elo",
+        "stack_elo",
+    }
 )
 MODEL_DEFAULT_FEATURE_SET: dict[str, str] = {
     "baseline-home": "none",

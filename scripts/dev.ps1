@@ -32,6 +32,7 @@ function Show-Help {
     Write-Host "  train-pkg-core      - Preregistered pkg_core CV, seasons 2016-2023. Does not register"
     Write-Host "  train-pkg-core-inj  - Preregistered injury CV, seasons 2016-2023. Does not register"
     Write-Host "  train-ensembles     - Preregistered booster and mean, seasons 2016-2023. Does not register"
+    Write-Host "  train-ensembles-r2  - Preregistered defender-plus-Elo mean and stack, seasons 2016-2023. Does not register"
     Write-Host "  mlflow-ui           - Open MLflow UI against the local SQLite store"
     Write-Host "  audit-features      - Profile current pregame inputs (no feature changes)"
     Write-Host "  check-epa-filter    - Count play types in the EPA filter, plus kneel and spike rows"
@@ -214,6 +215,12 @@ function Invoke-TrainPkgCoreInj {
 function Invoke-TrainEnsembles {
     Write-Host "Running the preregistered booster and mean for seasons 2016-2023..."
     python scripts/train_ensembles.py
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
+function Invoke-TrainEnsemblesR2 {
+    Write-Host "Running the preregistered defender-plus-Elo mean and stack for seasons 2016-2023..."
+    python scripts/train_ensembles_r2.py
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
@@ -416,6 +423,7 @@ switch ($Target.ToLower()) {
     "train-pkg-core" { Invoke-TrainPkgCore }
     "train-pkg-core-inj" { Invoke-TrainPkgCoreInj }
     "train-ensembles" { Invoke-TrainEnsembles }
+    "train-ensembles-r2" { Invoke-TrainEnsemblesR2 }
     "mlflow-ui" { Invoke-MlflowUi }
     "audit-features" { Invoke-AuditFeatures }
     "check-epa-filter" { Invoke-CheckEpaFilter }

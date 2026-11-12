@@ -21,11 +21,20 @@ CALIBRATION_MODELS: frozenset[str] = frozenset(
         "market",
         "gbm_pkg_core_inj",
         "ens_mean",
+        "ens_mean_elo",
+        "stack_elo",
     }
 )
 # Descriptive market-information rows. Baseline models are not in this set.
 INFORMATION_MODELS: frozenset[str] = frozenset(
-    {"logistic", "logistic_l2", "gbm_pkg_core_inj", "ens_mean"}
+    {
+        "logistic",
+        "logistic_l2",
+        "gbm_pkg_core_inj",
+        "ens_mean",
+        "ens_mean_elo",
+        "stack_elo",
+    }
 )
 CALIBRATION_COLUMNS: tuple[str, ...] = (
     "model",

@@ -302,6 +302,26 @@ def _profile_lines(profile: str) -> list[str]:
             "No blend is published.",
             "The market row is a benchmark. It is not a candidate.",
         ]
+    if profile == "ensembles_r2":
+        return [
+            "ens_mean_elo is the unweighted mean of logistic pkg_core_inj_l2",
+            "and Elo on each outer fold. No weight is learned.",
+            "stack_elo is logistic regression on logit(p_pkg_core_inj_l2)",
+            "and logit(p_elo), with an intercept and C fixed at 1.0.",
+            "Probabilities are clipped at 1e-6 before the logit.",
+            "For outer season S the stacker is fit only on inner",
+            "out-of-fold rows from 2010 through S-1. Members for inner",
+            "season T train on seasons before T. Season S is not in",
+            "that fit.",
+            "The reference is logistic pkg_core_inj_l2 with C fixed at 0.1.",
+            "h2_full, Elo, and the market are context. They are not",
+            "candidates. ens_mean_elo and stack_elo are the preregistered",
+            "candidates.",
+            "Calibration, the per-season table, the stacker coefficients,",
+            "and the market-information regression are descriptive.",
+            "They are not acceptance decisions. No blend is published.",
+            "The market row is a benchmark. It is not a candidate.",
+        ]
     if profile == "ridge":
         grid_text: str = ", ".join(_format_regularization_c(value) for value in DEFAULT_L2_C_GRID)
         return (
@@ -390,6 +410,52 @@ def _calibration_lines(table: pd.DataFrame | None) -> list[str]:
     return lines
 
 
+def _stacker_lines(table: pd.DataFrame | None) -> list[str]:
+    """Per-fold stacker coefficients. The table is not an acceptance decision."""
+    if table is None:
+        return []
+    lines: list[str] = [
+        "## Stacker coefficients",
+        "",
+        "For each outer season, the intercept and the two logit",
+        "coefficients fit on inner out-of-fold rows from earlier seasons.",
+        "This table is descriptive. It is not an acceptance decision,",
+        "and the coefficients are not published as a blend.",
+        "",
+    ]
+    if table.empty:
+        lines.append("No stacker coefficients were computed.")
+        lines.append("")
+        return lines
+    lines.append(
+        _markdown_table(
+            [
+                "season",
+                "status",
+                "n_train",
+                "inner_seasons",
+                "intercept",
+                "coef_logit_pkg_core_inj_l2",
+                "coef_logit_elo",
+            ],
+            [
+                [
+                    row.season,
+                    row.status,
+                    row.n_train,
+                    row.inner_seasons,
+                    row.intercept,
+                    row.coef_logit_pkg_core_inj_l2,
+                    row.coef_logit_elo,
+                ]
+                for row in table.itertuples(index=False)
+            ],
+        )
+    )
+    lines.append("")
+    return lines
+
+
 def _market_information_lines(table: pd.DataFrame | None) -> list[str]:
     """Descriptive regression of the result on the market logit and the model logit.
 
@@ -413,6 +479,7 @@ def _market_information_lines(table: pd.DataFrame | None) -> list[str]:
     lines.append(
         _markdown_table(
             [
+                "model",
                 "feature_set",
                 "status",
                 "n",
@@ -425,6 +492,7 @@ def _market_information_lines(table: pd.DataFrame | None) -> list[str]:
             ],
             [
                 [
+                    row.model,
                     row.feature_set,
                     row.status,
                     row.n,
@@ -546,6 +614,7 @@ def render_phase1_report(report: dict[str, Any]) -> str:
     if report.get("apply_acceptance"):
         lines.extend(_render_acceptance_section(report))
     lines.extend(_calibration_lines(report.get("calibration")))
+    lines.extend(_stacker_lines(report.get("stacker_coefficients")))
     lines.extend(_market_information_lines(report.get("market_information")))
     lines.append("No model is promoted from this report.")
     lines.append("")
@@ -584,6 +653,11 @@ def write_phase1_outputs(report: dict[str, Any], output_dir: Path) -> dict[str, 
         information_path: Path = output_dir / "market_information.csv"
         market_information.to_csv(information_path, index=False, encoding="utf-8")
         extra_paths["market_information"] = str(information_path)
+    stacker_coefficients: pd.DataFrame | None = report.get("stacker_coefficients")
+    if isinstance(stacker_coefficients, pd.DataFrame):
+        stacker_path: Path = output_dir / "stacker_coefficients.csv"
+        stacker_coefficients.to_csv(stacker_path, index=False, encoding="utf-8")
+        extra_paths["stacker_coefficients"] = str(stacker_path)
     acceptance: list[dict[str, Any]] | None = report.get("acceptance")
     if acceptance:
         acceptance_path: Path = output_dir / "acceptance.csv"

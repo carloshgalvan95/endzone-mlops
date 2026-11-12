@@ -32,7 +32,7 @@ from endzone.modeling.cv import (
     rolling_origin_cv,
 )
 from endzone.modeling.ensembles import (
-    MODEL_ENS_MEAN,
+    DERIVED_CV_MODELS,
     MODEL_GBM_PKG_CORE_INJ,
     hist_gbm_fold_predictor,
     hist_gradient_boosting_param_fields,
@@ -148,11 +148,11 @@ def _score_model_spec(
 ) -> dict[str, Any]:
     """Score one logistic, fold-tuned L2, or locked booster row.
 
-    ``ens_mean`` is not scored here. It is the mean of two rows that already
-    exist.
+    A mean or a stacker is not scored here. Those rows use probabilities
+    that this function has already produced.
     """
-    if spec.model == MODEL_ENS_MEAN:
-        raise ValueError("ens_mean is the mean of member probabilities, not a fitted model")
+    if spec.model in DERIVED_CV_MODELS:
+        raise ValueError(f"{spec.model} is not a fitted model")
     matrix: pd.DataFrame
     target: pd.Series
     matrix, target = prepare_training_data(games, features, feature_set=spec.feature_set)
