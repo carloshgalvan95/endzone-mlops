@@ -105,6 +105,10 @@ class TestStagingModelColumns:
                 "dbt/models/staging/stg_nflverse__depth_charts.sql",
                 "nflverse_depth_chart_columns.txt",
             ),
+            (
+                "dbt/models/staging/stg_nflverse__injuries.sql",
+                "nflverse_injuries_columns.txt",
+            ),
         ],
     )
     def test_staging_columns_exist_on_the_source(

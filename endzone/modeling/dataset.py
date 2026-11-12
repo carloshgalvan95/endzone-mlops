@@ -99,6 +99,39 @@ def load_qb_inputs(
         return client.read_table("fct_expected_starter"), client.read_table("fct_qb_dropbacks")
 
 
+def load_injury_inputs(
+    fixture_path: str | None = None,
+) -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
+    """Load depth-chart starters and injury report rows.
+
+    A fixture directory without both parquet files returns None so the column
+    check can name the missing absence columns. A warehouse read uses
+    ``fct_depth_chart_starters`` and ``fct_injury_reports``.
+
+    Args:
+        fixture_path: Optional directory of parquet fixtures. None reads the warehouse.
+
+    Returns:
+        ``(fct_depth_chart_starters, fct_injury_reports)``. Both are None when
+        the fixture files are absent.
+    """
+    if fixture_path:
+        fixture_dir = Path(fixture_path)
+        starter_file = fixture_dir / "fct_depth_chart_starters.parquet"
+        injury_file = fixture_dir / "fct_injury_reports.parquet"
+        if not starter_file.exists() or not injury_file.exists():
+            logger.info("Injury fixture tables are absent in %s", fixture_dir)
+            return None, None
+        logger.info("Loading injury tables from fixtures: %s", fixture_dir)
+        return pd.read_parquet(starter_file), pd.read_parquet(injury_file)
+    logger.info("Loading injury tables from Databricks")
+    with DatabricksClient() as client:
+        return (
+            client.read_table("fct_depth_chart_starters"),
+            client.read_table("fct_injury_reports"),
+        )
+
+
 def cv_dataset_frame(
     games: pd.DataFrame,
     features: pd.DataFrame,

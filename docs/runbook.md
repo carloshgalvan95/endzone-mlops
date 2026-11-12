@@ -510,11 +510,21 @@ Catalog `workspace`. The dbt Databricks target schema is `nfl_dev` (`dbt/profile
 | Custom schema in dbt | Warehouse schema | Objects |
 | --- | --- | --- |
 | (none, seeds) | `nfl_dev` | `team_franchise_map`, `depth_chart_club_map`, `known_pbp_gaps` |
-| `staging` | `nfl_dev_staging` | `stg_nflverse__games`, `stg_nflverse__pbp`, `stg_nflverse__depth_charts` |
-| `marts` | `nfl_dev_marts` | `fct_games`, `fct_team_game_epa`, `fct_upcoming_games`, `fct_expected_starter`, `fct_qb_dropbacks` |
+| `staging` | `nfl_dev_staging` | `stg_nflverse__games`, `stg_nflverse__pbp`, `stg_nflverse__depth_charts`, `stg_nflverse__injuries` |
+| `marts` | `nfl_dev_marts` | `fct_games`, `fct_team_game_epa`, `fct_upcoming_games`, `fct_expected_starter`, `fct_qb_dropbacks`, `fct_depth_chart_starters`, `fct_injury_reports` |
 | `test_results` | `nfl_dev_test_results` | empty unless one test is run with `--store-failures` |
 
-Bronze is not a dbt schema. Ingest writes `workspace.nfl_raw.games`, `workspace.nfl_raw.play_by_play`, and `workspace.nfl_raw.depth_charts`. Depth charts start in 2001. 1999 and 2000 were not published.
+Bronze is not a dbt schema. Ingest writes `workspace.nfl_raw.games`, `workspace.nfl_raw.play_by_play`, `workspace.nfl_raw.depth_charts`, and `workspace.nfl_raw.injuries`. Depth charts start in 2001. Injury reports start in 2009. 1999 and 2000 were not published for either file.
+
+### Injury reports
+
+`pkg_core_inj` is preregistered and not scored in this note. On a catalog that already has games, play-by-play, and depth charts, load injuries, rebuild the marts, then train. The kickoff filter is in the feature code. The command does not register a model.
+
+```bash
+python -m endzone.ingest.load_raw_nflverse --dataset injuries && make dbt-build-databricks && PYTHONUTF8=1 MLFLOW_TRACKING_URI=databricks MLFLOW_REGISTRY_URI=databricks-uc uv run python scripts/train_pkg_core_inj.py
+```
+
+`make train-pkg-core-inj` is the train step alone. See `docs/experiments/pkg_core_inj.md`.
 
 ### Test result schema
 

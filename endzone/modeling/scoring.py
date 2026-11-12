@@ -115,6 +115,24 @@ def _score_baseline(
     )
 
 
+def logistic_c_for_spec(spec: CvModelSpec, fallback_c: float) -> float:
+    """Return the C for one logistic row.
+
+    A spec with ``fixed_c`` uses that value. Every other row uses
+    ``fallback_c``, which is the command's ``--C``.
+
+    Args:
+        spec: Model row from the experiment file.
+        fallback_c: C from the command. Used when the row does not lock C.
+
+    Returns:
+        The C passed to logistic regression for this row.
+    """
+    if spec.fixed_c is None:
+        return float(fallback_c)
+    return float(spec.fixed_c)
+
+
 def _score_model_spec(
     games: pd.DataFrame,
     features: pd.DataFrame,
@@ -135,7 +153,7 @@ def _score_model_spec(
         )
     elif spec.model == MODEL_LOGISTIC:
         predictor = _logistic_fold_predictor(
-            settings.logistic_c,
+            logistic_c_for_spec(spec, settings.logistic_c),
             settings.logistic_max_iter,
             settings.random_state,
         )
@@ -159,7 +177,7 @@ def _score_model_spec(
         model_params["c_fallback"] = settings.logistic_c
         model_params.update(chosen_c_param_fields(logistic_cv["folds"]))
     else:
-        model_params["C"] = settings.logistic_c
+        model_params["C"] = logistic_c_for_spec(spec, settings.logistic_c)
     return cv_result_record(
         spec.model,
         spec.feature_set,

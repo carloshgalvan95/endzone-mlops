@@ -15,6 +15,7 @@ VOLUME_NAME: str = "landing"
 # Hint read_files so a leftover int/double week mix still parses as one int column.
 # The upload path already writes nullable int32. This hint is the belt.
 DEPTH_CHART_READ_SCHEMA_HINT: str = "season int, week int, depth_team string, club_code string"
+INJURY_READ_SCHEMA_HINT: str = "season int, week int, team string, date_modified timestamp"
 
 # One timestamp for the games replace. Freshness reads it. It is not gameday.
 # The parquet file is unchanged. Play-by-play and depth charts stay select *.
@@ -37,6 +38,12 @@ DATASET_CONFIG: dict[str, dict[str, Any]] = {
         "filename_pattern": "depth_charts_{season}.parquet",
         "table_name": "depth_charts",
         "description": "NFL depth charts (2001-present, 2025+ snapshots mapped to weeks)",
+        "supports_season_filter": True,
+    },
+    "injuries": {
+        "filename_pattern": "injuries_{season}.parquet",
+        "table_name": "injuries",
+        "description": "NFL weekly injury reports (2009-present)",
         "supports_season_filter": True,
     },
 }
@@ -106,6 +113,28 @@ def upload_to_volume_depth_chart_season(
     logger.info("Uploading %s to %s", local_path.name, volume_path)
     upload_volume_file(workspace_client, local_path, volume_path)
     logger.info("Uploaded depth charts to %s", volume_path)
+    return volume_path
+
+
+def upload_to_volume_injury_season(
+    workspace_client: Any,
+    local_path: Path,
+    season: int,
+) -> str:
+    """Upload one season of injury reports to the landing volume.
+
+    Args:
+        workspace_client: Databricks Workspace client.
+        local_path: Local parquet path.
+        season: Season year used in the volume directory.
+
+    Returns:
+        Volume path of the uploaded file.
+    """
+    volume_path = f"{_volume_root()}/injuries/{season}/{local_path.name}"
+    logger.info("Uploading %s to %s", local_path.name, volume_path)
+    upload_volume_file(workspace_client, local_path, volume_path)
+    logger.info("Uploaded injury reports to %s", volume_path)
     return volume_path
 
 
@@ -183,9 +212,9 @@ def create_bronze_table(
 
     Args:
         sql_connection: Databricks SQL connection.
-        dataset: Dataset name (games, pbp, depth_charts).
-        volume_path: Path to a parquet file or folder. ``None`` for pbp and
-            depth charts, which read their folders.
+        dataset: Dataset name (games, pbp, depth_charts, injuries).
+        volume_path: Path to a parquet file or folder. ``None`` for pbp,
+            depth charts, and injuries, which read their folders.
     """
     config = DATASET_CONFIG[dataset]
     table_name = f"{CATALOG}.{SCHEMA_RAW}.{config['table_name']}"
@@ -194,6 +223,8 @@ def create_bronze_table(
         read_path = f"{_volume_root()}/pbp"
     elif dataset == "depth_charts":
         read_path = f"{_volume_root()}/depth_charts"
+    elif dataset == "injuries":
+        read_path = f"{_volume_root()}/injuries"
     else:
         if volume_path is None:
             raise ValueError("volume_path is required for games dataset")
@@ -203,6 +234,10 @@ def create_bronze_table(
     if dataset == "depth_charts":
         read_options = (
             "format => 'parquet',\n        schemaHints => '" + DEPTH_CHART_READ_SCHEMA_HINT + "'"
+        )
+    elif dataset == "injuries":
+        read_options = (
+            "format => 'parquet',\n        schemaHints => '" + INJURY_READ_SCHEMA_HINT + "'"
         )
     select_sql = "*"
     if dataset == "games":

@@ -265,6 +265,24 @@ def _profile_lines(profile: str) -> list[str]:
             "They are not acceptance decisions. No blend is published.",
             "The market row is a benchmark. It is not a candidate.",
         ]
+    if profile == "pkg_core_inj":
+        return [
+            "pkg_core_inj is pkg_core plus four home-minus-away counts of",
+            "depth-chart starters listed Out or Doubtful. Groups are OL,",
+            "skill (RB, WR, TE), front seven (DL, LB), and DB. QB is excluded.",
+            "A report row counts only when date_modified is strictly before",
+            "kickoff. Kickoff is gameday plus gametime in Eastern time.",
+            "pkg_core_inj uses the same logistic settings as pkg_core, C 1.0.",
+            "pkg_core_inj_l2 uses the same columns. Logistic regression is",
+            "already L2 on standardized features. This row fixes C at 0.1",
+            "and does not search C inside the fold.",
+            "pkg_core is scored in the same run for context. It is not a",
+            "second candidate. pkg_core_inj and pkg_core_inj_l2 are the",
+            "preregistered candidates.",
+            "Calibration and the market-information regression are descriptive.",
+            "They are not acceptance decisions. No blend is published.",
+            "The market row is a benchmark. It is not a candidate.",
+        ]
     if profile == "ridge":
         grid_text: str = ", ".join(_format_regularization_c(value) for value in DEFAULT_L2_C_GRID)
         return (

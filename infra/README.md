@@ -6,7 +6,7 @@ Databricks Free Edition is the warehouse. The Day 1 spike passed on 2026-10-06. 
 
 - Serverless SQL warehouse (pre-created). Free Edition does not create a custom cluster.
 - Unity Catalog catalog `workspace`.
-- Bronze schema `nfl_raw`: `games`, `play_by_play`, `depth_charts`.
+- Bronze schema `nfl_raw`: `games`, `play_by_play`, `depth_charts`, `injuries`.
 - dbt target schema `nfl_dev`. Staging is `nfl_dev_staging`. Marts are `nfl_dev_marts`. Seeds stay in `nfl_dev`.
 - MLflow on serverless compute, and locally at `sqlite:///mlflow.db`.
 

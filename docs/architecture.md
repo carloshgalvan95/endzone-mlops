@@ -102,6 +102,7 @@ endzone-mlops demonstrates a lakehouse architecture for NFL analytics: Databrick
 - `stg_nflverse__games`: Game-level data (schedule, scores, lines)
 - `stg_nflverse__pbp`: Play-by-play, including passer id, dropback, and CPOE
 - `stg_nflverse__depth_charts`: Depth charts from 2001. From 2025 the release is a timestamped snapshot, and ingest assigns each team-game the latest snapshot strictly before kickoff.
+- `stg_nflverse__injuries`: Weekly injury reports from 2009. `date_modified` is null when the release has no clock. This view does not compare the timestamp to kickoff.
 - `fct_games`: one row per completed game (both scores present)
 - `fct_team_game_epa`: one row per team per completed game
 - `fct_upcoming_games`: one row per game with both scores null
@@ -139,10 +140,11 @@ Catalog `workspace`. dbt's target schema is `nfl_dev`. This repo has no `generat
 - `games`. `download_nflverse_games` keeps every column of the nflverse schedules parquet and filters rows by season. Staging reads `game_id`, `season`, `week`, `game_type`, `away_team`, `home_team`, `away_score`, `home_score`, `gameday`, `weekday`, `gametime`, `spread_line`, `total_line`, `away_moneyline`, `home_moneyline`, `location`, `roof`, `surface`, `temp`, `wind`, `away_rest`, `home_rest`, `gsis`, `pfr`, `pff`, `espn`, and `old_game_id`. Staging renames `gsis`, `pfr`, `pff`, and `espn` to `*_id`.
 - `play_by_play`. Each season file is conformed to `endzone/ingest/schemas/pbp_schema.json` (372 columns) before upload. Those keys are the bronze columns. `wp` is one of them. Staging exposes it as `win_probability`.
 - `depth_charts`. The uploaded parquet has only `DEPTH_CHART_COLUMNS` from `endzone/ingest/depth_charts.py`, in this order: `season`, `club_code`, `week`, `game_type`, `depth_team`, `last_name`, `first_name`, `football_name`, `formation`, `gsis_id`, `jersey_number`, `position`, `elias_id`, `depth_position`, `full_name`. From 2025 the release uses `dt` (a UTC scrape time) instead of `week`. Ingest uses `dt` to pick the latest scrape strictly before kickoff, then writes `week` and `game_type`. The bronze table does not include `dt`.
+- `injuries`. Weekly reports from 2009. The stable columns are `INJURY_COLUMNS` in `endzone/ingest/injuries.py`. `date_modified` is the report update time. The 2025 and 2026 releases omit it, and ingest stores that column null. The feature code drops a null clock and any row on or after kickoff. The bronze table keeps those rows.
 
-Play-by-play and depth charts have no row-hash column and no ingestion timestamp. `endzone/ingest/schemas/pbp_schema.json` has neither name. `DEPTH_CHART_COLUMNS` has neither name. Games gets `ingested_at` only in the warehouse replace (`endzone/ingest/volume.py`). The parquet file from `endzone/ingest/nflverse.py` does not have that column. The live `workspace.nfl_raw.games` table gains it when the games reload runs. Staging does not select it, so the marts do not gain a column.
+Play-by-play, depth charts, and injury reports have no row-hash column and no ingestion timestamp. `date_modified` on injuries is the report update time from nflverse, not the load time. `endzone/ingest/schemas/pbp_schema.json` has neither name. `DEPTH_CHART_COLUMNS` has neither name. Games gets `ingested_at` only in the warehouse replace (`endzone/ingest/volume.py`). The parquet file from `endzone/ingest/nflverse.py` does not have that column. The live `workspace.nfl_raw.games` table gains it when the games reload runs. Staging does not select it, so the marts do not gain a column.
 
-**Staging** views: `stg_nflverse__games`, `stg_nflverse__pbp`, `stg_nflverse__depth_charts`. Column lists are the `select` in each SQL file.
+**Staging** views: `stg_nflverse__games`, `stg_nflverse__pbp`, `stg_nflverse__depth_charts`, `stg_nflverse__injuries`. Column lists are the `select` in each SQL file.
 
 **Marts**:
 
@@ -153,6 +155,8 @@ Play-by-play and depth charts have no row-hash column and no ingestion timestamp
 | `fct_upcoming_games` | one game with both scores null | `game_id`, `season`, `week`, `game_type`, `away_team`, `home_team`, `away_team_franchise`, `home_team_franchise`, `gameday`, `weekday`, `gametime`, `spread_line`, `total_line`, `away_moneyline`, `home_moneyline`, `location`, `roof`, `surface`, `temp`, `wind`, `away_rest`, `home_rest` |
 | `fct_expected_starter` | one completed game | `game_id`, `season`, `week`, `game_type`, `gameday`, `home_team`, `away_team`, `home_team_franchise`, `away_team_franchise`, `home_starter_player_id`, `away_starter_player_id` |
 | `fct_qb_dropbacks` | one passer in one completed game | `game_id`, `season`, `week`, `gameday`, `team`, `team_franchise`, `passer_player_id`, `dropbacks`, `dropback_epa`, `cpoe_sum`, `cpoe_dropbacks` |
+| `fct_depth_chart_starters` | one depth-1 player and position in one team-week | `season`, `week`, `game_type`, `team`, `gsis_id`, `position` |
+| `fct_injury_reports` | one player report row | `season`, `week`, `game_type`, `team`, `gsis_id`, `report_status`, `date_modified` |
 
 Those column lists are the final `select` of each mart. `fct_games` and `fct_upcoming_games` list every column in `dbt/models/marts/schema.yml` with `data_type` and `contract.enforced: true`. The other marts document a subset and the tests. The YAML lists columns the SQL already selects.
 

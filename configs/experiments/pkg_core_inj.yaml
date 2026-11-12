@@ -1,0 +1,35 @@
+id: pkg_core_inj
+phase: 2
+default: false
+aliases:
+  - pkg_core_inj
+  - pkg-core-inj
+tag: pkg-core-inj
+short_name: pkg_core_inj
+experiment_name: nfl_pregame/phase2_pkg_core_inj
+phase_tag: "2"
+output_dir: reports/phase2_pkg_core_inj
+title: Phase 2 pkg_core injury reports
+note: "Phase 2 pkg_core_inj. Logistic pkg_core_inj and pkg_core_inj_l2 against h2_full on rolling-origin seasons 2016-2023. pkg_core is scored in the same run for context. pkg_core_inj uses C 1.0. pkg_core_inj_l2 fixes C at 0.1 on standardized L2 logistic and does not tune C. The market row is benchmark. Calibration and the market-information regression are reported and are not gates. No blend is published. 2024 and 2025 are not scored. No model is promoted from this run."
+reference_model: logistic
+reference_feature_set: h2_full
+logistic_feature_sets:
+  - h2_full
+  - pkg_core
+  - pkg_core_inj
+  - pkg_core_inj_l2
+model_specs:
+  - model: logistic
+    feature_set: h2_full
+  - model: logistic
+    feature_set: pkg_core
+  - model: logistic
+    feature_set: pkg_core_inj
+  - model: logistic
+    feature_set: pkg_core_inj_l2
+    fixed_c: 0.1
+log_shrinkage: true
+log_qb: true
+qb_subset: false
+qb_feature_set: h5_qb
+report_profile: pkg_core_inj
