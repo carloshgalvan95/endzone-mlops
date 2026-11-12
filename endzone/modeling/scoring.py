@@ -1,4 +1,4 @@
-"""Score one rolling-origin row: home prior, logistic, Elo, or the market."""
+"""Score one rolling-origin row: home prior, logistic, boosting, Elo, or the market."""
 
 from __future__ import annotations
 
@@ -30,6 +30,12 @@ from endzone.modeling.cv import (
     _lookup_fold_predictor,
     cv_result_record,
     rolling_origin_cv,
+)
+from endzone.modeling.ensembles import (
+    MODEL_ENS_MEAN,
+    MODEL_GBM_PKG_CORE_INJ,
+    hist_gbm_fold_predictor,
+    hist_gradient_boosting_param_fields,
 )
 from endzone.modeling.hypotheses import CvModelSpec
 from endzone.modeling.models import (
@@ -140,51 +146,73 @@ def _score_model_spec(
     settings: CvScoreSettings,
     shared: dict[str, Any],
 ) -> dict[str, Any]:
-    """Score one logistic or fold-tuned L2 row."""
+    """Score one logistic, fold-tuned L2, or locked booster row.
+
+    ``ens_mean`` is not scored here. It is the mean of two rows that already
+    exist.
+    """
+    if spec.model == MODEL_ENS_MEAN:
+        raise ValueError("ens_mean is the mean of member probabilities, not a fitted model")
     matrix: pd.DataFrame
     target: pd.Series
     matrix, target = prepare_training_data(games, features, feature_set=spec.feature_set)
-    if spec.model == MODEL_LOGISTIC_L2:
+    columns: str = ",".join(feature_columns_for(spec.feature_set))
+    if spec.model == MODEL_GBM_PKG_CORE_INJ:
+        predictor = hist_gbm_fold_predictor()
+        model_params: dict[str, Any] = {
+            **shared,
+            "model_type": spec.model,
+            "feature_set": spec.feature_set,
+            "features": columns,
+            **hist_gradient_boosting_param_fields(),
+        }
+    elif spec.model == MODEL_LOGISTIC_L2:
         predictor = _logistic_l2_fold_predictor(
             DEFAULT_L2_C_GRID,
             settings.logistic_c,
             settings.logistic_max_iter,
             settings.random_state,
         )
+        model_params = {
+            **shared,
+            "model_type": spec.model,
+            "feature_set": spec.feature_set,
+            "features": columns,
+            "max_iter": settings.logistic_max_iter,
+            "regularization": "l2",
+        }
     elif spec.model == MODEL_LOGISTIC:
         predictor = _logistic_fold_predictor(
             logistic_c_for_spec(spec, settings.logistic_c),
             settings.logistic_max_iter,
             settings.random_state,
         )
+        model_params = {
+            **shared,
+            "model_type": spec.model,
+            "feature_set": spec.feature_set,
+            "features": columns,
+            "max_iter": settings.logistic_max_iter,
+            "regularization": "l2",
+            "C": logistic_c_for_spec(spec, settings.logistic_c),
+        }
     else:
         raise ValueError(f"Unknown CV model {spec.model!r}.")
-    logistic_cv: dict[str, Any] = rolling_origin_cv(matrix, target, predictor, settings.resolved)
-    reason: str | None = None if not logistic_cv["oof"].empty else "no_scored_folds"
-    columns: str = ",".join(feature_columns_for(spec.feature_set))
-    model_params: dict[str, Any] = {
-        **shared,
-        "model_type": spec.model,
-        "feature_set": spec.feature_set,
-        "features": columns,
-        "max_iter": settings.logistic_max_iter,
-        "regularization": "l2",
-    }
+    scored: dict[str, Any] = rolling_origin_cv(matrix, target, predictor, settings.resolved)
     if spec.model == MODEL_LOGISTIC_L2:
         model_params["c_grid"] = ",".join(
             _format_regularization_c(value) for value in DEFAULT_L2_C_GRID
         )
         model_params["c_fallback"] = settings.logistic_c
-        model_params.update(chosen_c_param_fields(logistic_cv["folds"]))
-    else:
-        model_params["C"] = logistic_c_for_spec(spec, settings.logistic_c)
+        model_params.update(chosen_c_param_fields(scored["folds"]))
+    reason: str | None = None if not scored["oof"].empty else "no_scored_folds"
     return cv_result_record(
         spec.model,
         spec.feature_set,
         "ok" if reason is None else "skipped",
         reason,
         model_params,
-        logistic_cv,
+        scored,
     )
 
 

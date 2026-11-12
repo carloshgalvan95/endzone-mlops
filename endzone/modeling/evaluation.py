@@ -13,7 +13,20 @@ from sklearn.metrics import accuracy_score, brier_score_loss, log_loss, roc_auc_
 MIN_LOG_LOSS_IMPROVEMENT: float = 0.003
 N_CALIBRATION_BINS: int = 10
 LOGIT_CLIP: float = 1e-6
-CALIBRATION_MODELS: frozenset[str] = frozenset({"logistic", "logistic_l2", "elo", "market"})
+CALIBRATION_MODELS: frozenset[str] = frozenset(
+    {
+        "logistic",
+        "logistic_l2",
+        "elo",
+        "market",
+        "gbm_pkg_core_inj",
+        "ens_mean",
+    }
+)
+# Descriptive market-information rows. Baseline models are not in this set.
+INFORMATION_MODELS: frozenset[str] = frozenset(
+    {"logistic", "logistic_l2", "gbm_pkg_core_inj", "ens_mean"}
+)
 CALIBRATION_COLUMNS: tuple[str, ...] = (
     "model",
     "feature_set",
@@ -604,7 +617,7 @@ def calibration_table_for_results(
     *,
     n_bins: int = N_CALIBRATION_BINS,
 ) -> pd.DataFrame:
-    """Reliability rows for logistic models, Elo, and the market.
+    """Reliability rows for scored probability models, Elo, and the market.
 
     A skipped model is omitted. The table is informative and is not a gate.
 
@@ -821,9 +834,11 @@ def market_information_table_for_results(
     n_bootstrap: int,
     seed: int,
 ) -> pd.DataFrame:
-    """One descriptive regression per logistic row, on games shared with the market.
+    """One descriptive regression per scored model, on games shared with the market.
 
-    No blended probability is stored.
+    Logistic rows, the locked booster, and the equal mean are included.
+    No blended probability is stored. The mean ensemble is already a
+    probability. This regression does not turn it into a weight.
 
     Args:
         results: Scored CV rows.
@@ -836,7 +851,7 @@ def market_information_table_for_results(
     market: pd.DataFrame | None = _market_oof(results)
     rows: list[dict[str, Any]] = []
     for result in results:
-        if result.get("model") != "logistic" or result.get("status") != "ok":
+        if result.get("model") not in INFORMATION_MODELS or result.get("status") != "ok":
             continue
         model_oof: pd.DataFrame | None = result.get("oof")
         identity: dict[str, Any] = {

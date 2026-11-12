@@ -42,7 +42,9 @@ CV_DATASET_NAME: str = "nfl_pregame_cv"
 DEFAULT_DATABRICKS_EXPERIMENT_ROOT: str = "/Shared/endzone-mlops"
 _ENV_EXPERIMENT_ROOT: str = "ENDZONE_MLFLOW_EXPERIMENT_ROOT"
 BASELINE_MODEL_NAMES: frozenset[str] = frozenset({"baseline-home", "elo", "market"})
-SCORED_FEATURE_MODELS: frozenset[str] = frozenset({"logistic", "logistic_l2"})
+SCORED_FEATURE_MODELS: frozenset[str] = frozenset(
+    {"logistic", "logistic_l2", "gbm_pkg_core_inj", "ens_mean"}
+)
 
 
 def get_git_sha() -> str:
@@ -378,7 +380,7 @@ def select_best_feature_set(
 ) -> str:
     """Choose the feature set recorded on the parent run.
 
-    An accepted logistic set wins. If more than one is accepted, the lowest
+    An accepted scored model wins. If more than one is accepted, the lowest
     pooled log loss wins. If none is accepted, the reference feature set is kept.
     """
     decisions: list[dict[str, Any]] = acceptance_decisions(

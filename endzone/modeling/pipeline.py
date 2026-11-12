@@ -26,6 +26,7 @@ from endzone.modeling.dataset import (
     load_qb_inputs,
     validate_feature_columns,
 )
+from endzone.modeling.ensembles import MODEL_ENS_MEAN, ensemble_mean_result
 from endzone.modeling.evaluation import (
     MIN_LOG_LOSS_IMPROVEMENT,
     acceptance_decisions,
@@ -172,8 +173,17 @@ def run_phase1_baselines(
     results: list[dict[str, Any]] = [
         _score_baseline(current_matrix, current_target, settings, shared)
     ]
+    ensemble_specs: tuple[CvModelSpec, ...] = tuple(
+        spec for spec in model_specs if spec.model == MODEL_ENS_MEAN
+    )
+    if len(ensemble_specs) > 1:
+        raise ValueError("ens_mean can be scored only once")
     for spec in model_specs:
+        if spec.model == MODEL_ENS_MEAN:
+            continue
         results.append(_score_model_spec(games, features, spec, settings, shared))
+    for spec in ensemble_specs:
+        results.append(ensemble_mean_result(results, spec, shared))
     results.append(_score_elo(games, current_matrix, current_target, settings, shared))
     results.append(_score_market(games, settings, shared))
     attach_reference_comparison(
