@@ -1,0 +1,32 @@
+id: ensembles
+phase: 2
+default: false
+aliases:
+  - ensembles
+tag: ensembles
+short_name: ensembles
+experiment_name: nfl_pregame/phase2_ensembles
+phase_tag: "2"
+output_dir: reports/phase2_ensembles
+title: Phase 2 gradient boosting and a mean ensemble
+note: "Phase 2 ensembles. gbm_pkg_core_inj and ens_mean against logistic pkg_core_inj_l2 on rolling-origin seasons 2016-2023. h2_full is scored in the same run for context. The booster is HistGradientBoostingClassifier on the pkg_core_inj_l2 columns with fixed learning_rate 0.05, max_iter 300, max_leaf_nodes 15, min_samples_leaf 50, l2_regularization 1.0, max_features 1.0, random_state 42, and early_stopping false. Missing values stay missing. ens_mean is the unweighted mean of per-fold logistic pkg_core_inj_l2 and booster probabilities. No weight is learned and nothing is fit on out-of-fold predictions. pkg_core_inj_l2 fixes C at 0.1. The market row is benchmark. Calibration, per-season results, and the market-information regression are reported and are not gates. No blend is published. 2024 and 2025 are not scored. No model is promoted from this run."
+reference_model: logistic
+reference_feature_set: pkg_core_inj_l2
+logistic_feature_sets:
+  - h2_full
+  - pkg_core_inj_l2
+model_specs:
+  - model: logistic
+    feature_set: h2_full
+  - model: logistic
+    feature_set: pkg_core_inj_l2
+    fixed_c: 0.1
+  - model: gbm_pkg_core_inj
+    feature_set: pkg_core_inj_l2
+  - model: ens_mean
+    feature_set: pkg_core_inj_l2
+log_shrinkage: true
+log_qb: true
+qb_subset: false
+qb_feature_set: h5_qb
+report_profile: ensembles

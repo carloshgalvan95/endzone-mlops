@@ -283,6 +283,25 @@ def _profile_lines(profile: str) -> list[str]:
             "They are not acceptance decisions. No blend is published.",
             "The market row is a benchmark. It is not a candidate.",
         ]
+    if profile == "ensembles":
+        return [
+            "gbm_pkg_core_inj is a histogram gradient booster on the",
+            "pkg_core_inj_l2 columns. The hyperparameters are fixed:",
+            "learning rate 0.05, 300 iterations, 15 leaves, 50 samples",
+            "per leaf, L2 1.0, seed 42, and no early stopping. Missing",
+            "values stay missing. There is no imputation and no scaling.",
+            "ens_mean is the unweighted mean of logistic pkg_core_inj_l2",
+            "and that booster on each fold. No weight is learned, and",
+            "nothing is fit on out-of-fold predictions.",
+            "The reference is logistic pkg_core_inj_l2 with C fixed at 0.1.",
+            "h2_full is scored in the same run for context. It is not a",
+            "third candidate. gbm_pkg_core_inj and ens_mean are the",
+            "preregistered candidates.",
+            "Calibration, the per-season table, and the market-information",
+            "regression are descriptive. They are not acceptance decisions.",
+            "No blend is published.",
+            "The market row is a benchmark. It is not a candidate.",
+        ]
     if profile == "ridge":
         grid_text: str = ", ".join(_format_regularization_c(value) for value in DEFAULT_L2_C_GRID)
         return (
