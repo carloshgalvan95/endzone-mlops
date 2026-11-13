@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -403,6 +404,25 @@ def _profile_lines(profile: str) -> list[str]:
             "h2_full, Elo, and elo_mov are context. They are not candidates.",
             "Group log loss and the logit correlation are descriptive.",
             "They are not acceptance decisions.",
+            "Calibration, the per-season table, and the market-information",
+            "regression are descriptive. They are not acceptance decisions.",
+            "The market row is a benchmark. It is not a candidate.",
+        ]
+    if profile == "closing":
+        return [
+            "pkg_core_inj_l2_inj_cov_q keeps the 43 pkg_core columns,",
+            "replaces the four Out or Doubtful counts with weighted",
+            "starter absences, and adds inj_report_covered.",
+            "Out and Doubtful weigh 1.0. Questionable weighs 0.27.",
+            "The weight uses the last report strictly before kickoff.",
+            "Coverage is 1.0 for season 2009 or later when both injury",
+            "tables are provided, and 0.0 otherwise.",
+            "pkg_core_inj_l2_hfa_ctx keeps the 47 defender columns and",
+            "adds is_divisional_game, away_surface_mismatch, and",
+            "west_coast_early_kickoff. Those three columns are 0 or 1.",
+            "Both candidates are logistic regression with C fixed at 0.1.",
+            "Each candidate is judged alone against logistic pkg_core_inj_l2.",
+            "h2_full, Elo, and elo_mov are context. They are not candidates.",
             "Calibration, the per-season table, and the market-information",
             "regression are descriptive. They are not acceptance decisions.",
             "The market row is a benchmark. It is not a candidate.",
@@ -824,6 +844,12 @@ def write_phase1_outputs(report: dict[str, Any], output_dir: Path) -> dict[str, 
     markdown_path.write_text(report["markdown"], encoding="utf-8")
     table: pd.DataFrame = report["comparison_table"]
     table.to_csv(csv_path, index=False, encoding="utf-8")
+    extra_paths: dict[str, str] = {}
+    if str(report.get("hypothesis") or "") == "closing":
+        json_path: Path = output_dir / "comparison.json"
+        records: object = json.loads(table.to_json(orient="records"))
+        json_path.write_text(json.dumps(records, indent=2) + "\n", encoding="utf-8")
+        extra_paths["comparison_json"] = str(json_path)
     oof_paths: dict[str, str] = {}
     for result in report["results"]:
         oof: pd.DataFrame | None = result["oof"]
@@ -833,7 +859,6 @@ def write_phase1_outputs(report: dict[str, Any], output_dir: Path) -> dict[str, 
         oof_path: Path = output_dir / file_name
         oof.to_csv(oof_path, index=False, encoding="utf-8")
         oof_paths[f"{result['model']}|{result['feature_set']}"] = str(oof_path)
-    extra_paths: dict[str, str] = {}
     calibration: pd.DataFrame | None = report.get("calibration")
     if isinstance(calibration, pd.DataFrame):
         calibration_path: Path = output_dir / "calibration.csv"

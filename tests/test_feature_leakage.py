@@ -8,7 +8,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from endzone.features.injuries import INJURY_DIFF_COLUMNS
+from endzone.features.home_field import HOME_FIELD_COLUMNS
+from endzone.features.injuries import (
+    INJ_REPORT_COVERED_COLUMN,
+    INJURY_DIFF_COLUMNS,
+    WEIGHTED_INJURY_DIFF_COLUMNS,
+)
 from endzone.features.opponent import H6_OUTPUT_COLUMNS
 from endzone.features.pregame import (
     CLEAN_EPA_FEATURE_COLUMNS,
@@ -54,6 +59,9 @@ CHECKED_FEATURE_COLUMNS: tuple[str, ...] = (
     + H6_OUTPUT_COLUMNS
     + INJURY_DIFF_COLUMNS
     + ("qbelo538_diff",)
+    + WEIGHTED_INJURY_DIFF_COLUMNS
+    + (INJ_REPORT_COVERED_COLUMN,)
+    + HOME_FIELD_COLUMNS
 )
 
 LOOKBACK_GAMES: int = 2

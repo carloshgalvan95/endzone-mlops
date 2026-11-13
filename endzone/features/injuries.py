@@ -8,6 +8,11 @@ A game with no injury rows does not need a kickoff. A game that has rows
 but no buildable kickoff contributes 0.
 
 QB is excluded. The four model columns are home minus away.
+
+A second set of columns weights the last pre-kickoff status. Out and
+Doubtful stay 1.0. Questionable is 0.27. Those columns do not change the
+four Out or Doubtful counts. ``inj_report_covered`` is 1.0 when the season
+is 2009 or later and both injury tables are provided, and 0.0 otherwise.
 """
 
 from __future__ import annotations
@@ -90,6 +95,30 @@ _INJURY_COLUMNS: tuple[str, ...] = (
 _JOIN_KEYS: tuple[str, ...] = ("season", "week", "game_type", "team")
 _PLAYER_KEYS: tuple[str, ...] = ("season", "week", "game_type", "team", "gsis_id")
 _STARTER_DEPTH: int = 1
+
+# Questionable is 0.27, the complement of a 73 percent play probability.
+# Out and Doubtful stay a full absence. The weight is not tuned.
+QUESTIONABLE_WEIGHT: float = 0.27
+INJURY_COVERAGE_SEASON: int = 2009
+INJ_REPORT_COVERED_COLUMN: str = "inj_report_covered"
+WEIGHTED_INJURY_DIFF_COLUMNS: tuple[str, ...] = (
+    "diff_ol_starters_absent_w",
+    "diff_skill_starters_absent_w",
+    "diff_front7_starters_absent_w",
+    "diff_db_starters_absent_w",
+)
+_WEIGHTED_GROUP_TO_COLUMN: dict[str, str] = {
+    "ol": "diff_ol_starters_absent_w",
+    "skill": "diff_skill_starters_absent_w",
+    "front_seven": "diff_front7_starters_absent_w",
+    "db": "diff_db_starters_absent_w",
+}
+_STATUS_WEIGHT: dict[str, float] = {
+    "Out": 1.0,
+    "Doubtful": 1.0,
+    "Questionable": QUESTIONABLE_WEIGHT,
+}
+_WEIGHTED_STATUS_RANK: dict[str, int] = {"Out": 3, "Doubtful": 2, "Questionable": 1}
 
 
 def attach_injury_features(
@@ -368,3 +397,175 @@ def _home_minus_away(team_games: pd.DataFrame, counted: pd.DataFrame) -> pd.Data
         ).astype(float)
         output = output.drop(columns=["home_n", "away_n"])
     return output.loc[:, ["game_id", *INJURY_DIFF_COLUMNS]].reset_index(drop=True)
+
+
+def attach_weighted_injury_features(
+    games: pd.DataFrame,
+    depth_chart_starters: pd.DataFrame | None,
+    injury_reports: pd.DataFrame | None,
+) -> pd.DataFrame:
+    """Return weighted starter absences and the coverage indicator.
+
+    Both frames omitted leaves the four differences missing and the coverage
+    indicator at 0. Passing one without the other is an error. The four Out
+    or Doubtful columns are not computed here.
+
+    Args:
+        games: One row per game, including schedule team, week, and kickoff.
+        depth_chart_starters: Depth 1 chart rows. None only when reports are
+            also None.
+        injury_reports: Player report rows, including any timestamp. None only
+            when starters are also None.
+
+    Returns:
+        ``game_id``, ``WEIGHTED_INJURY_DIFF_COLUMNS``, and
+        ``INJ_REPORT_COVERED_COLUMN``. Coverage is 0 or 1 and is never
+        missing. A side with no qualifying starter is 0 when both inputs
+        are present.
+
+    Raises:
+        ValueError: Exactly one input is missing, ``game_id`` is duplicated,
+            or a required column is absent.
+    """
+    if "game_id" not in games.columns:
+        raise ValueError("games is missing game_id")
+    game_ids: pd.Series = games["game_id"].astype("string")
+    if game_ids.duplicated().any():
+        raise ValueError("games game_id must be unique")
+    if depth_chart_starters is None and injury_reports is None:
+        missing: pd.DataFrame = pd.DataFrame({"game_id": game_ids.to_numpy()})
+        for column in WEIGHTED_INJURY_DIFF_COLUMNS:
+            missing[column] = float("nan")
+        missing[INJ_REPORT_COVERED_COLUMN] = 0.0
+        return missing
+    if depth_chart_starters is None or injury_reports is None:
+        raise ValueError(
+            "depth_chart_starters and injury_reports must both be provided or both be omitted"
+        )
+    weighted: pd.DataFrame = starter_absence_weights(games, depth_chart_starters, injury_reports)
+    covered: pd.Series = _injury_report_covered(games, inputs_provided=True)
+    weighted[INJ_REPORT_COVERED_COLUMN] = covered.to_numpy()
+    return weighted
+
+
+def starter_absence_weights(
+    games: pd.DataFrame,
+    depth_chart_starters: pd.DataFrame,
+    injury_reports: pd.DataFrame,
+) -> pd.DataFrame:
+    """Sum starter absence weights on the last pre-kickoff report.
+
+    Out and Doubtful weigh 1.0. Questionable weighs ``QUESTIONABLE_WEIGHT``.
+    The latest ``date_modified`` strictly before kickoff is the status. A
+    tie on that clock keeps the more severe status: Out, then Doubtful,
+    then Questionable.
+
+    Args:
+        games: Schedule rows. Kickoff is ``gameday`` plus ``gametime`` in
+            Eastern time. A missing clock is ignored when that game has no
+            injury rows.
+        depth_chart_starters: Chart rows. When ``depth_team`` is present, only
+            rank 1 is a starter. QB, fullback, and specialists are not in a
+            group. The group comes from chart ``position``.
+        injury_reports: Report rows. A null timestamp is dropped.
+
+    Returns:
+        One row per game. Each difference is the home weight minus the away
+        weight. A side with no qualifying starter is 0.
+
+    Raises:
+        ValueError: A required column is missing.
+    """
+    _require_columns(games, _GAME_COLUMNS, "games")
+    _require_columns(depth_chart_starters, _STARTER_COLUMNS, "depth_chart_starters")
+    _require_columns(injury_reports, _INJURY_COLUMNS, "injury_reports")
+    team_games: pd.DataFrame = _team_games(games)
+    _warn_unusable_kickoff(injury_reports, team_games)
+    reports: pd.DataFrame = _last_weighted_status(injury_reports, team_games)
+    starters: pd.DataFrame = _grouped_starters(depth_chart_starters)
+    counted: pd.DataFrame = _weighted_absence_sums(reports, starters)
+    return _weighted_home_minus_away(team_games, counted)
+
+
+def _injury_report_covered(games: pd.DataFrame, *, inputs_provided: bool) -> pd.Series:
+    """Return 1.0 for a covered season when both injury tables were passed.
+
+    Coverage is a property of the season and of whether the tables were
+    passed. It is not a property of whether one game has a report row.
+    The series is aligned to ``games`` and contains no missing values.
+    """
+    if not inputs_provided or "season" not in games.columns:
+        return pd.Series(0.0, index=games.index, dtype=float)
+    season: pd.Series = pd.to_numeric(games["season"], errors="coerce")
+    covered: pd.Series = season.ge(INJURY_COVERAGE_SEASON).fillna(False)
+    return covered.astype(float)
+
+
+def _last_weighted_status(injuries: pd.DataFrame, team_games: pd.DataFrame) -> pd.DataFrame:
+    """Keep the latest Out, Doubtful, or Questionable row before kickoff."""
+    reports: pd.DataFrame = pd.DataFrame(
+        {
+            "season": _as_int(injuries["season"]),
+            "week": _as_int(injuries["week"]),
+            "game_type": _as_text(injuries["game_type"]),
+            "team": _as_text(injuries["team"]),
+            "gsis_id": _as_text(injuries["gsis_id"]),
+            "report_status": _as_text(injuries["report_status"]),
+            "date_modified": pd.to_datetime(injuries["date_modified"], utc=True, errors="coerce"),
+        }
+    )
+    reports = reports.loc[reports["gsis_id"].notna() & reports["gsis_id"].ne("")]
+    linked: pd.DataFrame = team_games.merge(reports, on=list(_JOIN_KEYS), how="left")
+    known: pd.Series = linked["date_modified"].notna() & linked["kickoff_utc"].notna()
+    before: pd.DataFrame = linked.loc[known & (linked["date_modified"] < linked["kickoff_utc"])]
+    if before.empty:
+        return before
+    status_rank: pd.Series = before["report_status"].map(_WEIGHTED_STATUS_RANK).fillna(0)
+    ordered: pd.DataFrame = before.assign(_status_rank=status_rank).sort_values(
+        ["date_modified", "_status_rank"],
+        kind="mergesort",
+    )
+    latest: pd.DataFrame = ordered.drop_duplicates(
+        ["game_id", *list(_PLAYER_KEYS)],
+        keep="last",
+    )
+    kept: pd.DataFrame = latest.loc[latest["report_status"].isin(_STATUS_WEIGHT)]
+    return kept.drop(columns=["_status_rank"])
+
+
+def _weighted_absence_sums(reports: pd.DataFrame, starters: pd.DataFrame) -> pd.DataFrame:
+    """Sum starter weights by game, side, and group."""
+    empty: pd.DataFrame = pd.DataFrame(columns=["game_id", "side", "position_group", "weight"])
+    if reports.empty or starters.empty:
+        return empty
+    matched: pd.DataFrame = reports.merge(starters, on=list(_PLAYER_KEYS), how="inner")
+    if matched.empty:
+        return empty
+    matched = matched.copy()
+    matched["weight"] = matched["report_status"].map(_STATUS_WEIGHT).astype(float)
+    counted: pd.DataFrame = matched.groupby(
+        ["game_id", "side", "position_group"],
+        as_index=False,
+    )["weight"].sum()
+    return counted
+
+
+def _weighted_home_minus_away(team_games: pd.DataFrame, counted: pd.DataFrame) -> pd.DataFrame:
+    """Home weight minus away weight. A missing side is 0."""
+    game_ids: pd.Series = team_games["game_id"].drop_duplicates()
+    output: pd.DataFrame = pd.DataFrame({"game_id": game_ids.to_numpy()})
+    for group, column in _WEIGHTED_GROUP_TO_COLUMN.items():
+        group_rows: pd.DataFrame = counted.loc[counted["position_group"].eq(group)]
+        home: pd.DataFrame = group_rows.loc[
+            group_rows["side"].eq("home"), ["game_id", "weight"]
+        ].rename(columns={"weight": "home_w"})
+        away: pd.DataFrame = group_rows.loc[
+            group_rows["side"].eq("away"), ["game_id", "weight"]
+        ].rename(columns={"weight": "away_w"})
+        output = output.merge(home, on="game_id", how="left")
+        output = output.merge(away, on="game_id", how="left")
+        output[column] = output["home_w"].fillna(0).astype(float) - output["away_w"].fillna(
+            0
+        ).astype(float)
+        output = output.drop(columns=["home_w", "away_w"])
+    return output.loc[:, ["game_id", *WEIGHTED_INJURY_DIFF_COLUMNS]].reset_index(drop=True)

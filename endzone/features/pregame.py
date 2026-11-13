@@ -22,6 +22,10 @@ Features computed:
 - ``pkg_core`` selects those existing columns. It does not compute a new one.
 - Pre-game starter absences: home minus away Out or Doubtful counts for
   OL, skill, front seven, and DB (see ``endzone.features.injuries``)
+- Weighted starter absences and an injury-report coverage indicator
+  (see ``endzone.features.injuries``)
+- Home-field context: divisional game, away surface mismatch, and a
+  western visitor at an early Eastern kickoff (see ``endzone.features.home_field``)
 - A FiveThirtyEight QB adjustment added to the margin Elo gap
   (see ``endzone.features.qbelo``)
 """
@@ -32,7 +36,14 @@ from typing import Any, NamedTuple
 import numpy as np
 import pandas as pd
 
-from endzone.features.injuries import INJURY_DIFF_COLUMNS, attach_injury_features
+from endzone.features.home_field import HOME_FIELD_COLUMNS, attach_home_field_features
+from endzone.features.injuries import (
+    INJ_REPORT_COVERED_COLUMN,
+    INJURY_DIFF_COLUMNS,
+    WEIGHTED_INJURY_DIFF_COLUMNS,
+    attach_injury_features,
+    attach_weighted_injury_features,
+)
 from endzone.features.opponent import (
     ELO_MOV_DIFF_COLUMN,
     FEATURE_SET_H6_ADJ,
@@ -448,6 +459,21 @@ PRIOR_SHRINK_FEATURE_SETS: tuple[str, ...] = (
     FEATURE_SET_PKG_CORE_INJ_L2_K39,
     FEATURE_SET_PKG_CORE_INJ_L2_K39_DECAY,
 )
+# 43 pkg_core columns, four weighted absences, and the coverage indicator.
+# The four Out or Doubtful columns stay on the defender and are not here.
+FEATURE_SET_PKG_CORE_INJ_L2_INJ_COV_Q: str = "pkg_core_inj_l2_inj_cov_q"
+PREGAME_FEATURE_COLUMNS_PKG_CORE_INJ_L2_INJ_COV_Q: tuple[str, ...] = (
+    PREGAME_FEATURE_COLUMNS_PKG_CORE + WEIGHTED_INJURY_DIFF_COLUMNS + (INJ_REPORT_COVERED_COLUMN,)
+)
+# The defender's 47 columns plus three home-field indicators.
+FEATURE_SET_PKG_CORE_INJ_L2_HFA_CTX: str = "pkg_core_inj_l2_hfa_ctx"
+PREGAME_FEATURE_COLUMNS_PKG_CORE_INJ_L2_HFA_CTX: tuple[str, ...] = (
+    PREGAME_FEATURE_COLUMNS_PKG_CORE_INJ + HOME_FIELD_COLUMNS
+)
+CLOSING_FEATURE_SETS: tuple[str, ...] = (
+    FEATURE_SET_PKG_CORE_INJ_L2_INJ_COV_Q,
+    FEATURE_SET_PKG_CORE_INJ_L2_HFA_CTX,
+)
 
 EXPECTED_STARTER_COLUMNS: tuple[str, ...] = (
     "game_id",
@@ -487,6 +513,8 @@ FEATURE_SET_NAMES: tuple[str, ...] = (
     FEATURE_SET_PKG_CORE_INJ_L2_QBELO538,
     FEATURE_SET_PKG_CORE_INJ_L2_K39,
     FEATURE_SET_PKG_CORE_INJ_L2_K39_DECAY,
+    FEATURE_SET_PKG_CORE_INJ_L2_INJ_COV_Q,
+    FEATURE_SET_PKG_CORE_INJ_L2_HFA_CTX,
 )
 
 FEATURE_SET_COLUMNS: dict[str, tuple[str, ...]] = {
@@ -513,6 +541,8 @@ FEATURE_SET_COLUMNS: dict[str, tuple[str, ...]] = {
     FEATURE_SET_PKG_CORE_INJ_L2_QBELO538: PREGAME_FEATURE_COLUMNS_PKG_CORE_INJ_L2_QBELO538,
     FEATURE_SET_PKG_CORE_INJ_L2_K39: PREGAME_FEATURE_COLUMNS_PKG_CORE_INJ_L2_K39,
     FEATURE_SET_PKG_CORE_INJ_L2_K39_DECAY: PREGAME_FEATURE_COLUMNS_PKG_CORE_INJ_L2_K39,
+    FEATURE_SET_PKG_CORE_INJ_L2_INJ_COV_Q: PREGAME_FEATURE_COLUMNS_PKG_CORE_INJ_L2_INJ_COV_Q,
+    FEATURE_SET_PKG_CORE_INJ_L2_HFA_CTX: PREGAME_FEATURE_COLUMNS_PKG_CORE_INJ_L2_HFA_CTX,
 }
 
 # FiveThirtyEight-style Elo. Home advantage is added only when a game is
@@ -1836,6 +1866,9 @@ def build_pregame_features(
         *H6_OUTPUT_COLUMNS,
         *INJURY_DIFF_COLUMNS,
         "qbelo538_diff",
+        *WEIGHTED_INJURY_DIFF_COLUMNS,
+        INJ_REPORT_COVERED_COLUMN,
+        *HOME_FIELD_COLUMNS,
     ]
     qb_features: pd.DataFrame = attach_qb_features(
         fct_games,
@@ -1862,12 +1895,20 @@ def build_pregame_features(
         injury_reports,
     )
     frame = frame.merge(injury_features, on="game_id", how="left")
+    weighted_injury_features: pd.DataFrame = attach_weighted_injury_features(
+        fct_games,
+        depth_chart_starters,
+        injury_reports,
+    )
+    frame = frame.merge(weighted_injury_features, on="game_id", how="left")
     qbelo_detail: pd.DataFrame = qbelo_pregame_table(fct_games, qb_features, qb_box_scores)
     qbelo_diff: pd.DataFrame = qbelo538_diff_frame(
         frame.loc[:, ["game_id", ELO_MOV_DIFF_COLUMN]],
         qbelo_detail,
     )
     frame = frame.merge(qbelo_diff, on="game_id", how="left")
+    home_field_features: pd.DataFrame = attach_home_field_features(fct_games)
+    frame = frame.merge(home_field_features, on="game_id", how="left")
     return frame.loc[:, ordered_columns]
 
 

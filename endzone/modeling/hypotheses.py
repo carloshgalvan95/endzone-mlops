@@ -35,6 +35,7 @@ REPORT_PROFILES: frozenset[str] = frozenset(
         "prior_shrink",
         "margin",
         "groups",
+        "closing",
     }
 )
 # These profiles label the market ``benchmark`` and write calibration plus
@@ -50,6 +51,7 @@ MARKET_BENCHMARK_PROFILES: frozenset[str] = frozenset(
         "prior_shrink",
         "margin",
         "groups",
+        "closing",
     }
 )
 CV_MODEL_NAMES: frozenset[str] = frozenset(

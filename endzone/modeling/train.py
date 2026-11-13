@@ -92,6 +92,8 @@ def build_parser() -> argparse.ArgumentParser:
             "margin-to-probability candidates. "
             "python scripts/train_groups.py scores the preregistered "
             "group-logistic candidates. "
+            "python scripts/train_closing.py scores the preregistered "
+            "injury-coverage and home-field candidates. "
             "Does not score 2024 or 2025."
         ),
     )
@@ -622,6 +624,49 @@ def groups_challenger_argv() -> list[str]:
         "42",
         "--output-dir",
         "reports/phase2_groups",
+    ]
+
+
+def closing_challenger_argv() -> list[str]:
+    """Argv for the preregistered closing candidates.
+
+    The window is seasons 2016-2023. The reference is logistic
+    ``pkg_core_inj_l2``. That row and both candidates fix C at 0.1 in the
+    experiment file. Logistic ``h2_full`` stays at the command C, 1.0. The
+    bootstrap is 1000 resamples, seed 42. The command does not register a
+    model and does not score 2024 or 2025.
+
+    Returns:
+        Arguments for ``endzone.modeling.train.main``.
+    """
+    return [
+        "--cv",
+        "--phase",
+        "2",
+        "--hypothesis",
+        "closing",
+        "--reference-model",
+        "logistic",
+        "--reference-feature-set",
+        "pkg_core_inj_l2",
+        "--lookback",
+        "10",
+        "--C",
+        "1.0",
+        "--max-iter",
+        "1000",
+        "--seed",
+        "42",
+        "--cv-start-season",
+        "2016",
+        "--cv-end-season",
+        "2023",
+        "--n-bootstrap",
+        "1000",
+        "--bootstrap-seed",
+        "42",
+        "--output-dir",
+        "reports/phase2_closing",
     ]
 
 
