@@ -36,7 +36,7 @@ from endzone.modeling.evaluation import (
     logit_probability,
 )
 from endzone.modeling.hypotheses import CvModelSpec
-from endzone.modeling.models import MODEL_LOGISTIC, model_feature_columns
+from endzone.modeling.models import MODEL_LOGISTIC, MODEL_MARGIN_MEAN, model_feature_columns
 
 MODEL_GBM_PKG_CORE_INJ: str = "gbm_pkg_core_inj"
 MODEL_ENS_MEAN: str = "ens_mean"
@@ -44,7 +44,9 @@ MODEL_ENS_MEAN_ELO: str = "ens_mean_elo"
 MODEL_STACK_ELO: str = "stack_elo"
 MODEL_ELO: str = "elo"
 # Derived rows are means or a stacker. They are not fit inside ``_score_model_spec``.
-DERIVED_CV_MODELS: frozenset[str] = frozenset({MODEL_ENS_MEAN, MODEL_ENS_MEAN_ELO, MODEL_STACK_ELO})
+DERIVED_CV_MODELS: frozenset[str] = frozenset(
+    {MODEL_ENS_MEAN, MODEL_ENS_MEAN_ELO, MODEL_STACK_ELO, MODEL_MARGIN_MEAN}
+)
 # Inner out-of-fold seasons for the stacker start here. This is not a search.
 STACK_INNER_START_SEASON: int = 2010
 STACKER_C: float = 1.0

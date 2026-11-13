@@ -35,6 +35,7 @@ function Show-Help {
     Write-Host "  train-ensembles-r2  - Preregistered defender-plus-Elo mean and stack, seasons 2016-2023. Does not register"
     Write-Host "  train-qbelo538      - Preregistered QB adjustment on Elo, seasons 2016-2023. Does not register"
     Write-Host "  train-prior-shrink  - Preregistered prior strength and season weights, seasons 2016-2023. Does not register"
+    Write-Host "  train-margin        - Preregistered margin-to-probability candidates, seasons 2016-2023. Does not register"
     Write-Host "  mlflow-ui           - Open MLflow UI against the local SQLite store"
     Write-Host "  audit-features      - Profile current pregame inputs (no feature changes)"
     Write-Host "  check-epa-filter    - Count play types in the EPA filter, plus kneel and spike rows"
@@ -235,6 +236,12 @@ function Invoke-TrainQbelo538 {
 function Invoke-TrainPriorShrink {
     Write-Host "Running the preregistered prior strength and season weights for seasons 2016-2023..."
     python scripts/train_prior_shrink.py
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
+function Invoke-TrainMargin {
+    Write-Host "Running the preregistered margin-to-probability candidates for seasons 2016-2023..."
+    python scripts/train_margin.py
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
@@ -440,6 +447,7 @@ switch ($Target.ToLower()) {
     "train-ensembles-r2" { Invoke-TrainEnsemblesR2 }
     "train-qbelo538" { Invoke-TrainQbelo538 }
     "train-prior-shrink" { Invoke-TrainPriorShrink }
+    "train-margin" { Invoke-TrainMargin }
     "mlflow-ui" { Invoke-MlflowUi }
     "audit-features" { Invoke-AuditFeatures }
     "check-epa-filter" { Invoke-CheckEpaFilter }

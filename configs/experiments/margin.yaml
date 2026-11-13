@@ -1,0 +1,32 @@
+id: margin
+phase: 2
+default: false
+aliases:
+  - margin
+tag: margin
+short_name: margin
+experiment_name: nfl_pregame/phase2_margin
+phase_tag: "2"
+output_dir: reports/phase2_margin
+title: Phase 2 margin model converted to win probability
+note: "Phase 2 margin. margin_ridge_pkg_core_inj and margin_mean against logistic pkg_core_inj_l2 on rolling-origin seasons 2016-2023. The ridge fits the home margin on the defender columns with alpha 1.0, the same imputation, and the same scaler. The home win probability is Phi(mu / sigma). Sigma is the training residual standard deviation of that fold, ddof 1. Probabilities are clipped to [1e-6, 1 - 1e-6]. margin_mean is the logit average of that probability and the defender, with equal weights 0.5 and 0.5. No weight is fit. h2_full, Elo, and elo_mov are context. The market row is benchmark. Margin MAE, per-fold sigma, the logit correlation, calibration, per-season results, and the market-information regression are reported and are not gates. Each candidate is judged alone. The ADR-007 score models are unchanged. No blend is published. 2024 and 2025 are not scored. No model is promoted from this run."
+reference_model: logistic
+reference_feature_set: pkg_core_inj_l2
+logistic_feature_sets:
+  - h2_full
+  - pkg_core_inj_l2
+model_specs:
+  - model: logistic
+    feature_set: h2_full
+  - model: logistic
+    feature_set: pkg_core_inj_l2
+    fixed_c: 0.1
+  - model: margin_ridge_pkg_core_inj
+    feature_set: pkg_core_inj_l2
+  - model: margin_mean
+    feature_set: pkg_core_inj_l2
+log_shrinkage: true
+log_qb: true
+qb_subset: false
+qb_feature_set: h5_qb
+report_profile: margin

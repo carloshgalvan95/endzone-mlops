@@ -363,6 +363,27 @@ def _profile_lines(profile: str) -> list[str]:
             "No blend is published.",
             "The market row is a benchmark. It is not a candidate.",
         ]
+    if profile == "margin":
+        return [
+            "margin_ridge_pkg_core_inj is ridge regression on the home",
+            "margin, home score minus away score, using the defender",
+            "columns. Alpha is 1.0. Imputation and scaling match the",
+            "defender. The home win probability is Phi(mu / sigma).",
+            "Sigma is the training residual standard deviation of that",
+            "fold, with ddof 1. Probabilities are clipped to",
+            "[1e-6, 1 - 1e-6].",
+            "margin_mean is the logit average of that probability and",
+            "logistic pkg_core_inj_l2, with equal weights 0.5 and 0.5.",
+            "Probabilities are clipped before the logit. No weight is fit.",
+            "Each candidate is judged alone against logistic pkg_core_inj_l2.",
+            "h2_full, Elo, and elo_mov are context. They are not candidates.",
+            "Margin MAE, per-fold sigma, and the logit correlation are",
+            "descriptive. They are not acceptance decisions.",
+            "Calibration, the per-season table, and the market-information",
+            "regression are descriptive. They are not acceptance decisions.",
+            "The ADR-007 score models are unchanged.",
+            "The market row is a benchmark. It is not a candidate.",
+        ]
     if profile == "ridge":
         grid_text: str = ", ".join(_format_regularization_c(value) for value in DEFAULT_L2_C_GRID)
         return (
@@ -445,6 +466,44 @@ def _calibration_lines(table: pd.DataFrame | None) -> list[str]:
                 ]
                 for row in bins.itertuples(index=False)
             ],
+        )
+    )
+    lines.append("")
+    return lines
+
+
+def _margin_diagnostic_lines(table: pd.DataFrame | None) -> list[str]:
+    """Per-fold sigma, margin MAE, and the logit correlation.
+
+    The table is descriptive. It is not an acceptance decision.
+    """
+    if table is None:
+        return []
+    lines: list[str] = [
+        "## Margin diagnostics",
+        "",
+        "Sigma is the training residual standard deviation for",
+        "margin_ridge_pkg_core_inj. Margin MAE is the absolute error of",
+        "the predicted home margin on the scored season. The logit",
+        "correlation compares that candidate with logistic pkg_core_inj_l2.",
+        "This table is descriptive. It is not an acceptance decision.",
+        "",
+    ]
+    if table.empty:
+        lines.append("No margin diagnostics were computed.")
+        lines.append("")
+        return lines
+    lines.append(
+        _markdown_table(
+            [
+                "row_kind",
+                "season",
+                "n",
+                "sigma",
+                "margin_mae",
+                "logit_correlation",
+            ],
+            [list(row) for row in table.itertuples(index=False, name=None)],
         )
     )
     lines.append("")
@@ -591,6 +650,7 @@ def _fold_section(result: dict[str, Any]) -> list[str]:
         if not result["folds"]:
             return lines
     records_chosen_c: bool = any("chosen_c" in fold for fold in result["folds"])
+    records_sigma: bool = any("sigma" in fold for fold in result["folds"])
     fold_headers: list[str] = [
         "season",
         "status",
@@ -602,6 +662,8 @@ def _fold_section(result: dict[str, Any]) -> list[str]:
     ]
     if records_chosen_c:
         fold_headers.extend(["chosen_c", "c_selection"])
+    if records_sigma:
+        fold_headers.extend(["sigma", "margin_mae"])
     fold_rows: list[list[object]] = []
     for fold in result["folds"]:
         fold_row: list[object] = [
@@ -615,6 +677,8 @@ def _fold_section(result: dict[str, Any]) -> list[str]:
         ]
         if records_chosen_c:
             fold_row.extend([fold.get("chosen_c"), fold.get("c_selection")])
+        if records_sigma:
+            fold_row.extend([fold.get("sigma"), fold.get("margin_mae")])
         fold_rows.append(fold_row)
     lines.append(_markdown_table(fold_headers, fold_rows))
     lines.append("")
@@ -686,6 +750,7 @@ def render_phase1_report(report: dict[str, Any]) -> str:
         lines.extend(_render_acceptance_section(report))
     lines.extend(_calibration_lines(report.get("calibration")))
     lines.extend(_stacker_lines(report.get("stacker_coefficients")))
+    lines.extend(_margin_diagnostic_lines(report.get("margin_diagnostics")))
     lines.extend(_qb_coverage_lines(report.get("qb_coverage")))
     lines.extend(_market_information_lines(report.get("market_information")))
     lines.append("No model is promoted from this report.")
@@ -730,6 +795,11 @@ def write_phase1_outputs(report: dict[str, Any], output_dir: Path) -> dict[str, 
         stacker_path: Path = output_dir / "stacker_coefficients.csv"
         stacker_coefficients.to_csv(stacker_path, index=False, encoding="utf-8")
         extra_paths["stacker_coefficients"] = str(stacker_path)
+    margin_diagnostics: pd.DataFrame | None = report.get("margin_diagnostics")
+    if isinstance(margin_diagnostics, pd.DataFrame):
+        diagnostics_path: Path = output_dir / "margin_diagnostics.csv"
+        margin_diagnostics.to_csv(diagnostics_path, index=False, encoding="utf-8")
+        extra_paths["margin_diagnostics"] = str(diagnostics_path)
     qb_coverage: pd.DataFrame | None = report.get("qb_coverage")
     if isinstance(qb_coverage, pd.DataFrame):
         coverage_path: Path = output_dir / "qb_coverage.csv"

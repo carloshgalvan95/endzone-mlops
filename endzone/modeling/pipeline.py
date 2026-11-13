@@ -67,6 +67,11 @@ from endzone.modeling.hypotheses import (
     phase_tracking_settings,
     resolve_reference_spec,
 )
+from endzone.modeling.margin import (
+    MODEL_MARGIN_MEAN,
+    margin_diagnostics_table,
+    margin_mean_result,
+)
 from endzone.modeling.models import MODEL_LOGISTIC
 from endzone.modeling.reference import compare_reference_metrics, load_reference_metrics
 from endzone.modeling.report import comparison_table, render_phase1_report, write_phase1_outputs
@@ -269,11 +274,13 @@ def run_phase1_baselines(
                     random_state=settings.random_state,
                 )
             )
+        elif spec.model == MODEL_MARGIN_MEAN:
+            results.append(margin_mean_result(results, spec, shared))
         else:
             raise ValueError(f"Unknown derived model {spec.model!r}.")
     if not needs_elo:
         results.append(_score_elo(games, current_matrix, current_target, settings, shared))
-    if experiment.report_profile in {"qbelo538", "prior_shrink"}:
+    if experiment.report_profile in {"qbelo538", "prior_shrink", "margin"}:
         results.append(
             _score_rating_gap(
                 features,
@@ -346,7 +353,7 @@ def run_phase1_baselines(
         )
         if experiment.report_profile in MARKET_BENCHMARK_PROFILES:
             report["acceptance"] = label_market_benchmark(report["acceptance"])
-        if experiment.report_profile in {"qbelo538", "prior_shrink"}:
+        if experiment.report_profile in {"qbelo538", "prior_shrink", "margin"}:
             report["acceptance"] = label_context_baselines(report["acceptance"])
         if experiment.report_profile == "qbelo538":
             starter_frame: pd.DataFrame = attach_qb_features(
@@ -374,6 +381,9 @@ def run_phase1_baselines(
     ]
     if stacker_frames:
         report["stacker_coefficients"] = pd.concat(stacker_frames, ignore_index=True)
+    margin_diagnostics: pd.DataFrame | None = margin_diagnostics_table(results)
+    if margin_diagnostics is not None:
+        report["margin_diagnostics"] = margin_diagnostics
     report["markdown"] = render_phase1_report(report)
     return report
 
