@@ -7,7 +7,7 @@
     10
   ],
   "generated_at": "2026-11-10T15:44:48Z",
-  "results_updated_at": "2026-11-10T19:19:33Z",
+  "results_updated_at": "2026-11-13T14:48:15Z",
   "model_name": "workspace.nfl_dev.endzone_winprob",
   "model_version": "2@prod",
   "model_alias": "prod",
@@ -65,11 +65,14 @@
       "diff": 0.175782,
       "model_version": "2@prod",
       "generated_at": "2026-11-10T15:44:48Z",
-      "status": "scheduled",
+      "status": "final",
       "estimated_margin": 6.975388,
       "estimated_total": 47.808805,
       "estimated_home_points": 27.392096,
-      "estimated_away_points": 20.416709
+      "estimated_away_points": 20.416709,
+      "home_score": 21,
+      "away_score": 24,
+      "result": "away"
     },
     {
       "game_id": "2026_10_BUF_NYJ",
