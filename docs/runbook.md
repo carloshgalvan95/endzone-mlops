@@ -596,6 +596,16 @@ PYTHONUTF8=1 MLFLOW_TRACKING_URI=databricks MLFLOW_REGISTRY_URI=databricks-uc uv
 
 `make train-closing` is the train step alone. Windows: `.\scripts\dev.ps1 train-closing`.
 
+### 2024 and 2025 holdout
+
+ADR-010 fixes one evaluation of the already chosen logistic `pkg_core_inj_l2`. 2024 trains on seasons strictly before 2024. 2025 trains on seasons strictly before 2025. The command writes `docs/experiments/reports/holdout_2024_2025.json` and `holdout_2024_2025.md`. If that JSON already exists, the command exits before it reads the warehouse. It does not register or promote. Run it once:
+
+```bash
+PYTHONUTF8=1 MLFLOW_TRACKING_URI=databricks MLFLOW_REGISTRY_URI=databricks-uc uv run python scripts/run_holdout.py
+```
+
+`make holdout` is that command. Windows: `.\scripts\dev.ps1 holdout`.
+
 ### Test result schema
 
 `dbt build` and `dbt test` run the tests and do not store a failure relation for each one. Unity Catalog Free Edition allows 100 tables per schema and counts views toward that same quota. The project used to set `store_failures` on every test, so `<target_schema>_test_results` filled with one relation per test, including empty relations from tests that passed. The warning fires at 80 relations. `tests/test_dbt_store_failures.py` fails if a project or directory config turns `store_failures` back on, and the cap on named exceptions is 0.
