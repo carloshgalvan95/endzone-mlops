@@ -1,0 +1,36 @@
+id: closing
+phase: 2
+default: false
+aliases:
+  - closing
+tag: closing
+short_name: closing
+experiment_name: nfl_pregame/phase2_closing
+phase_tag: "2"
+output_dir: reports/phase2_closing
+title: Phase 2 injury coverage and home-field context
+note: "Phase 2 closing. pkg_core_inj_l2_inj_cov_q and pkg_core_inj_l2_hfa_ctx against logistic pkg_core_inj_l2 on rolling-origin seasons 2016-2023. The coverage candidate keeps the 43 pkg_core columns, replaces the four Out or Doubtful counts with weighted starter absences, and adds inj_report_covered. Out and Doubtful weigh 1.0. Questionable weighs 0.27. The home-field candidate keeps the 47 defender columns and adds is_divisional_game, away_surface_mismatch, and west_coast_early_kickoff. Both candidates are logistic regression with C fixed at 0.1. h2_full, Elo, and elo_mov are context. The market row is benchmark. Each candidate is judged alone. 2024 and 2025 are not scored. No model is promoted from this run."
+reference_model: logistic
+reference_feature_set: pkg_core_inj_l2
+logistic_feature_sets:
+  - h2_full
+  - pkg_core_inj_l2
+  - pkg_core_inj_l2_inj_cov_q
+  - pkg_core_inj_l2_hfa_ctx
+model_specs:
+  - model: logistic
+    feature_set: h2_full
+  - model: logistic
+    feature_set: pkg_core_inj_l2
+    fixed_c: 0.1
+  - model: logistic
+    feature_set: pkg_core_inj_l2_inj_cov_q
+    fixed_c: 0.1
+  - model: logistic
+    feature_set: pkg_core_inj_l2_hfa_ctx
+    fixed_c: 0.1
+log_shrinkage: true
+log_qb: true
+qb_subset: false
+qb_feature_set: h5_qb
+report_profile: closing

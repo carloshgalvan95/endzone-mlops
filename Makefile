@@ -1,4 +1,4 @@
-.PHONY: help setup install lint lint-structure test vulture dbt-compile dbt-run dbt-test clean reproduce data ingest ingest-current marts dbt-build-databricks train train-sweep train-cv train-recency train-h6 train-pkg-core train-pkg-core-inj train-ensembles train-ensembles-r2 train-qbelo538 train-prior-shrink train-margin train-groups train-s2 mlflow-ui audit-features check-epa-filter verify-reference walk-forward verify-walk-forward score rebuild-week refresh-results track-record backfill-archive register-model register-recent promote-model
+.PHONY: help setup install lint lint-structure test vulture dbt-compile dbt-run dbt-test clean reproduce data ingest ingest-current marts dbt-build-databricks train train-sweep train-cv train-recency train-h6 train-pkg-core train-pkg-core-inj train-ensembles train-ensembles-r2 train-qbelo538 train-prior-shrink train-margin train-groups train-closing train-s2 mlflow-ui audit-features check-epa-filter verify-reference walk-forward verify-walk-forward score rebuild-week refresh-results track-record backfill-archive register-model register-recent promote-model
 
 # Finished bronze and mart steps. Gitignored. A second train-cv does not
 # reload bronze when these stamps are current.
@@ -38,6 +38,7 @@ help:
 	@echo "  train-prior-shrink  - Preregistered prior strength and season weights, seasons 2016-2023. Does not register"
 	@echo "  train-margin        - Preregistered margin-to-probability candidates, seasons 2016-2023. Does not register"
 	@echo "  train-groups        - Preregistered group logistics, seasons 2016-2023. Does not register"
+	@echo "  train-closing       - Preregistered injury coverage and home field, seasons 2016-2023. Does not register"
 	@echo "  mlflow-ui           - Open MLflow UI against the local SQLite store"
 	@echo "  audit-features      - Profile current pregame inputs (no feature changes)"
 	@echo "  check-epa-filter    - Count play types in the EPA filter, plus kneel and spike rows"
@@ -197,6 +198,9 @@ train-margin:
 # No dbt rebuild is required.
 train-groups:
 	python scripts/train_groups.py
+
+train-closing:
+	python scripts/train_closing.py
 
 mlflow-ui:
 	mlflow ui --backend-store-uri sqlite:///mlflow.db --workers 1

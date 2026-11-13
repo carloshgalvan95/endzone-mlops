@@ -11,6 +11,7 @@ import pandas as pd
 from endzone.config import configured_tracking_uri
 from endzone.features.opponent import ELO_MOV_DIFF_COLUMN
 from endzone.features.pregame import (
+    CLOSING_FEATURE_SETS,
     DEFENSIVE_BLEND_K,
     FEATURE_SET_CURRENT,
     FEATURE_SET_H2_FULL,
@@ -301,7 +302,7 @@ def run_phase1_baselines(
             raise ValueError(f"Unknown derived model {spec.model!r}.")
     if not needs_elo:
         results.append(_score_elo(games, current_matrix, current_target, settings, shared))
-    if experiment.report_profile in {"qbelo538", "prior_shrink", "margin", "groups"}:
+    if experiment.report_profile in {"qbelo538", "prior_shrink", "margin", "groups", "closing"}:
         results.append(
             _score_rating_gap(
                 features,
@@ -374,7 +375,7 @@ def run_phase1_baselines(
         )
         if experiment.report_profile in MARKET_BENCHMARK_PROFILES:
             report["acceptance"] = label_market_benchmark(report["acceptance"])
-        if experiment.report_profile in {"qbelo538", "prior_shrink", "margin", "groups"}:
+        if experiment.report_profile in {"qbelo538", "prior_shrink", "margin", "groups", "closing"}:
             report["acceptance"] = label_context_baselines(report["acceptance"])
         if experiment.report_profile == "qbelo538":
             starter_frame: pd.DataFrame = attach_qb_features(
@@ -444,6 +445,7 @@ def run_cv_cli(args: argparse.Namespace) -> None:
         scored_sets.intersection(PKG_CORE_INJ_FEATURE_SETS)
         or scored_sets.intersection(QBELO538_FEATURE_SETS)
         or scored_sets.intersection(PRIOR_SHRINK_FEATURE_SETS)
+        or scored_sets.intersection(CLOSING_FEATURE_SETS)
     ):
         depth_chart_starters, injury_reports = load_injury_inputs(fixture_path)
     qb_box_scores: pd.DataFrame | None = None

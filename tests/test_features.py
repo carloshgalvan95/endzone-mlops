@@ -307,6 +307,8 @@ class TestPrepareTrainingData:
             "pkg_core_inj_l2_qbelo538",
             "pkg_core_inj_l2_k39",
             "pkg_core_inj_l2_k39_decay",
+            "pkg_core_inj_l2_inj_cov_q",
+            "pkg_core_inj_l2_hfa_ctx",
         )
         assert feature_columns_for("current") == PREGAME_FEATURE_COLUMNS
         assert feature_columns_for("with_games_played") == PREGAME_FEATURE_COLUMNS_WITH_GAMES_PLAYED
