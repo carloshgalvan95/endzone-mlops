@@ -54,6 +54,8 @@ SCORED_FEATURE_MODELS: frozenset[str] = frozenset(
         "stack_elo",
         "margin_ridge_pkg_core_inj",
         "margin_mean",
+        "group_mean",
+        "group_mean_def",
     }
 )
 

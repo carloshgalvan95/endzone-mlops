@@ -1,0 +1,32 @@
+id: groups
+phase: 2
+default: false
+aliases:
+  - groups
+tag: groups
+short_name: groups
+experiment_name: nfl_pregame/phase2_groups
+phase_tag: "2"
+output_dir: reports/phase2_groups
+title: Phase 2 group logistics without bagging
+note: "Phase 2 groups. group_mean and group_mean_def against logistic pkg_core_inj_l2 on rolling-origin seasons 2016-2023. epa_form, qb, ratings, and injuries_rest are a disjoint partition of the 47 defender columns. Each group is logistic regression with C fixed at 0.1, the defender imputation, and the defender scaler. group_mean is the equal logit average of the four groups. group_mean_def is the equal logit average of group_mean and the defender. Probabilities are clipped to [1e-6, 1 - 1e-6] before the logit. No weight is fit. There is no C search and no bagging. h2_full, Elo, and elo_mov are context. The market row is benchmark. The four group log losses and the logit correlation are reported and are not gates. Each candidate is judged alone. 2024 and 2025 are not scored. No model is promoted from this run."
+reference_model: logistic
+reference_feature_set: pkg_core_inj_l2
+logistic_feature_sets:
+  - h2_full
+  - pkg_core_inj_l2
+model_specs:
+  - model: logistic
+    feature_set: h2_full
+  - model: logistic
+    feature_set: pkg_core_inj_l2
+    fixed_c: 0.1
+  - model: group_mean
+    feature_set: pkg_core_inj_l2
+  - model: group_mean_def
+    feature_set: pkg_core_inj_l2
+log_shrinkage: true
+log_qb: true
+qb_subset: false
+qb_feature_set: h5_qb
+report_profile: groups
