@@ -38,6 +38,7 @@ function Show-Help {
     Write-Host "  train-margin        - Preregistered margin-to-probability candidates, seasons 2016-2023. Does not register"
     Write-Host "  train-groups        - Preregistered group logistics, seasons 2016-2023. Does not register"
     Write-Host "  train-closing       - Preregistered injury coverage and home field, seasons 2016-2023. Does not register"
+    Write-Host "  holdout             - One-shot 2024 and 2025 report. Does not register or promote"
     Write-Host "  mlflow-ui           - Open MLflow UI against the local SQLite store"
     Write-Host "  audit-features      - Profile current pregame inputs (no feature changes)"
     Write-Host "  check-epa-filter    - Count play types in the EPA filter, plus kneel and spike rows"
@@ -259,6 +260,12 @@ function Invoke-TrainClosing {
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
+function Invoke-Holdout {
+    Write-Host "Running the one-shot 2024 and 2025 holdout..."
+    python scripts/run_holdout.py
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
 function Invoke-MlflowUi {
     # One worker: uvicorn's default pool raises WinError 10022 on Windows.
     mlflow ui --backend-store-uri sqlite:///mlflow.db --workers 1
@@ -464,6 +471,7 @@ switch ($Target.ToLower()) {
     "train-margin" { Invoke-TrainMargin }
     "train-groups" { Invoke-TrainGroups }
     "train-closing" { Invoke-TrainClosing }
+    "holdout" { Invoke-Holdout }
     "mlflow-ui" { Invoke-MlflowUi }
     "audit-features" { Invoke-AuditFeatures }
     "check-epa-filter" { Invoke-CheckEpaFilter }
