@@ -32,7 +32,7 @@ nflverse, CC BY 4.0. Games, play-by-play, depth charts, and injury reports. Cred
 
 Bronze is `workspace.nfl_raw` (`games`, `play_by_play`, `depth_charts`, `injuries`). dbt staging views are `workspace.nfl_dev_staging`. Marts are `workspace.nfl_dev_marts`: `fct_games`, `fct_team_game_epa`, `fct_upcoming_games`, `fct_expected_starter`, `fct_qb_dropbacks`, `fct_depth_chart_starters`, `fct_injury_reports`. The target schema is `nfl_dev`, and dbt appends the custom schema, so do not query staging or marts from unsuffixed `nfl_dev`.
 
-Train through 2023, validation 2024, test 2025. A feature for a game uses only rows with `gameday` strictly before that game. Rolling-origin CV scores seasons 2016-2023. 2024 is not a fold. 2025 is not scored. The golden register stays that window. A later prod candidate of the same logistic `h2_full` is a refresh: it is fit on completed games before the slate and promoted when the walk-forward log loss stays within the refresh margin of the through-2023 fit. A different recipe has to be strictly better. The commands are in `docs/runbook.md`. The protocol and the warehouse pool are in `docs/experiments/walk_forward.md`.
+Train through 2023, validation 2024, test 2025. A feature for a game uses only rows with `gameday` strictly before that game. Rolling-origin CV scores seasons 2016-2023. 2024 is not a fold. Those CV commands do not score 2024 or 2025. The one-shot holdout below is the evaluation of those seasons. The golden register stays that window. A later prod candidate of the same logistic `h2_full` is a refresh: it is fit on completed games before the slate and promoted when the walk-forward log loss stays within the refresh margin of the through-2023 fit. A different recipe has to be strictly better. The commands are in `docs/runbook.md`. The protocol and the warehouse pool are in `docs/experiments/walk_forward.md`.
 
 ## Architecture
 
@@ -55,7 +55,7 @@ Flow: nflverse -> bronze (`endzone/ingest`) -> dbt staging -> dbt marts -> `endz
 
 `endzone/config.py` reads `.env`. `endzone/data/warehouse.py` is the SQL and Volume client. Hypothesis files are `configs/experiments/*.yaml`. The canonical command is `python -m endzone.modeling.train`. `python -m endzone.train.train` is the same flags. Weekly scoring is `python -m endzone.modeling.score`.
 
-MLflow experiments: `nfl_pregame` (single split), `nfl_pregame/phase0_audit`, `nfl_pregame/phase1_baselines`, `nfl_pregame/phase2_h1` through `phase2_h5b`, `phase2_ridge`, `phase2_h6`, `phase2_pkg_core`, `phase2_pkg_core_inj`, `phase2_ensembles`, `phase2_ensembles_r2`, `phase2_qbelo538`, `phase2_prior_shrink`, `phase2_margin`, `phase2_groups`, and `phase2_closing`, `nfl_pregame/sprint2_score`, `nfl_pregame/weekly`, and `nfl_pregame/registry`. Those are the sqlite names. A Databricks tracking URI stores a relative name under `/Shared/endzone-mlops` unless `ENDZONE_MLFLOW_EXPERIMENT_ROOT` is set. A CV run logs one parent and one nested child per model. Child tag `decision` is `accepted`, `rejected`, `reference`, `baseline`, `benchmark`, or `inconclusive`. `benchmark` is the H6 and pkg_core market row.
+MLflow experiments: `nfl_pregame` (single split), `nfl_pregame/phase0_audit`, `nfl_pregame/phase1_baselines`, `nfl_pregame/phase2_h1` through `phase2_h5b`, `phase2_ridge`, `phase2_h6`, `phase2_pkg_core`, `phase2_pkg_core_inj`, `phase2_ensembles`, `phase2_ensembles_r2`, `phase2_qbelo538`, `phase2_prior_shrink`, `phase2_margin`, `phase2_groups`, and `phase2_closing`, `nfl_pregame/sprint2_score`, `nfl_pregame/holdout_2024_2025`, `nfl_pregame/weekly`, and `nfl_pregame/registry`. Those are the sqlite names. A Databricks tracking URI stores a relative name under `/Shared/endzone-mlops` unless `ENDZONE_MLFLOW_EXPERIMENT_ROOT` is set. A CV run logs one parent and one nested child per model. Child tag `decision` is `accepted`, `rejected`, `reference`, `baseline`, `benchmark`, or `inconclusive`. `benchmark` is the H6 and pkg_core market row.
 
 CI is [`.github/workflows/ci.yml`](.github/workflows/ci.yml), on push and pull request to `main`, on a Monday schedule, and on manual dispatch. Ubuntu runs ruff, the structure and import check, vulture, the full pytest suite, analysis coverage, and the local DuckDB dbt compile. On a pull request, Windows and macOS run ruff, the structure and import check, and `pytest -m cross_platform`. On push, the weekly schedule, and a manual dispatch they run the full suite. See [docs/testing.md](docs/testing.md).
 
@@ -72,6 +72,27 @@ Rolling-origin CV, seasons 2016-2023. Source: [docs/experiments/reference_metric
 
 The market is a baseline. It is not the model under test, and it has the lower log loss. The model does not beat the market. `make verify-reference` refits these rows and fails when log loss or n moves by more than 1e-4. Intended use, the registry name, and these limits are in the [model card](docs/model_card.md).
 
+## 2024 and 2025 holdout
+
+One warehouse run, 2026-11-13. ADR-010. Source: [holdout_2024_2025.md](docs/experiments/reports/holdout_2024_2025.md) and [holdout_2024_2025.json](docs/experiments/reports/holdout_2024_2025.json). Logistic `pkg_core_inj_l2` (C = 0.1, 47 columns) is the selected row. Logistic `h2_full` (C = 1.0) is the prior reference. Each season trains on seasons strictly before that season. The pooled row concatenates the two out-of-sample sets. n = 570, 285 games in each season.
+
+| Model | Feature set | n | Log loss |
+| --- | --- | --- | --- |
+| logistic | pkg_core_inj_l2 | 570 | 0.6171 |
+| logistic | h2_full | 570 | 0.6207 |
+| elo_mov | elo_mov | 570 | 0.6249 |
+| elo | elo | 570 | 0.6402 |
+| baseline-home | none | 570 | 0.6911 |
+| market | market | 570 | 0.5976 |
+
+`pkg_core_inj_l2` log loss is 0.6016 in 2024 and 0.6326 in 2025. The market is 0.5892 in 2024 and 0.6059 in 2025.
+
+Versus logistic `h2_full`, the pooled difference is -0.0035 [-0.0115, +0.0038]. That does not meet the ADR-005 rule (difference <= -0.003 and the interval entirely below 0). Production stays on logistic `h2_full` under ADR-009. `pkg_core_inj_l2` is not promoted. Versus the market, the pooled difference is +0.0196 [+0.0049, +0.0350]. The market is clearly better.
+
+Pooled ECE for `pkg_core_inj_l2` is 0.0511. The CV ECE recorded for this fit is 0.0242, so calibration is worse out of time. That CV ECE is not a field in the frozen holdout file. The market-information `model_coef` is 0.154 on the pool, 0.441 in 2024, and -0.152 in 2025.
+
+Holdout log loss 0.6171 is not worse than the CV log loss 0.6330, so this run does not show overfitting on the 2016-2023 window. This is not betting advice.
+
 ## Hypothesis log
 
 Same window, n=2191, unless the note says otherwise. Detail is in `docs/experiments/`.
@@ -86,6 +107,7 @@ Same window, n=2191, unless the note says otherwise. Detail is in `docs/experime
 | H5 starting QB | rejected | logistic `h2_full` | `h5_qb` 0.6355, difference -0.0022, interval -0.0042 to -0.0003 |
 | H5b fixed starter | rejected | logistic `h2_full` | `h5_qb` 0.6356, difference -0.0021, interval -0.0039 to -0.0002 |
 | Sprint 2 margin and total | accepted | Elo/25 and the league-mean total | Margin MAE 10.155811 versus Elo/25 10.412221 (8 of 8 seasons). Total MAE 10.925618 versus the league mean 11.130543 (5 of 8 seasons). n=2191. Market margin MAE 9.800548 and market total MAE 10.526928 are lower, and they are not a gate. [sprint2_cv_report.json](docs/experiments/reports/sprint2_cv_report.json) |
+| 2024 and 2025 holdout | not promoted | logistic `h2_full` | `pkg_core_inj_l2` 0.6171, n=570, difference -0.0035, interval -0.0115 to +0.0038. ADR-005 is not met. [holdout_2024_2025.md](docs/experiments/reports/holdout_2024_2025.md) |
 
 H2 is why logistic `h2_full` is the reference. H5 and H5b improve on it by less than 0.003. The intervals are entirely below 0, so the sign is a positive signal. The threshold was not moved. Notes: [H5](docs/experiments/phase2_h5_starting_qb.md), [H5b](docs/experiments/phase2_h5b_starter_coverage.md).
 
