@@ -384,6 +384,29 @@ def _profile_lines(profile: str) -> list[str]:
             "The ADR-007 score models are unchanged.",
             "The market row is a benchmark. It is not a candidate.",
         ]
+    if profile == "groups":
+        return [
+            "epa_form, qb, ratings, and injuries_rest partition the",
+            "pkg_core_inj_l2 columns. The groups are disjoint and their",
+            "union is those 47 columns.",
+            "Each group is logistic regression with C fixed at 0.1.",
+            "Imputation and scaling match the defender. The fit uses",
+            "only that fold's training seasons.",
+            "group_mean is the logit average of the four groups, with",
+            "equal weights 0.25. Probabilities are clipped to",
+            "[1e-6, 1 - 1e-6] before the logit.",
+            "group_mean_def is the logit average of group_mean and",
+            "logistic pkg_core_inj_l2, with equal weights 0.5 and 0.5.",
+            "No weight is fit. There is no C search and no bagging.",
+            "Each candidate is judged alone against logistic pkg_core_inj_l2.",
+            "The four group logistics are not candidates.",
+            "h2_full, Elo, and elo_mov are context. They are not candidates.",
+            "Group log loss and the logit correlation are descriptive.",
+            "They are not acceptance decisions.",
+            "Calibration, the per-season table, and the market-information",
+            "regression are descriptive. They are not acceptance decisions.",
+            "The market row is a benchmark. It is not a candidate.",
+        ]
     if profile == "ridge":
         grid_text: str = ", ".join(_format_regularization_c(value) for value in DEFAULT_L2_C_GRID)
         return (
@@ -466,6 +489,36 @@ def _calibration_lines(table: pd.DataFrame | None) -> list[str]:
                 ]
                 for row in bins.itertuples(index=False)
             ],
+        )
+    )
+    lines.append("")
+    return lines
+
+
+def _group_diagnostic_lines(table: pd.DataFrame | None) -> list[str]:
+    """OOF log loss of each group and the logit correlation.
+
+    The table is descriptive. It is not an acceptance decision.
+    """
+    if table is None:
+        return []
+    lines: list[str] = [
+        "## Group diagnostics",
+        "",
+        "Each group row is the out-of-fold log loss of that logistic.",
+        "The four groups are not candidates. The summary correlation",
+        "compares group_mean with logistic pkg_core_inj_l2 in logit space.",
+        "This table is descriptive. It is not an acceptance decision.",
+        "",
+    ]
+    if table.empty:
+        lines.append("No group diagnostics were computed.")
+        lines.append("")
+        return lines
+    lines.append(
+        _markdown_table(
+            ["row_kind", "group", "n", "log_loss", "logit_correlation"],
+            [list(row) for row in table.itertuples(index=False, name=None)],
         )
     )
     lines.append("")
@@ -751,6 +804,7 @@ def render_phase1_report(report: dict[str, Any]) -> str:
     lines.extend(_calibration_lines(report.get("calibration")))
     lines.extend(_stacker_lines(report.get("stacker_coefficients")))
     lines.extend(_margin_diagnostic_lines(report.get("margin_diagnostics")))
+    lines.extend(_group_diagnostic_lines(report.get("group_diagnostics")))
     lines.extend(_qb_coverage_lines(report.get("qb_coverage")))
     lines.extend(_market_information_lines(report.get("market_information")))
     lines.append("No model is promoted from this report.")
@@ -800,6 +854,11 @@ def write_phase1_outputs(report: dict[str, Any], output_dir: Path) -> dict[str, 
         diagnostics_path: Path = output_dir / "margin_diagnostics.csv"
         margin_diagnostics.to_csv(diagnostics_path, index=False, encoding="utf-8")
         extra_paths["margin_diagnostics"] = str(diagnostics_path)
+    group_diagnostics: pd.DataFrame | None = report.get("group_diagnostics")
+    if isinstance(group_diagnostics, pd.DataFrame):
+        group_path: Path = output_dir / "group_diagnostics.csv"
+        group_diagnostics.to_csv(group_path, index=False, encoding="utf-8")
+        extra_paths["group_diagnostics"] = str(group_path)
     qb_coverage: pd.DataFrame | None = report.get("qb_coverage")
     if isinstance(qb_coverage, pd.DataFrame):
         coverage_path: Path = output_dir / "qb_coverage.csv"

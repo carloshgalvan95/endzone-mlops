@@ -59,6 +59,13 @@ from endzone.modeling.evaluation import (
     market_information_table_for_results,
     qb_change_subset_comparison,
 )
+from endzone.modeling.groups import (
+    MODEL_GROUP_MEAN,
+    MODEL_GROUP_MEAN_DEF,
+    group_diagnostics_table,
+    group_mean_def_result,
+    group_mean_result,
+)
 from endzone.modeling.hypotheses import (
     MARKET_BENCHMARK_PROFILES,
     CvModelSpec,
@@ -276,11 +283,25 @@ def run_phase1_baselines(
             )
         elif spec.model == MODEL_MARGIN_MEAN:
             results.append(margin_mean_result(results, spec, shared))
+        elif spec.model == MODEL_GROUP_MEAN:
+            results.append(
+                group_mean_result(
+                    games,
+                    features,
+                    spec,
+                    shared,
+                    cv_config=settings.resolved,
+                    max_iter=settings.logistic_max_iter,
+                    random_state=settings.random_state,
+                )
+            )
+        elif spec.model == MODEL_GROUP_MEAN_DEF:
+            results.append(group_mean_def_result(results, spec, shared))
         else:
             raise ValueError(f"Unknown derived model {spec.model!r}.")
     if not needs_elo:
         results.append(_score_elo(games, current_matrix, current_target, settings, shared))
-    if experiment.report_profile in {"qbelo538", "prior_shrink", "margin"}:
+    if experiment.report_profile in {"qbelo538", "prior_shrink", "margin", "groups"}:
         results.append(
             _score_rating_gap(
                 features,
@@ -353,7 +374,7 @@ def run_phase1_baselines(
         )
         if experiment.report_profile in MARKET_BENCHMARK_PROFILES:
             report["acceptance"] = label_market_benchmark(report["acceptance"])
-        if experiment.report_profile in {"qbelo538", "prior_shrink", "margin"}:
+        if experiment.report_profile in {"qbelo538", "prior_shrink", "margin", "groups"}:
             report["acceptance"] = label_context_baselines(report["acceptance"])
         if experiment.report_profile == "qbelo538":
             starter_frame: pd.DataFrame = attach_qb_features(
@@ -384,6 +405,9 @@ def run_phase1_baselines(
     margin_diagnostics: pd.DataFrame | None = margin_diagnostics_table(results)
     if margin_diagnostics is not None:
         report["margin_diagnostics"] = margin_diagnostics
+    group_diagnostics: pd.DataFrame | None = group_diagnostics_table(results)
+    if group_diagnostics is not None:
+        report["group_diagnostics"] = group_diagnostics
     report["markdown"] = render_phase1_report(report)
     return report
 

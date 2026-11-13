@@ -27,6 +27,8 @@ CALIBRATION_MODELS: frozenset[str] = frozenset(
         "qbelo538",
         "margin_ridge_pkg_core_inj",
         "margin_mean",
+        "group_mean",
+        "group_mean_def",
     }
 )
 # Descriptive market-information rows. The home prior, Elo, and the market
@@ -44,6 +46,8 @@ INFORMATION_MODELS: frozenset[str] = frozenset(
         "qbelo538",
         "margin_ridge_pkg_core_inj",
         "margin_mean",
+        "group_mean",
+        "group_mean_def",
     }
 )
 CONTEXT_BASELINE_MODELS: frozenset[str] = frozenset({"elo_mov", "qbelo538"})

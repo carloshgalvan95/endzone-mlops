@@ -21,6 +21,9 @@ MODEL_BASELINE_HOME: str = "baseline-home"
 # Win-probability candidates. These names are not the ADR-007 score models.
 MODEL_MARGIN_RIDGE: str = "margin_ridge_pkg_core_inj"
 MODEL_MARGIN_MEAN: str = "margin_mean"
+# Group-logistic candidates. These names are not feature sets.
+MODEL_GROUP_MEAN: str = "group_mean"
+MODEL_GROUP_MEAN_DEF: str = "group_mean_def"
 IDENTIFIER_COLUMNS: tuple[str, ...] = ("game_id", "gameday", "season")
 # Fixed-C logistic is already L2. logistic_l2 chooses C inside each training fold.
 # The grid matches the sweep endpoints (0.1 and 10) plus one step on each side.

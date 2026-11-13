@@ -22,6 +22,7 @@ from endzone.features.pregame import (
 )
 from endzone.features.recency import RECENCY_CHALLENGER_FEATURE_SETS
 from endzone.modeling.dataset import load_data, load_qb_inputs, validate_feature_columns
+from endzone.modeling.groups import HOLDOUT_REFUSED_NAMES
 from endzone.modeling.models import (
     DEFAULT_L2_C_GRID,
     LogisticL2Fit,
@@ -138,18 +139,33 @@ def run_holdout(args: argparse.Namespace) -> None:
     """Train one model on seasons through the train cut and log the validation metrics.
 
     Recency, H6, pkg_core, the injury candidates, the ensemble
-    candidates, the QB Elo candidate, the prior-shrink candidates, and
-    the margin candidates are refused before any warehouse read. That
-    split scores 2024 and 2025. The preregistered commands are
-    ``python scripts/train_recency.py``, ``python scripts/train_h6.py``,
-    ``python scripts/train_pkg_core.py``,
+    candidates, the QB Elo candidate, the prior-shrink candidates, the
+    margin candidates, and the group-logistic names are refused before
+    any warehouse read. That split scores 2024 and 2025. The
+    preregistered commands are ``python scripts/train_recency.py``,
+    ``python scripts/train_h6.py``, ``python scripts/train_pkg_core.py``,
     ``python scripts/train_pkg_core_inj.py``,
     ``python scripts/train_ensembles.py``,
     ``python scripts/train_ensembles_r2.py``,
     ``python scripts/train_qbelo538.py``,
-    ``python scripts/train_prior_shrink.py``, and
-    ``python scripts/train_margin.py``.
+    ``python scripts/train_prior_shrink.py``,
+    ``python scripts/train_margin.py``, and
+    ``python scripts/train_groups.py``.
     """
+    refused_name: str | None = None
+    model_name: object = getattr(args, "model", None)
+    feature_name: object = getattr(args, "feature_set", None)
+    if isinstance(model_name, str) and model_name in HOLDOUT_REFUSED_NAMES:
+        refused_name = model_name
+    elif isinstance(feature_name, str) and feature_name in HOLDOUT_REFUSED_NAMES:
+        refused_name = feature_name
+    if refused_name is not None:
+        raise ValueError(
+            f"{refused_name} is a preregistered group-logistic name. "
+            "Score it with python scripts/train_groups.py. "
+            "That command is rolling-origin CV for seasons 2016-2023. "
+            "This split scores 2024 and 2025."
+        )
     if args.feature_set in RECENCY_CHALLENGER_FEATURE_SETS:
         raise ValueError(
             f"{args.feature_set} is a preregistered recency challenger. "

@@ -34,6 +34,7 @@ REPORT_PROFILES: frozenset[str] = frozenset(
         "qbelo538",
         "prior_shrink",
         "margin",
+        "groups",
     }
 )
 # These profiles label the market ``benchmark`` and write calibration plus
@@ -48,6 +49,7 @@ MARKET_BENCHMARK_PROFILES: frozenset[str] = frozenset(
         "qbelo538",
         "prior_shrink",
         "margin",
+        "groups",
     }
 )
 CV_MODEL_NAMES: frozenset[str] = frozenset(
@@ -60,6 +62,8 @@ CV_MODEL_NAMES: frozenset[str] = frozenset(
         "stack_elo",
         "margin_ridge_pkg_core_inj",
         "margin_mean",
+        "group_mean",
+        "group_mean_def",
     }
 )
 MODEL_DEFAULT_FEATURE_SET: dict[str, str] = {
