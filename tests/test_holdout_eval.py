@@ -623,21 +623,38 @@ def test_log_names_the_holdout_experiment_and_does_not_register(
 
 
 @pytest.mark.cross_platform
-def test_frozen_report_is_absent_from_the_worktree() -> None:
-    """The preregistration does not invent the warehouse result."""
+def test_frozen_holdout_report_is_tracked() -> None:
+    """The one warehouse report is in the tree, so a clone refuses a second run."""
     json_path: Path = _REPO_ROOT / "docs" / "experiments" / "reports" / HOLDOUT_JSON_NAME
     markdown_path: Path = _REPO_ROOT / "docs" / "experiments" / "reports" / HOLDOUT_MARKDOWN_NAME
-    assert not json_path.exists()
-    assert not markdown_path.exists()
-    status: subprocess.CompletedProcess[str] = subprocess.run(
-        ["git", "status", "--porcelain"],
+    assert json_path.is_file()
+    assert markdown_path.is_file()
+    ignored: subprocess.CompletedProcess[str] = subprocess.run(
+        [
+            "git",
+            "check-ignore",
+            "--no-index",
+            "-q",
+            "docs/experiments/reports/holdout_2024_2025.json",
+        ],
+        cwd=_REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert ignored.returncode == 1
+    subprocess.run(
+        [
+            "git",
+            "ls-files",
+            "--error-unmatch",
+            "docs/experiments/reports/holdout_2024_2025.json",
+            "docs/experiments/reports/holdout_2024_2025.md",
+        ],
         cwd=_REPO_ROOT,
         check=True,
         capture_output=True,
         text=True,
     )
-    assert HOLDOUT_JSON_NAME not in status.stdout
-    assert HOLDOUT_MARKDOWN_NAME not in status.stdout
 
 
 @pytest.mark.cross_platform

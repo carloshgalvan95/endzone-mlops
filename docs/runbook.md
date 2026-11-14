@@ -598,7 +598,7 @@ PYTHONUTF8=1 MLFLOW_TRACKING_URI=databricks MLFLOW_REGISTRY_URI=databricks-uc uv
 
 ### 2024 and 2025 holdout
 
-ADR-010 fixes one evaluation of the already chosen logistic `pkg_core_inj_l2`. 2024 trains on seasons strictly before 2024. 2025 trains on seasons strictly before 2025. The command writes `docs/experiments/reports/holdout_2024_2025.json` and `holdout_2024_2025.md`. If that JSON already exists, the command exits before it reads the warehouse. It does not register or promote. Run it once:
+ADR-010 fixes one evaluation of the already chosen logistic `pkg_core_inj_l2`. 2024 trains on seasons strictly before 2024. 2025 trains on seasons strictly before 2025. The command writes `docs/experiments/reports/holdout_2024_2025.json` and `holdout_2024_2025.md`. That run is already in the tree, from 2026-11-13. If that JSON already exists, the command exits before it reads the warehouse. It does not register or promote. `pkg_core_inj_l2` was not promoted. If the JSON is absent, the command is:
 
 ```bash
 PYTHONUTF8=1 MLFLOW_TRACKING_URI=databricks MLFLOW_REGISTRY_URI=databricks-uc uv run python scripts/run_holdout.py

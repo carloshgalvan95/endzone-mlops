@@ -71,6 +71,8 @@ data/external/*
 !docs/experiments/reference_metrics.json
 # Frozen Sprint 2 CV JSON, committed only after a warehouse run. ADR-007.
 !docs/experiments/reports/sprint2_cv_report.json
+# Frozen 2024 and 2025 holdout JSON, committed after the one warehouse run. ADR-010.
+!docs/experiments/reports/holdout_2024_2025.json
 # Example slate and public team logo URLs. Real weekly JSON stays ignored.
 # See ADR-006.
 !site/data/sample.json

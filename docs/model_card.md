@@ -46,7 +46,7 @@ A new feature set is accepted only when pooled log loss improves by at least 0.0
 
 ## Evaluation data
 
-Rolling-origin CV, seasons 2016 through 2023. `docs/experiments/reference_metrics.json` records `cv_start_season` 2016 and `cv_end_season` 2023. For each season S, training uses `season < S` and scoring uses `season == S`. The frozen H5 report states that 2024 is the final validation and is not scored, and that 2025 is not scored. I do not have a 2024 log loss or a 2025 log loss in the reference file or a frozen report.
+Rolling-origin CV, seasons 2016 through 2023. `docs/experiments/reference_metrics.json` records `cv_start_season` 2016 and `cv_end_season` 2023. For each season S, training uses `season < S` and scoring uses `season == S`. The frozen H5 report states that 2024 is the final validation and is not a CV fold, and that 2025 is not a CV fold. The one-shot holdout is a later frozen report, quoted below. The CV commands still do not score those seasons.
 
 The market probability is the no-vig closing moneyline. It is skipped when those columns are absent (same frozen report). It is a benchmark. It is not a training feature.
 
@@ -117,6 +117,30 @@ The folds are not interchangeable. The file does not report a paired interval be
 ### Why h2_full is the reference
 
 Source: `docs/experiments/reports/phase2_h2_comparison.md`. That run's reference is logistic `current`, not the market. Logistic `h2_full` log loss is 0.6377, difference -0.0037, interval -0.0071 to -0.0003, decision accepted. I do not read that interval as a result against the market. The market comparison is the H5 table above.
+
+### 2024 validation and 2025 test
+
+Source: `docs/experiments/reports/holdout_2024_2025.json` and `docs/experiments/reports/holdout_2024_2025.md`. ADR-010. One run, 2026-11-13. Logistic `pkg_core_inj_l2` (C = 0.1, 47 columns) is the selected row. Logistic `h2_full` (C = 1.0) is the prior `prod` recipe. 2024 trains on seasons strictly before 2024. 2025 trains on seasons strictly before 2025. The pooled row concatenates those out-of-sample predictions. I round the file's log loss to four decimals. The file keeps the full precision.
+
+| Split | n | pkg_core_inj_l2 | h2_full | market |
+| --- | --- | --- | --- | --- |
+| pooled 2024-2025 | 570 | 0.6171 | 0.6207 | 0.5976 |
+| 2024 | 285 | 0.6016 | 0.6074 | 0.5892 |
+| 2025 | 285 | 0.6326 | 0.6339 | 0.6059 |
+
+The other pooled log losses in the same file are `elo_mov` 0.6249, Elo 0.6402, and the home baseline 0.6911.
+
+Versus logistic `h2_full`, the pooled difference is -0.0035, interval -0.0115 to +0.0038 (1000 resamples, seed 42). The gain is past -0.003, and the interval includes 0, so ADR-005 is not met. I do not promote `pkg_core_inj_l2`. `prod` stays logistic `h2_full` under ADR-009. The frozen file records `promoted` false and `registered` false.
+
+Versus the market, the pooled difference is +0.0196, interval +0.0049 to +0.0350. The interval is entirely above 0. The market is clearly better. This is not betting advice.
+
+Pooled ECE for `pkg_core_inj_l2` is 0.0511 (10 equal-count bins, n=570). The same file has 0.0585 in 2024 and 0.0476 in 2025. The CV ECE 0.0242 is the figure I recorded for this fit on issue 61. It is not a field in the frozen holdout file. Calibration is worse out of time than that CV figure.
+
+The market-information `model_coef` in the frozen file is 0.154 on the pool, 0.441 in 2024, and -0.152 in 2025. The 2025 coefficient is negative. I do not treat any of those coefficients as a blend or a publishing weight.
+
+Holdout log loss 0.6171 is not worse than the CV log loss 0.6330 (the frozen file stores that CV figure as 0.633). This run does not show overfitting on the 2016-2023 window.
+
+Limits of this split: each season is one 285-game sample, and the intervals are wide. The comparison with `h2_full` includes 0. A second season can move the gap, as 2024 and 2025 already do. I do not select a different model from this file.
 
 ## Ethical considerations
 
