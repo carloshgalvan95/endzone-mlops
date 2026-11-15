@@ -7,7 +7,7 @@
     10
   ],
   "generated_at": "2026-11-10T15:44:48Z",
-  "results_updated_at": "2026-11-13T14:48:15Z",
+  "results_updated_at": "2026-11-15T20:24:00Z",
   "model_name": "workspace.nfl_dev.endzone_winprob",
   "model_version": "2@prod",
   "model_alias": "prod",
@@ -212,11 +212,14 @@
       "diff": 0.03464,
       "model_version": "2@prod",
       "generated_at": "2026-11-10T15:44:48Z",
-      "status": "scheduled",
+      "status": "final",
       "estimated_margin": 3.103925,
       "estimated_total": 50.12528,
       "estimated_home_points": 26.614603,
-      "estimated_away_points": 23.510678
+      "estimated_away_points": 23.510678,
+      "home_score": 35,
+      "away_score": 10,
+      "result": "home"
     },
     {
       "game_id": "2026_10_PIT_CIN",
