@@ -7,7 +7,7 @@
     10
   ],
   "generated_at": "2026-11-10T15:44:48Z",
-  "results_updated_at": "2026-11-15T22:07:38Z",
+  "results_updated_at": "2026-11-16T01:00:39Z",
   "model_name": "workspace.nfl_dev.endzone_winprob",
   "model_version": "2@prod",
   "model_alias": "prod",
@@ -179,11 +179,14 @@
       "diff": 0.121363,
       "model_version": "2@prod",
       "generated_at": "2026-11-10T15:44:48Z",
-      "status": "scheduled",
+      "status": "final",
       "estimated_margin": -4.98936,
       "estimated_total": 45.905205,
       "estimated_home_points": 20.457923,
-      "estimated_away_points": 25.447283
+      "estimated_away_points": 25.447283,
+      "home_score": 6,
+      "away_score": 34,
+      "result": "away"
     },
     {
       "game_id": "2026_10_MIA_IND",
@@ -268,11 +271,14 @@
       "diff": 0.041771,
       "model_version": "2@prod",
       "generated_at": "2026-11-10T15:44:48Z",
-      "status": "scheduled",
+      "status": "final",
       "estimated_margin": -2.605398,
       "estimated_total": 43.745686,
       "estimated_home_points": 20.570144,
-      "estimated_away_points": 23.175542
+      "estimated_away_points": 23.175542,
+      "home_score": 13,
+      "away_score": 21,
+      "result": "away"
     },
     {
       "game_id": "2026_10_SF_DAL",
@@ -284,11 +290,14 @@
       "diff": 0.034999,
       "model_version": "2@prod",
       "generated_at": "2026-11-10T15:44:48Z",
-      "status": "scheduled",
+      "status": "final",
       "estimated_margin": -3.200434,
       "estimated_total": 52.691236,
       "estimated_home_points": 24.745401,
-      "estimated_away_points": 27.945835
+      "estimated_away_points": 27.945835,
+      "home_score": 40,
+      "away_score": 46,
+      "result": "away"
     },
     {
       "game_id": "2026_10_LAC_BAL",
