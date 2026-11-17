@@ -1051,6 +1051,10 @@ Still not in the repo: README screenshots, a short demo video, and a `v0.1.0` ta
 
 The page is an open experiment. It is not betting picks. Generated week JSON stays off `main`. The durable copy is the orphan branch `published-slates`. The live site is what readers open. Losing either copy, or deploying a slate that was not archived, is a failure.
 
+### Site data contract
+
+`python -m endzone.site.contract --data-dir site/data` checks `sample.json`, `teams.json`, and any `latest.json`, `predictions/*.json`, and `track_record.json` that are present. CI runs that command. Pages and Results run it with `--require-published` in the build job, immediately before the site artifact upload. A failure stops the job, so a document that breaks `contracts/site-data/v1/` is not deployed. The command only reads. It does not score, overlay, archive, or edit a week file. ADR-011. The native client is the separate repo `carloshgalvan95/endzone-app`.
+
 `predictions/<season>-w<week>.json` on that branch is the current file. `history/<season>-w<week>/` keeps every earlier copy, so a later overwrite does not throw the previous file away. Do not merge the branch into `main`, and do not force-push it.
 
 **Push to `main`.** `.github/workflows/pages.yml` restores `published-slates` first. A week the branch does not have yet is copied from the live site. It then overlays nflverse finals, archives those exact files, and deploys `site/`. It does not fit a model and it does not rewrite probabilities. If the archive push fails, the site is not deployed. Use a push for UI and overlay changes.
