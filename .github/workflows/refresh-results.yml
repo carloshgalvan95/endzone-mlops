@@ -126,6 +126,9 @@ jobs:
           )
           PY
 
+      - name: Validate site data against the v1 contract
+        run: uv run python -m endzone.site.contract --data-dir site/data --require-published
+
       - name: Upload the built site
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

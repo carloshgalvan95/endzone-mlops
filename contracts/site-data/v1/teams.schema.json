@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://carloshgalvan95.github.io/endzone-mlops/contracts/site-data/v1/teams.schema.json",
+  "title": "Team colors and logos",
+  "description": "teams.json. Logo values are URLs. Image files are not stored. contract_version is optional on a file written before v1.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["source", "source_url", "teams"],
+  "properties": {
+    "contract_version": {
+      "type": "string",
+      "pattern": "^1\\.[0-9]+\\.[0-9]+$"
+    },
+    "source": { "type": "string", "minLength": 1 },
+    "source_url": { "type": "string", "minLength": 1 },
+    "teams": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/$defs/team" }
+    }
+  },
+  "$defs": {
+    "color": {
+      "type": ["string", "null"],
+      "pattern": "^#[0-9A-Fa-f]{6}$"
+    },
+    "team": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["abbr", "name", "team_color", "team_color2", "logo"],
+      "properties": {
+        "abbr": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "team_color": { "$ref": "#/$defs/color" },
+        "team_color2": { "$ref": "#/$defs/color" },
+        "logo": { "type": ["string", "null"], "minLength": 1 }
+      }
+    }
+  }
+}

@@ -77,6 +77,8 @@ data/external/*
 # See ADR-006.
 !site/data/sample.json
 !site/data/teams.json
+# Public site data schemas. ADR-011. Real weekly JSON stays ignored.
+!contracts/site-data/**/*.json
 
 # Serialized local models. There is no endzone/models package.
 models/*

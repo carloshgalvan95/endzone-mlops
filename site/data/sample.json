@@ -1,4 +1,5 @@
 {
+  "contract_version": "1.0.0",
   "sample": true,
   "is_example": true,
   "label": "Example slate. These are not real predictions.",

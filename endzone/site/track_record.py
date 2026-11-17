@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from endzone.site.archive import ARCHIVE_BRANCH, ArchiveError, open_archive_readonly
+from endzone.site.contract import CONTRACT_VERSION
 from endzone.utils.logging import setup_logger
 
 logger = setup_logger(__name__)
@@ -533,6 +534,7 @@ def _document(
 ) -> dict[str, Any]:
     """One public track record document."""
     return {
+        "contract_version": CONTRACT_VERSION,
         "available": available,
         "reason": reason,
         "generated_at": generated_at,

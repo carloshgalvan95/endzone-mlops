@@ -24,6 +24,7 @@ dependencies = [
     "dbt-duckdb>=1.8.0,<2.0.0",
     "dbt-databricks>=1.8.0,<2.0.0",
     "pyyaml>=6.0.3",
+    "jsonschema>=4.23.0,<5",
 ]
 
 [dependency-groups]
