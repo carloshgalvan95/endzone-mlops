@@ -7,7 +7,7 @@
     10
   ],
   "generated_at": "2026-11-10T15:44:48Z",
-  "results_updated_at": "2026-11-16T06:19:39Z",
+  "results_updated_at": "2026-11-17T16:29:16Z",
   "model_name": "workspace.nfl_dev.endzone_winprob",
   "model_version": "2@prod",
   "model_alias": "prod",
@@ -312,11 +312,14 @@
       "diff": 0.074145,
       "model_version": "2@prod",
       "generated_at": "2026-11-10T15:44:48Z",
-      "status": "scheduled",
+      "status": "final",
       "estimated_margin": 8.099651,
       "estimated_total": 39.10263,
       "estimated_home_points": 23.60114,
-      "estimated_away_points": 15.50149
+      "estimated_away_points": 15.50149,
+      "home_score": 20,
+      "away_score": 23,
+      "result": "away"
     }
   ]
 }
