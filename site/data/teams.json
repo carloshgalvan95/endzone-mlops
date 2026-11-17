@@ -1,4 +1,5 @@
 {
+  "contract_version": "1.0.0",
   "source": "nflverse teams_colors_logos",
   "source_url": "https://github.com/nflverse/nflverse-data/releases/download/teams/teams_colors_logos.csv",
   "teams": {

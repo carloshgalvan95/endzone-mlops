@@ -449,6 +449,7 @@ def build_prediction_document(
             }
         )
     return {
+        "contract_version": "1.0.0",
         "sample": sample,
         "season": int(season),
         "week": int(week),
@@ -1090,6 +1091,7 @@ def team_catalog_document(frame: pd.DataFrame) -> dict[str, Any]:
             "logo": _logo_url(row),
         }
     return {
+        "contract_version": "1.0.0",
         "source": "nflverse teams_colors_logos",
         "source_url": NFLVERSE_TEAMS_URL,
         "teams": teams,

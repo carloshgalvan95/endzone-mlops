@@ -44,6 +44,7 @@ endzone-mlops/
   data/{raw,interim,processed,external}/   local cache, git keeps .gitkeep
   dbt/                 staging views, marts, seeds
   docs/                ADRs, model card, experiments, runbook
+  contracts/site-data/ public JSON schemas for the weekly page (ADR-011)
   endzone/             ingest, data, features, analysis, modeling, site, train, utils
   models/              gitignored serialized artifacts
   notebooks/           exploration only
@@ -120,6 +121,10 @@ On pooled out-of-fold games, accept a feature set only when `log_loss_diff` <= -
 Switch the reference to `logistic_l2` on `h2_full` only when that row's `log_loss_diff` is <= 0. The ridge run did not.
 
 Sprint 2 is a different rule, for home margin and total points. Ridge on `h2_full` is accepted only when pooled CV MAE beats its baseline and the 95% paired bootstrap interval of that MAE difference lies entirely below 0, and the model is strictly better in at least 5 of 8 seasons (2016-2023). The margin baseline is the Elo point spread, rating gap including home field divided by 25. The total baseline is the training-fold mean total. Market MAE, RMSE, 80% interval coverage, and implied win log loss versus 0.638 are reported and are not gates. The thresholds are not moved after a result. Both targets were accepted. The frozen report is [sprint2_cv_report.json](docs/experiments/reports/sprint2_cv_report.json). See [ADR-007](docs/adr/ADR-007-score-regression.md).
+
+## Site data for clients
+
+The JSON under `site/data` is a read-only contract. Schemas are in [`contracts/site-data/v1/`](contracts/site-data/v1/). [ADR-011](docs/adr/ADR-011-site-data-contract.md) is the versioning rule. The native client is a separate repository, [endzone-app](https://github.com/carloshgalvan95/endzone-app). It only reads the public files. It is not part of this repo. The page still renders the same fields.
 
 ## Roadmap
 

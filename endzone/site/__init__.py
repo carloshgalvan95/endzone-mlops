@@ -12,5 +12,7 @@ file is already present so a Pages run can skip the fit.
 or the previous week's finals are missing. It does not write a branch.
 ``python -m endzone.site.run_summary`` writes the Pages and Results job
 summary from the slate, the track record, and those step status files.
+``python -m endzone.site.contract`` checks that JSON against the v1
+schemas in ``contracts/site-data/v1/``. It does not write a file.
 It does not fit a model.
 """

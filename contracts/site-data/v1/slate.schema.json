@@ -1,0 +1,205 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://carloshgalvan95.github.io/endzone-mlops/contracts/site-data/v1/slate.schema.json",
+  "title": "Weekly slate",
+  "description": "latest.json, predictions/<season>-w<week>.json, and the example sample.json. contract_version is optional because files already on published-slates are not rewritten.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "sample",
+    "season",
+    "week",
+    "weeks_available",
+    "generated_at",
+    "model_name",
+    "model_version",
+    "feature_set",
+    "threshold_pp",
+    "score_model",
+    "games"
+  ],
+  "properties": {
+    "contract_version": {
+      "type": "string",
+      "pattern": "^1\\.[0-9]+\\.[0-9]+$"
+    },
+    "sample": { "type": "boolean" },
+    "is_example": { "type": "boolean" },
+    "label": { "type": "string", "minLength": 1 },
+    "season": { "type": ["integer", "null"], "minimum": 1 },
+    "week": { "type": ["integer", "null"], "minimum": 1 },
+    "weeks_available": {
+      "type": "array",
+      "items": { "type": "integer", "minimum": 1 }
+    },
+    "generated_at": { "$ref": "#/$defs/utcStamp" },
+    "model_name": { "type": "string", "minLength": 1 },
+    "model_version": { "type": "string", "minLength": 1 },
+    "model_alias": { "type": ["string", "null"], "minLength": 1 },
+    "feature_set": { "type": "string", "minLength": 1 },
+    "threshold_pp": { "type": "integer", "const": 5 },
+    "results_updated_at": { "$ref": "#/$defs/utcStamp" },
+    "score_model": { "$ref": "#/$defs/scoreModel" },
+    "games": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/game" }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "sample": { "const": false } },
+        "required": ["sample"]
+      },
+      "then": {
+        "properties": {
+          "season": { "type": "integer" },
+          "week": { "type": "integer" },
+          "weeks_available": { "minItems": 1 }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "utcStamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "nullableNumber": { "type": ["number", "null"] },
+    "nullableInteger": { "type": ["integer", "null"] },
+    "scoreTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision", "baseline_name", "mae", "baseline_mae", "market_mae"],
+      "properties": {
+        "decision": {
+          "type": "string",
+          "enum": ["accepted", "rejected", "inconclusive", "not_run"]
+        },
+        "baseline_name": { "type": "string", "minLength": 1 },
+        "mae": { "$ref": "#/$defs/nullableNumber" },
+        "rmse": { "$ref": "#/$defs/nullableNumber" },
+        "baseline_mae": { "$ref": "#/$defs/nullableNumber" },
+        "market_mae": { "$ref": "#/$defs/nullableNumber" },
+        "mae_diff": { "$ref": "#/$defs/nullableNumber" },
+        "mae_diff_ci_low": { "$ref": "#/$defs/nullableNumber" },
+        "mae_diff_ci_high": { "$ref": "#/$defs/nullableNumber" },
+        "coverage_80": { "$ref": "#/$defs/nullableNumber" },
+        "implied_win_log_loss": { "$ref": "#/$defs/nullableNumber" },
+        "winprob_log_loss_benchmark": { "$ref": "#/$defs/nullableNumber" },
+        "seasons_improved": { "$ref": "#/$defs/nullableInteger" },
+        "seasons_scored": { "$ref": "#/$defs/nullableInteger" },
+        "n": { "$ref": "#/$defs/nullableInteger" },
+        "model_version": { "type": ["string", "null"] }
+      }
+    },
+    "scoreModel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["feature_set", "accepted", "hidden_reason", "margin", "total"],
+      "properties": {
+        "feature_set": { "type": "string", "minLength": 1 },
+        "accepted": { "type": "boolean" },
+        "hidden_reason": { "type": ["string", "null"] },
+        "margin": { "$ref": "#/$defs/scoreTarget" },
+        "total": { "$ref": "#/$defs/scoreTarget" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "accepted": { "const": true } },
+            "required": ["accepted"]
+          },
+          "then": {
+            "properties": { "hidden_reason": { "type": "null" } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "accepted": { "const": false } },
+            "required": ["accepted"]
+          },
+          "then": {
+            "properties": { "hidden_reason": { "type": "string", "minLength": 1 } }
+          }
+        }
+      ]
+    },
+    "game": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "game_id",
+        "kickoff",
+        "home",
+        "away",
+        "model_home_wp",
+        "market_home_wp",
+        "diff",
+        "model_version",
+        "generated_at",
+        "status",
+        "estimated_margin",
+        "estimated_total",
+        "estimated_home_points",
+        "estimated_away_points"
+      ],
+      "properties": {
+        "game_id": { "type": "string", "minLength": 1 },
+        "kickoff": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}:[0-9]{2}(Z|[+-][0-9]{2}:[0-9]{2}))?$"
+        },
+        "home": { "type": "string", "minLength": 1 },
+        "away": { "type": "string", "minLength": 1 },
+        "model_home_wp": { "type": "number", "minimum": 0, "maximum": 1 },
+        "market_home_wp": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "diff": { "type": ["number", "null"] },
+        "model_version": { "type": "string", "minLength": 1 },
+        "generated_at": { "$ref": "#/$defs/utcStamp" },
+        "status": { "type": "string", "enum": ["scheduled", "final"] },
+        "estimated_margin": { "$ref": "#/$defs/nullableNumber" },
+        "estimated_total": { "$ref": "#/$defs/nullableNumber" },
+        "estimated_home_points": { "$ref": "#/$defs/nullableNumber" },
+        "estimated_away_points": { "$ref": "#/$defs/nullableNumber" },
+        "home_score": { "type": "integer", "minimum": 0 },
+        "away_score": { "type": "integer", "minimum": 0 },
+        "result": { "type": "string", "enum": ["home", "away", "tie"] }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "market_home_wp": { "type": "null" } },
+            "required": ["market_home_wp"]
+          },
+          "then": {
+            "properties": { "diff": { "type": "null" } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "status": { "const": "scheduled" } },
+            "required": ["status"]
+          },
+          "then": {
+            "properties": {
+              "home_score": false,
+              "away_score": false,
+              "result": false
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "status": { "const": "final" } },
+            "required": ["status"]
+          },
+          "then": {
+            "required": ["home_score", "away_score", "result"]
+          }
+        }
+      ]
+    }
+  }
+}

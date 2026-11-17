@@ -47,6 +47,9 @@ jobs:
     - name: Run tests with pytest
       run: uv run pytest tests/ --tb=short
 
+    - name: Validate site data against the v1 contract
+      run: uv run python -m endzone.site.contract --data-dir site/data
+
     - name: Coverage of the feature audit
       run: uv run pytest tests/test_feature_leakage.py tests/test_feature_audit.py tests/test_epa_play_filter_check.py --cov=endzone/analysis --cov-report=term-missing --cov-fail-under=100
 
