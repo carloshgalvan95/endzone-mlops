@@ -112,6 +112,18 @@ jobs:
         working-directory: dbt
         run: cp profiles.yml.example profiles.yml
 
+      # Free Edition stops the SQL warehouse when it is idle. A stopped
+      # warehouse returns BAD_REQUEST. Start it and wait for RUNNING before
+      # any statement. The host, path, and token stay in the environment.
+      - name: Start the SQL warehouse
+        if: github.event_name != 'push' && steps.score_gate.outputs.skip != 'true'
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_HTTP_PATH: ${{ secrets.DATABRICKS_HTTP_PATH }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+          MSYS_NO_PATHCONV: "1"
+        run: uv run python -m endzone.data.warehouse_ready --timeout-seconds 600
+
       - name: Refresh the current season
         if: github.event_name != 'push' && steps.score_gate.outputs.skip != 'true'
         env:
@@ -119,7 +131,9 @@ jobs:
           DATABRICKS_HTTP_PATH: ${{ secrets.DATABRICKS_HTTP_PATH }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
           MSYS_NO_PATHCONV: "1"
-        run: uv run python -m endzone.ingest.load_raw_nflverse --current-season --dataset all
+        run: >-
+          uv run python -m endzone.data.retry_command --attempts 3 --pause-seconds 20 --
+          uv run python -m endzone.ingest.load_raw_nflverse --current-season --dataset all
 
       - name: Build Databricks marts
         if: github.event_name != 'push' && steps.score_gate.outputs.skip != 'true'
@@ -129,7 +143,10 @@ jobs:
           DATABRICKS_HTTP_PATH: ${{ secrets.DATABRICKS_HTTP_PATH }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
           MSYS_NO_PATHCONV: "1"
-        run: uv run dbt deps --profiles-dir . && uv run dbt build --profiles-dir . --target databricks
+        run: |
+          uv run dbt deps --profiles-dir .
+          uv run python -m endzone.data.retry_command --attempts 3 --pause-seconds 20 -- \
+            uv run dbt build --profiles-dir . --target databricks
 
       - name: Score an unpublished week
         if: github.event_name != 'push' && steps.score_gate.outputs.skip != 'true'
@@ -160,7 +177,8 @@ jobs:
             fi
             args+=(--replace-published)
           fi
-          uv run python -m endzone.modeling.score "${args[@]}"
+          uv run python -m endzone.data.retry_command --attempts 3 --pause-seconds 20 -- \
+            uv run python -m endzone.modeling.score "${args[@]}"
 
       - name: Overlay final scores on published weeks
         run: uv run python -m endzone.site.results --output-dir site/data
