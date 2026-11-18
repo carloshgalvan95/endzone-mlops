@@ -104,6 +104,7 @@ jobs:
         run: |
           uv run python -m endzone.site.model_alert \
             --repo "${GITHUB_WORKSPACE}" \
+            --github-repo "${GITHUB_REPOSITORY}" \
             --site-data site/data \
             --remote origin \
             --branch published-slates

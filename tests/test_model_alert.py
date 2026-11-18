@@ -22,6 +22,7 @@ from endzone.site.model_alert import (
     ModelAlertError,
     alert_issue_body,
     evaluate_market_gap,
+    github_repository_name,
     main,
     sync_alert_issue,
 )
@@ -394,10 +395,55 @@ def test_cli_does_not_fail_when_the_window_is_short_or_github_is_unconfigured(
     assert main(["--archive-dir", str(tmp_path / "missing"), "--min-games", "1"]) == 0
 
 
+def test_alert_issues_use_the_github_repository_not_the_checkout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """--repo stays the local checkout. A path is not sent to the Issues API."""
+    seen: dict[str, str] = {}
+
+    class _Client:
+        def __init__(self, repo: str, token: str) -> None:
+            seen["repo"] = repo
+
+        def ensure_label(self, name: str, color: str, description: str) -> None:
+            return None
+
+        def list_open(self, label: str) -> list[dict[str, Any]]:
+            return []
+
+        def create(self, title: str, body: str, labels: list[str]) -> dict[str, Any]:
+            return {"number": 3}
+
+    monkeypatch.setattr("endzone.site.model_alert.GithubIssueClient", _Client)
+    monkeypatch.setenv("GITHUB_TOKEN", "token-value")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "carloshgalvan95/endzone-mlops")
+    path = tmp_path / "games.json"
+    path.write_text(json.dumps([_row(1, 0.01, 0.99, game_id="gap")]), encoding="utf-8")
+    code = main(
+        [
+            "--games-json",
+            str(path),
+            "--repo",
+            str(tmp_path),
+            "--window-games",
+            "1",
+            "--min-games",
+            "1",
+            "--margin",
+            "0",
+        ]
+    )
+    assert code == 0
+    assert seen["repo"] == "carloshgalvan95/endzone-mlops"
+    assert github_repository_name(None) == "carloshgalvan95/endzone-mlops"
+
+
 def test_results_workflow_runs_the_alert_without_failing_the_job() -> None:
     """The alert is after the track record, and a GitHub error does not fail publish."""
     text = Path(".github/workflows/refresh-results.yml").read_text(encoding="utf-8")
     assert "endzone.site.model_alert" in text
+    assert '--github-repo "${GITHUB_REPOSITORY}"' in text
     assert "continue-on-error: true" in text
     assert "issues: write" in text
     assert text.index("endzone.site.track_record") < text.index("endzone.site.model_alert")

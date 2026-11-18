@@ -219,6 +219,19 @@ def sync_alert_issue(
     return {"action": "updated", "number": chosen.get("number"), "reason": "log_loss_gap"}
 
 
+def github_repository_name(explicit: str | None = None) -> str:
+    """Return the Issues API repository as ``owner/name``.
+
+    Actions sets ``GITHUB_REPOSITORY`` to that form. ``--repo`` on the
+    alert and the slate check is the local checkout, so a filesystem path
+    is never used as the API name.
+    """
+    if explicit is not None and explicit.strip() != "":
+        return explicit.strip()
+    from_env: str = os.environ.get("GITHUB_REPOSITORY") or ""
+    return from_env.strip()
+
+
 class GithubIssueClient:
     """Minimal Issues API client. The token is not written to the log."""
 
@@ -348,6 +361,12 @@ def build_parser() -> argparse.ArgumentParser:
         description="Open one issue when published log loss exceeds the reference gap plus a margin."
     )
     parser.add_argument("--repo", type=str, default=None)
+    parser.add_argument(
+        "--github-repo",
+        type=str,
+        default=None,
+        help="GitHub owner/name for the issue. Defaults to GITHUB_REPOSITORY.",
+    )
     parser.add_argument("--site-data", type=str, default=None)
     parser.add_argument("--archive-dir", type=str, default=None)
     parser.add_argument("--remote", type=str, default="origin")
@@ -423,7 +442,7 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
         return {"status": str(decision["reason"]), "action": "none"}
     if args.dry_run:
         return {"status": str(decision["reason"]), "action": "dry_run"}
-    repo: str = args.repo or os.environ.get("GITHUB_REPOSITORY") or ""
+    repo: str = github_repository_name(args.github_repo)
     token: str = os.environ.get("GITHUB_TOKEN") or ""
     if repo.strip() == "" or token.strip() == "":
         logger.warning(
