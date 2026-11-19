@@ -6,7 +6,7 @@ alwaysApply: true
 # Repo map
 
 - `endzone/config.py`: the only module that reads `.env`, `DATABRICKS_*`, and `MLFLOW_TRACKING_URI`. A variable already set in the shell wins. `make dbt-compile`, `make dbt-run`, and `make dbt-test` still source `.env` because dbt does not use this loader.
-- `endzone/data/warehouse.py`: the Databricks client for SQL reads and Volume upload. Train and ingest both use it.
+- `endzone/data/warehouse.py`: the Databricks client for SQL reads and Volume upload. Train and ingest both use it. `python -m endzone.data.warehouse_ready` starts that SQL warehouse and waits until it is RUNNING. `python -m endzone.data.retry_command` reruns a command after a deadlock or `TEMPORARILY_UNAVAILABLE`. Pages uses both before it reads the warehouse. Neither prints the host, the HTTP path, or the token.
 - `endzone/features`: leakage-free pregame features (`pregame.py`). Starter absences are `injuries.py`. Home-field context is `home_field.py`.
 - `endzone/analysis`: phase 0 input audit (`feature_audit.py`) and the EPA play-filter check (`epa_play_filter_check.py`). Diagnostic only.
 - `endzone/train`: shim so `python -m endzone.train.train` keeps the same flags. The canonical command is `python -m endzone.modeling.train`.

@@ -296,6 +296,58 @@ def test_corrupt_slate_fails_closed(tmp_path: Path) -> None:
     assert status == 1
 
 
+@pytest.mark.cross_platform
+def test_checkout_path_is_not_sent_as_the_github_repository(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """--repo is the local checkout. The issue uses GITHUB_REPOSITORY."""
+    seen: dict[str, str] = {}
+
+    class _Client:
+        def __init__(self, repo: str, token: str) -> None:
+            seen["repo"] = repo
+            seen["token"] = token
+
+        def ensure_label(self, name: str, color: str, description: str) -> None:
+            return None
+
+        def list_all_open(self) -> list[dict[str, Any]]:
+            return []
+
+        def create(self, title: str, body: str, labels: list[str]) -> dict[str, Any]:
+            return {"number": 4}
+
+    games = tmp_path / "games.csv"
+    games.write_text(
+        "game_id,season,week,gameday,home_score,away_score\n"
+        "W9,2026,9,2026-11-08,21,17\n"
+        "W10,2026,10,2026-11-12,,\n",
+        encoding="utf-8",
+    )
+    archive = tmp_path / "archive"
+    archive.mkdir()
+    monkeypatch.setattr("endzone.site.slate_check.GithubIssueClient", _Client)
+    monkeypatch.setenv("GITHUB_TOKEN", "token-value")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "carloshgalvan95/endzone-mlops")
+    code = main(
+        [
+            "--archive-dir",
+            str(archive),
+            "--games-path",
+            str(games),
+            "--now",
+            "2026-11-10T14:07:00+00:00",
+            "--repo",
+            str(tmp_path),
+        ]
+    )
+    assert code == 0
+    assert seen["repo"] == "carloshgalvan95/endzone-mlops"
+    assert seen["token"] == "token-value"
+    assert str(tmp_path) not in seen["repo"]
+
+
 def test_slate_check_workflow_does_not_score_or_deploy() -> None:
     """The alert job can read the repo and open an issue. It cannot publish."""
     text = Path(".github/workflows/slate-check.yml").read_text(encoding="utf-8")
@@ -304,6 +356,8 @@ def test_slate_check_workflow_does_not_score_or_deploy() -> None:
     assert 'cron: "7 14 * * 2"' in text
     assert 'cron: "13 16 * * 2"' in text
     assert "endzone.site.slate_check" in text
+    assert '--repo "${GITHUB_WORKSPACE}"' in text
+    assert '--github-repo "${GITHUB_REPOSITORY}"' in text
     assert "issues: write" in text
     assert "contents: read" in text
     assert "contents: write" not in text

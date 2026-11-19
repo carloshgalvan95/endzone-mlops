@@ -42,5 +42,6 @@ jobs:
         run: |
           uv run python -m endzone.site.slate_check \
             --repo "${GITHUB_WORKSPACE}" \
+            --github-repo "${GITHUB_REPOSITORY}" \
             --remote origin \
             --branch published-slates

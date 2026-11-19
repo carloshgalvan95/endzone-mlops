@@ -29,7 +29,7 @@ import pandas as pd
 from endzone.ingest.nflverse import NFLVERSE_GAMES_URL, download_parquet_with_validation
 from endzone.modeling.weekly import select_slate
 from endzone.site.archive import ARCHIVE_BRANCH, ArchiveError, open_archive_readonly
-from endzone.site.model_alert import GithubIssueClient, ModelAlertError
+from endzone.site.model_alert import GithubIssueClient, ModelAlertError, github_repository_name
 from endzone.site.results import read_games_file
 from endzone.site.track_record import result_side
 from endzone.utils.logging import setup_logger
@@ -347,6 +347,12 @@ def build_parser() -> argparse.ArgumentParser:
         )
     )
     parser.add_argument("--repo", type=str, default=None)
+    parser.add_argument(
+        "--github-repo",
+        type=str,
+        default=None,
+        help="GitHub owner/name for the issue. Defaults to GITHUB_REPOSITORY.",
+    )
     parser.add_argument("--archive-dir", type=str, default=None)
     parser.add_argument("--remote", type=str, default="origin")
     parser.add_argument("--branch", type=str, default=ARCHIVE_BRANCH)
@@ -420,7 +426,7 @@ def _run(args: argparse.Namespace) -> None:
     )
     if not findings["alert"] or args.dry_run:
         return
-    repo: str = args.repo or os.environ.get("GITHUB_REPOSITORY") or ""
+    repo: str = github_repository_name(args.github_repo)
     token: str = os.environ.get("GITHUB_TOKEN") or ""
     if repo.strip() == "" or token.strip() == "":
         raise SlateCheckError("GITHUB_REPOSITORY or GITHUB_TOKEN is unset. No issue was opened.")
