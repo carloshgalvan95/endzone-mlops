@@ -9,6 +9,7 @@
     11
   ],
   "generated_at": "2026-11-18T19:03:26Z",
+  "results_updated_at": "2026-11-20T17:07:25Z",
   "model_name": "workspace.nfl_dev.endzone_winprob",
   "model_version": "2@prod",
   "model_alias": "prod",
@@ -66,11 +67,14 @@
       "diff": -0.157576,
       "model_version": "2@prod",
       "generated_at": "2026-11-18T19:03:26Z",
-      "status": "scheduled",
+      "status": "final",
       "estimated_margin": 6.293688,
       "estimated_total": 44.152734,
       "estimated_home_points": 25.223211,
-      "estimated_away_points": 18.929523
+      "estimated_away_points": 18.929523,
+      "home_score": 26,
+      "away_score": 3,
+      "result": "home"
     },
     {
       "game_id": "2026_11_ARI_KC",
