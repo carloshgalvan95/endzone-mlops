@@ -9,7 +9,7 @@
     11
   ],
   "generated_at": "2026-11-18T19:03:26Z",
-  "results_updated_at": "2026-11-20T17:07:25Z",
+  "results_updated_at": "2026-11-22T21:45:18Z",
   "model_name": "workspace.nfl_dev.endzone_winprob",
   "model_version": "2@prod",
   "model_alias": "prod",
@@ -86,11 +86,14 @@
       "diff": -0.054031,
       "model_version": "2@prod",
       "generated_at": "2026-11-18T19:03:26Z",
-      "status": "scheduled",
+      "status": "final",
       "estimated_margin": 12.321967,
       "estimated_total": 47.810321,
       "estimated_home_points": 30.066144,
-      "estimated_away_points": 17.744177
+      "estimated_away_points": 17.744177,
+      "home_score": 34,
+      "away_score": 7,
+      "result": "home"
     },
     {
       "game_id": "2026_11_BAL_CAR",
@@ -102,11 +105,14 @@
       "diff": 0.031644,
       "model_version": "2@prod",
       "generated_at": "2026-11-18T19:03:26Z",
-      "status": "scheduled",
+      "status": "final",
       "estimated_margin": 2.557767,
       "estimated_total": 45.814439,
       "estimated_home_points": 24.186103,
-      "estimated_away_points": 21.628336
+      "estimated_away_points": 21.628336,
+      "home_score": 35,
+      "away_score": 33,
+      "result": "home"
     },
     {
       "game_id": "2026_11_JAX_NYG",
@@ -150,11 +156,14 @@
       "diff": -0.042593,
       "model_version": "2@prod",
       "generated_at": "2026-11-18T19:03:26Z",
-      "status": "scheduled",
+      "status": "final",
       "estimated_margin": 13.750404,
       "estimated_total": 47.843004,
       "estimated_home_points": 30.796704,
-      "estimated_away_points": 17.0463
+      "estimated_away_points": 17.0463,
+      "home_score": 26,
+      "away_score": 9,
+      "result": "home"
     },
     {
       "game_id": "2026_11_MIN_SF",
@@ -182,11 +191,14 @@
       "diff": -0.069198,
       "model_version": "2@prod",
       "generated_at": "2026-11-18T19:03:26Z",
-      "status": "scheduled",
+      "status": "final",
       "estimated_margin": 9.174906,
       "estimated_total": 45.505759,
       "estimated_home_points": 27.340333,
-      "estimated_away_points": 18.165427
+      "estimated_away_points": 18.165427,
+      "home_score": 21,
+      "away_score": 13,
+      "result": "home"
     },
     {
       "game_id": "2026_11_NYJ_LAC",
@@ -214,11 +226,14 @@
       "diff": 0.056006,
       "model_version": "2@prod",
       "generated_at": "2026-11-18T19:03:26Z",
-      "status": "scheduled",
+      "status": "final",
       "estimated_margin": -1.968473,
       "estimated_total": 43.581186,
       "estimated_home_points": 20.806356,
-      "estimated_away_points": 22.774829
+      "estimated_away_points": 22.774829,
+      "home_score": 19,
+      "away_score": 16,
+      "result": "home"
     },
     {
       "game_id": "2026_11_TB_DET",
@@ -230,11 +245,14 @@
       "diff": -0.084883,
       "model_version": "2@prod",
       "generated_at": "2026-11-18T19:03:26Z",
-      "status": "scheduled",
+      "status": "final",
       "estimated_margin": 5.446295,
       "estimated_total": 45.22492,
       "estimated_home_points": 25.335608,
-      "estimated_away_points": 19.889312
+      "estimated_away_points": 19.889312,
+      "home_score": 31,
+      "away_score": 21,
+      "result": "home"
     },
     {
       "game_id": "2026_11_TEN_DAL",
@@ -246,11 +264,14 @@
       "diff": -0.003121,
       "model_version": "2@prod",
       "generated_at": "2026-11-18T19:03:26Z",
-      "status": "scheduled",
+      "status": "final",
       "estimated_margin": 8.503548,
       "estimated_total": 49.678627,
       "estimated_home_points": 29.091087,
-      "estimated_away_points": 20.58754
+      "estimated_away_points": 20.58754,
+      "home_score": 51,
+      "away_score": 30,
+      "result": "home"
     },
     {
       "game_id": "2026_11_CIN_WAS",
