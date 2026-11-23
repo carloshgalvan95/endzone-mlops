@@ -9,7 +9,7 @@
     11
   ],
   "generated_at": "2026-11-18T19:03:26Z",
-  "results_updated_at": "2026-11-22T21:45:18Z",
+  "results_updated_at": "2026-11-23T01:58:42Z",
   "model_name": "workspace.nfl_dev.endzone_winprob",
   "model_version": "2@prod",
   "model_alias": "prod",
@@ -124,11 +124,14 @@
       "diff": 0.131055,
       "model_version": "2@prod",
       "generated_at": "2026-11-18T19:03:26Z",
-      "status": "scheduled",
+      "status": "final",
       "estimated_margin": -2.093198,
       "estimated_total": 48.368055,
       "estimated_home_points": 23.137429,
-      "estimated_away_points": 25.230627
+      "estimated_away_points": 25.230627,
+      "home_score": 23,
+      "away_score": 18,
+      "result": "home"
     },
     {
       "game_id": "2026_11_LV_DEN",
@@ -140,11 +143,14 @@
       "diff": -0.083222,
       "model_version": "2@prod",
       "generated_at": "2026-11-18T19:03:26Z",
-      "status": "scheduled",
+      "status": "final",
       "estimated_margin": 8.208253,
       "estimated_total": 45.250114,
       "estimated_home_points": 26.729183,
-      "estimated_away_points": 18.520931
+      "estimated_away_points": 18.520931,
+      "home_score": 38,
+      "away_score": 24,
+      "result": "home"
     },
     {
       "game_id": "2026_11_MIA_BUF",
@@ -210,11 +216,14 @@
       "diff": -0.089368,
       "model_version": "2@prod",
       "generated_at": "2026-11-18T19:03:26Z",
-      "status": "scheduled",
+      "status": "final",
       "estimated_margin": 0.948248,
       "estimated_total": 41.991774,
       "estimated_home_points": 21.470011,
-      "estimated_away_points": 20.521763
+      "estimated_away_points": 20.521763,
+      "home_score": 24,
+      "away_score": 27,
+      "result": "away"
     },
     {
       "game_id": "2026_11_PIT_PHI",
