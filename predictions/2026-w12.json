@@ -10,6 +10,7 @@
     12
   ],
   "generated_at": "2026-11-24T21:58:26Z",
+  "results_updated_at": "2026-11-27T18:22:15Z",
   "model_name": "workspace.nfl_dev.endzone_winprob",
   "model_version": "2@prod",
   "model_alias": "prod",
@@ -67,11 +68,14 @@
       "diff": 0.096692,
       "model_version": "2@prod",
       "generated_at": "2026-11-24T21:58:26Z",
-      "status": "scheduled",
+      "status": "final",
       "estimated_margin": 5.325571,
       "estimated_total": 47.344054,
       "estimated_home_points": 26.334813,
-      "estimated_away_points": 21.009242
+      "estimated_away_points": 21.009242,
+      "home_score": 26,
+      "away_score": 13,
+      "result": "home"
     },
     {
       "game_id": "2026_12_CHI_DET",
@@ -83,11 +87,14 @@
       "diff": 0.182556,
       "model_version": "2@prod",
       "generated_at": "2026-11-24T21:58:26Z",
-      "status": "scheduled",
+      "status": "final",
       "estimated_margin": 4.000582,
       "estimated_total": 49.52056,
       "estimated_home_points": 26.760571,
-      "estimated_away_points": 22.759989
+      "estimated_away_points": 22.759989,
+      "home_score": 35,
+      "away_score": 39,
+      "result": "away"
     },
     {
       "game_id": "2026_12_KC_BUF",
@@ -99,11 +106,14 @@
       "diff": 0.033129,
       "model_version": "2@prod",
       "generated_at": "2026-11-24T21:58:26Z",
-      "status": "scheduled",
+      "status": "final",
       "estimated_margin": 4.059104,
       "estimated_total": 49.902324,
       "estimated_home_points": 26.980714,
-      "estimated_away_points": 22.92161
+      "estimated_away_points": 22.92161,
+      "home_score": 13,
+      "away_score": 10,
+      "result": "home"
     },
     {
       "game_id": "2026_12_PHI_DAL",
@@ -115,11 +125,14 @@
       "diff": -0.06675,
       "model_version": "2@prod",
       "generated_at": "2026-11-24T21:58:26Z",
-      "status": "scheduled",
+      "status": "final",
       "estimated_margin": 7.360341,
       "estimated_total": 49.230447,
       "estimated_home_points": 28.295394,
-      "estimated_away_points": 20.935053
+      "estimated_away_points": 20.935053,
+      "home_score": 38,
+      "away_score": 39,
+      "result": "away"
     },
     {
       "game_id": "2026_12_DEN_PIT",
